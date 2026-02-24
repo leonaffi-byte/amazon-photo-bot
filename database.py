@@ -144,7 +144,35 @@ CREATE TABLE IF NOT EXISTS bot_settings (
     updated_by INTEGER NOT NULL,
     updated_at TEXT    NOT NULL
 );
+
+-- Per-request AI API cost tracking (for daily reports)
+CREATE TABLE IF NOT EXISTS api_cost_log (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts            TEXT    NOT NULL,
+    user_id       INTEGER NOT NULL DEFAULT 0,
+    provider_name TEXT    NOT NULL,
+    cost_usd      REAL    NOT NULL DEFAULT 0,
+    input_tokens  INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_cost_log_ts ON api_cost_log (ts);
+
+-- Model health: track consecutive failures and auto-disable
+CREATE TABLE IF NOT EXISTS model_health (
+    provider_name        TEXT PRIMARY KEY,
+    consecutive_failures INTEGER NOT NULL DEFAULT 0,
+    total_failures       INTEGER NOT NULL DEFAULT 0,
+    is_disabled          INTEGER NOT NULL DEFAULT 0,
+    disabled_at          TEXT,
+    last_failure_ts      TEXT,
+    last_failure_reason  TEXT    NOT NULL DEFAULT ''
+);
 """
+
+_MIGRATIONS = [
+    # Add search_type column to search_logs (distinguishes photo vs text searches)
+    "ALTER TABLE search_logs ADD COLUMN search_type TEXT NOT NULL DEFAULT 'photo'",
+]
 
 
 async def init_db() -> None:
@@ -152,6 +180,13 @@ async def init_db() -> None:
     async with _lock:
         async with aiosqlite.connect(DB_PATH) as db:
             await db.executescript(_SCHEMA)
+            # Run additive migrations (ALTER TABLE ADD COLUMN, etc.)
+            # Each is wrapped in try/except because SQLite raises if column exists.
+            for sql in _MIGRATIONS:
+                try:
+                    await db.execute(sql)
+                except Exception:
+                    pass   # already applied
             await db.commit()
     logger.info("Database initialised at %s", DB_PATH)
 
@@ -276,15 +311,17 @@ async def log_search(
     provider_used: str,
     result_count: int,
     israel_filter: bool,
+    search_type: str = "photo",
 ) -> None:
     """Record a search event."""
     now = datetime.now(timezone.utc).isoformat()
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             """INSERT INTO search_logs
-               (user_id, product_name, tag_used, provider_used, result_count, israel_filter, searched_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (user_id, product_name, tag_used, provider_used, result_count, 1 if israel_filter else 0, now),
+               (user_id, product_name, tag_used, provider_used, result_count, israel_filter, searched_at, search_type)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (user_id, product_name, tag_used, provider_used, result_count,
+             1 if israel_filter else 0, now, search_type),
         )
         await db.commit()
 
@@ -696,3 +733,182 @@ async def get_active_invites(created_by: int) -> list[dict]:
         ) as cur:
             rows = await cur.fetchall()
     return [{"code": r[0], "label": r[1], "expires_at": r[2]} for r in rows]
+
+
+# ── API cost logging ───────────────────────────────────────────────────────────
+
+async def log_api_cost(
+    provider_name: str,
+    cost_usd: float,
+    input_tokens: int,
+    output_tokens: int,
+    user_id: int = 0,
+) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """INSERT INTO api_cost_log (ts, user_id, provider_name, cost_usd, input_tokens, output_tokens)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (now, user_id, provider_name, cost_usd, input_tokens, output_tokens),
+        )
+        await db.commit()
+
+
+# ── Model health ───────────────────────────────────────────────────────────────
+
+async def increment_model_failures(provider_name: str, reason: str) -> int:
+    """Increment failure counter. Returns new consecutive_failures count."""
+    now = datetime.now(timezone.utc).isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """INSERT INTO model_health (provider_name, consecutive_failures, total_failures, last_failure_ts, last_failure_reason)
+               VALUES (?, 1, 1, ?, ?)
+               ON CONFLICT(provider_name) DO UPDATE SET
+                 consecutive_failures = consecutive_failures + 1,
+                 total_failures       = total_failures + 1,
+                 last_failure_ts      = excluded.last_failure_ts,
+                 last_failure_reason  = excluded.last_failure_reason""",
+            (provider_name, now, reason[:500]),
+        )
+        await db.commit()
+        async with db.execute(
+            "SELECT consecutive_failures FROM model_health WHERE provider_name = ?",
+            (provider_name,),
+        ) as cur:
+            row = await cur.fetchone()
+            return row[0] if row else 1
+
+
+async def reset_model_failures(provider_name: str) -> None:
+    """Reset consecutive failure counter after a successful call."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """INSERT INTO model_health (provider_name, consecutive_failures)
+               VALUES (?, 0)
+               ON CONFLICT(provider_name) DO UPDATE SET consecutive_failures = 0""",
+            (provider_name,),
+        )
+        await db.commit()
+
+
+async def mark_model_disabled(provider_name: str, reason: str) -> None:
+    """Permanently disable a model (until re-enabled by admin)."""
+    now = datetime.now(timezone.utc).isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """INSERT INTO model_health (provider_name, is_disabled, disabled_at, last_failure_reason)
+               VALUES (?, 1, ?, ?)
+               ON CONFLICT(provider_name) DO UPDATE SET
+                 is_disabled         = 1,
+                 disabled_at         = excluded.disabled_at,
+                 last_failure_reason = excluded.last_failure_reason""",
+            (provider_name, now, reason[:500]),
+        )
+        await db.commit()
+
+
+async def re_enable_model(provider_name: str) -> None:
+    """Re-enable a previously auto-disabled model."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """INSERT INTO model_health (provider_name, is_disabled, consecutive_failures)
+               VALUES (?, 0, 0)
+               ON CONFLICT(provider_name) DO UPDATE SET
+                 is_disabled = 0, consecutive_failures = 0, disabled_at = NULL""",
+            (provider_name,),
+        )
+        await db.commit()
+
+
+async def get_disabled_models() -> set[str]:
+    """Return set of auto-disabled provider full_names."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT provider_name FROM model_health WHERE is_disabled = 1"
+        ) as cur:
+            rows = await cur.fetchall()
+    return {r[0] for r in rows}
+
+
+async def get_all_model_health() -> list[dict]:
+    """Return health stats for all tracked models."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            """SELECT provider_name, consecutive_failures, total_failures,
+                      is_disabled, disabled_at, last_failure_ts, last_failure_reason
+               FROM model_health ORDER BY is_disabled DESC, total_failures DESC"""
+        ) as cur:
+            rows = await cur.fetchall()
+    return [
+        {
+            "provider_name": r[0],
+            "consecutive_failures": r[1],
+            "total_failures": r[2],
+            "is_disabled": bool(r[3]),
+            "disabled_at": r[4],
+            "last_failure_ts": r[5],
+            "last_failure_reason": r[6],
+        }
+        for r in rows
+    ]
+
+
+# ── Comprehensive stats for reports ───────────────────────────────────────────
+
+async def get_stats_since(since: datetime) -> dict:
+    """
+    Gather all usage stats since the given UTC datetime.
+    Returns a dict suitable for report formatting.
+    """
+    since_str = since.isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT COUNT(DISTINCT user_id) FROM search_logs WHERE searched_at >= ?",
+            (since_str,),
+        ) as cur:
+            unique_users = (await cur.fetchone())[0]
+
+        async with db.execute(
+            "SELECT COUNT(*) FROM search_logs WHERE searched_at >= ?",
+            (since_str,),
+        ) as cur:
+            total_searches = (await cur.fetchone())[0]
+
+        async with db.execute(
+            "SELECT COUNT(*) FROM search_logs WHERE searched_at >= ? AND search_type = 'photo'",
+            (since_str,),
+        ) as cur:
+            photo_searches = (await cur.fetchone())[0]
+
+        async with db.execute(
+            "SELECT COUNT(*) FROM link_clicks WHERE clicked_at >= ?",
+            (since_str,),
+        ) as cur:
+            link_clicks = (await cur.fetchone())[0]
+
+        async with db.execute(
+            "SELECT COALESCE(SUM(cost_usd), 0), COUNT(*) FROM api_cost_log WHERE ts >= ?",
+            (since_str,),
+        ) as cur:
+            row = await cur.fetchone()
+            total_cost_usd = row[0] or 0.0
+            api_calls      = row[1] or 0
+
+        async with db.execute(
+            """SELECT provider_name, COALESCE(SUM(cost_usd), 0), COUNT(*)
+               FROM api_cost_log WHERE ts >= ?
+               GROUP BY provider_name ORDER BY SUM(cost_usd) DESC""",
+            (since_str,),
+        ) as cur:
+            cost_by_provider = [(r[0], r[1], r[2]) for r in await cur.fetchall()]
+
+    return {
+        "unique_users":    unique_users,
+        "total_searches":  total_searches,
+        "photo_searches":  photo_searches,
+        "text_searches":   total_searches - photo_searches,
+        "link_clicks":     link_clicks,
+        "total_cost_usd":  total_cost_usd,
+        "api_calls":       api_calls,
+        "cost_by_provider": cost_by_provider,
+    }

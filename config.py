@@ -78,6 +78,12 @@ FREE_DELIVERY_THRESHOLD: float = float(os.getenv("FREE_DELIVERY_THRESHOLD", "49"
 # Show per-request cost info in the bot (useful during development)
 SHOW_COST_INFO: bool = os.getenv("SHOW_COST_INFO", "true").lower() == "true"
 
+# ── Scheduled reports ─────────────────────────────────────────────────────────
+# Daily/weekly/monthly reports sent to all admins.
+# Timezone: any IANA timezone string (e.g. "Asia/Jerusalem", "Europe/London")
+REPORT_TIMEZONE: str = os.getenv("REPORT_TIMEZONE", "Asia/Jerusalem")
+REPORT_HOUR:     int = int(os.getenv("REPORT_HOUR", "8"))   # 8 = 08:00 local time
+
 
 async def apply_db_settings() -> None:
     """

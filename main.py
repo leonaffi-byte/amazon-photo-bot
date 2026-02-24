@@ -68,7 +68,10 @@ async def run() -> None:
         logger.critical("FATAL: database init failed: %s", exc, exc_info=True)
         raise
 
+    # ── Notifications module (must be before scheduler) ───────────────────────
+    import notifications
     ptb_app = build_application()
+    notifications.init(ptb_app)
 
     # ── Start custom URL shortener server if configured ────────────────────────
     web_runner = None
@@ -103,6 +106,10 @@ async def run() -> None:
             drop_pending_updates=True,
         )
 
+        # ── Start scheduled reports ────────────────────────────────────────────
+        import scheduler as sched
+        sched_task = sched.start()
+
         logger.info("✅ Bot is running. Press Ctrl+C to stop.")
         if web_runner:
             logger.info(
@@ -119,6 +126,8 @@ async def run() -> None:
 
         # Graceful shutdown
         logger.info("Shutting down…")
+        sched.stop()
+        sched_task.cancel()
         await ptb_app.updater.stop()
         await ptb_app.stop()
 

@@ -45,10 +45,16 @@ def _model_enabled(env_key: str, default: bool = True) -> bool:
 async def _build_providers() -> dict[str, VisionProvider]:
     """
     Instantiate every provider whose API key is available (DB or .env)
-    AND whose per-model toggle is enabled.
+    AND whose per-model toggle is enabled AND not auto-disabled.
     Returns dict keyed by full_name, ordered cheapest-first.
     """
     import key_store
+    import database as db
+    try:
+        disabled = await db.get_disabled_models()
+    except Exception:
+        disabled = set()   # DB unavailable (e.g. during tests) — treat all as enabled
+
     providers: dict[str, VisionProvider] = {}
 
     # ── OpenAI ────────────────────────────────────────────────────────────────
@@ -116,6 +122,46 @@ async def _build_providers() -> dict[str, VisionProvider]:
             else:
                 logger.info("Skipped provider groq/%s (disabled by %s)", model, env_flag)
 
+    # ── OpenRouter (unified gateway — models chosen by admin in /admin → Models) ─
+    openrouter_key = await key_store.get("openrouter_api_key")
+    if openrouter_key:
+        from providers.openrouter_provider import OpenRouterProvider
+        import database as _db
+        import json as _json
+        # Load the list of admin-enabled OR models from DB
+        _or_models_raw = await _db.get_setting("openrouter_enabled_models")
+        _or_models: list[dict] = []
+        if _or_models_raw:
+            try:
+                _or_models = _json.loads(_or_models_raw)
+            except Exception:
+                pass
+        for m in _or_models:
+            model_id = m.get("id", "")
+            if not model_id:
+                continue
+            if not _model_enabled(f"ENABLE_OR_{model_id.replace('/', '_').upper()}", default=True):
+                continue
+            try:
+                p = OpenRouterProvider(
+                    api_key=openrouter_key,
+                    model=model_id,
+                    input_cost_per_1k=m.get("input_1k", 0.005),
+                    output_cost_per_1k=m.get("output_1k", 0.015),
+                )
+                providers[p.full_name] = p
+                logger.info("Loaded provider: %s", p.full_name)
+            except Exception as exc:
+                logger.warning("Could not load openrouter/%s: %s", model_id, exc)
+
+    # Filter out any auto-disabled models
+    if disabled:
+        before = len(providers)
+        providers = {k: v for k, v in providers.items() if k not in disabled}
+        skipped = before - len(providers)
+        if skipped:
+            logger.info("Skipped %d auto-disabled model(s): %s", skipped, disabled & set(providers))
+
     if not providers:
         raise RuntimeError(
             "No vision providers available.\n"
@@ -145,10 +191,20 @@ async def cheapest_provider() -> VisionProvider:
 
 # ── Core analysis function ────────────────────────────────────────────────────
 
+_AUTO_DISABLE_THRESHOLD = 3   # consecutive failures before auto-disabling a model
+
+# Errors that strongly suggest the model is gone / unavailable
+_MODEL_GONE_PATTERNS = (
+    "404", "not found", "does not exist", "no such model",
+    "model_not_found", "invalid model", "deprecated",
+)
+
+
 async def analyse_image(
     image_bytes: bytes,
     mode: str = "best",
     context_hint: Optional[str] = None,
+    user_id: int = 0,
 ) -> tuple[ProviderResult, list[ProviderResult]]:
     """
     Run image analysis using the requested mode.
@@ -170,15 +226,50 @@ async def analyse_image(
         targets = list(providers.values())
 
     async def _safe_run(provider: VisionProvider) -> Optional[ProviderResult]:
+        import database as db
         try:
             result = await provider.analyse(image_bytes, context_hint=context_hint)
             logger.info(
                 "[%s] OK — confidence=%s cost=%s latency=%dms",
                 provider.full_name, result.confidence, result.cost_str, result.latency_ms,
             )
+            # Log cost + reset failure counter (fast SQLite writes — await directly)
+            try:
+                await db.log_api_cost(
+                    provider_name=provider.full_name,
+                    cost_usd=result.cost_usd,
+                    input_tokens=result.input_tokens,
+                    output_tokens=result.output_tokens,
+                    user_id=user_id,
+                )
+                await db.reset_model_failures(provider.full_name)
+            except Exception as dbe:
+                logger.warning("[%s] DB log failed (non-critical): %s", provider.full_name, dbe)
             return result
+
         except Exception as exc:
+            err_str = str(exc).lower()
             logger.error("[%s] Failed: %s", provider.full_name, exc)
+
+            # Track failure and potentially auto-disable
+            try:
+                consec = await db.increment_model_failures(provider.full_name, str(exc))
+                model_gone = any(p in err_str for p in _MODEL_GONE_PATTERNS)
+                if model_gone or consec >= _AUTO_DISABLE_THRESHOLD:
+                    await db.mark_model_disabled(provider.full_name, str(exc))
+                    _providers.pop(provider.full_name, None)
+                    import notifications
+                    reason = "model not found" if model_gone else f"{consec} consecutive failures"
+                    await notifications.admin(
+                        f"⚠️ *Auto\\-disabled model*\n"
+                        f"`{provider.full_name}`\n"
+                        f"Reason: {reason}\n"
+                        f"Last error: `{str(exc)[:200]}`\n\n"
+                        f"Re\\-enable via /admin → 🤖 Models"
+                    )
+                    logger.warning("[%s] AUTO-DISABLED after %d failures", provider.full_name, consec)
+            except Exception as dbe:
+                logger.warning("[%s] DB health tracking failed: %s", provider.full_name, dbe)
             return None
 
     raw_results = await asyncio.gather(*[_safe_run(p) for p in targets])

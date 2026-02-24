@@ -270,7 +270,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     try:
         winner, all_results = await analyse_image(
-            image_bytes, mode=config.VISION_MODE, context_hint=context_hint
+            image_bytes, mode=config.VISION_MODE, context_hint=context_hint, user_id=user_id
         )
     except RuntimeError:
         await msg.edit_text(style.error_no_providers(), parse_mode="MarkdownV2")
@@ -361,9 +361,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             user_id=query.from_user.id,
             product_name=session.product_info.product_name,
             tag_used=active_tag or "none",
-            provider_used=session.chosen_result.provider_name if session.chosen_result else "unknown",
+            provider_used=session.chosen_result.provider_name if session.chosen_result else "text-search",
             result_count=len(all_items),
             israel_filter=israel_only,
+            search_type="text" if session.chosen_result is None else "photo",
         )
         if active_tag:
             await db.increment_tag_search_count(active_tag)

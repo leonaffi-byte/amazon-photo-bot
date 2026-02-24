@@ -172,8 +172,11 @@ async def _panel_content() -> tuple[str, InlineKeyboardMarkup]:
             InlineKeyboardButton("🔗  Shortener", callback_data=CB_SHORTENER),
         ],
         [
+            InlineKeyboardButton("🤖  Vision Models", callback_data="adm:models"),
+            InlineKeyboardButton("📊  Stats",         callback_data=CB_STATS),
+        ],
+        [
             InlineKeyboardButton("👥  Admins",  callback_data=CB_ADMINS),
-            InlineKeyboardButton("📊  Stats",   callback_data=CB_STATS),
         ],
     ])
     return text, kb
@@ -337,6 +340,7 @@ _KEY_LABELS = {
     "anthropic_api_key":    ("🤖 Anthropic",         "Used for Claude vision"),
     "google_api_key":       ("🤖 Google",            "Used for Gemini vision"),
     "groq_api_key":         ("🤖 Groq",              "Llama vision (free at console.groq.com)"),
+    "openrouter_api_key":   ("🤖 OpenRouter",        "100+ vision models via one API (openrouter.ai)"),
     "rapidapi_key":         ("🛒 RapidAPI",          "Amazon product search (recommended)"),
     "amazon_access_key":    ("🛒 Amazon Access Key", "PA-API (optional)"),
     "amazon_secret_key":    ("🛒 Amazon Secret Key", "PA-API (optional)"),
@@ -429,7 +433,8 @@ def _reload_backends(changed_key: str) -> None:
     import amazon_search
     amazon_search._backend = None   # force re-init with new key
 
-    if changed_key in ("openai_api_key", "anthropic_api_key", "google_api_key", "groq_api_key"):
+    if changed_key in ("openai_api_key", "anthropic_api_key", "google_api_key",
+                       "groq_api_key", "openrouter_api_key"):
         import providers.manager as pm
         pm._providers = {}          # force re-init of vision providers
 
@@ -830,6 +835,14 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         text, kb = await _admins_content(uid)
         await q.edit_message_text("✅ Admin removed\\.\n\n" + text,
                                   parse_mode="MarkdownV2", reply_markup=kb)
+
+    # ── Vision Models (delegated to admin_models.py) ──────────────────────────
+    elif data.startswith("adm:models"):
+        import admin_models as am
+        handled = await am.handle_models_callback(update, context)
+        if not handled:
+            pass   # fall through — unknown sub-command
+        return
 
     # ── Stats ──────────────────────────────────────────────────────────────────
     elif data == CB_STATS:
