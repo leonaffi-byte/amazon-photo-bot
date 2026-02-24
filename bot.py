@@ -13,7 +13,7 @@ from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from typing import Optional
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, Update
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -54,15 +54,22 @@ class UserSession:
     all_items: list[AmazonItem]      = field(default_factory=list)
     filtered_items: list[AmazonItem] = field(default_factory=list)
     israel_only: bool = False
-    page: int = 0
+    page: int = 0   # current product index (0-based) in filtered_items
+
+    # Photo carousel — set after first render so nav callbacks know to edit not resend
+    results_msg_id:   Optional[int] = None
+    results_chat_id:  Optional[int] = None
+    # Cached admin flag so we don't hit DB on every nav tap
+    is_admin: Optional[bool] = None
 
     @property
-    def total_pages(self) -> int:
-        return max(1, (len(self.filtered_items) + config.RESULTS_PER_PAGE - 1) // config.RESULTS_PER_PAGE)
+    def total_items(self) -> int:
+        return len(self.filtered_items)
 
-    def current_page_items(self) -> list[AmazonItem]:
-        s = self.page * config.RESULTS_PER_PAGE
-        return self.filtered_items[s : s + config.RESULTS_PER_PAGE]
+    def current_item(self) -> Optional[AmazonItem]:
+        if not self.filtered_items or self.page >= len(self.filtered_items):
+            return None
+        return self.filtered_items[self.page]
 
     def apply_filter(self, israel_only: bool) -> None:
         self.israel_only = israel_only
@@ -136,40 +143,29 @@ def compare_keyboard(results: list[ProviderResult]) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
-async def results_keyboard(session: UserSession, affiliate_tag: Optional[str]) -> InlineKeyboardMarkup:
-    """Build paginated results keyboard with shortened affiliate links."""
-    items = session.current_page_items()
+async def product_keyboard(session: UserSession, affiliate_tag: Optional[str]) -> InlineKeyboardMarkup:
+    """Keyboard for the per-product photo card: Buy button + prev/next + filter toggle."""
+    item = session.current_item()
+    if not item:
+        return InlineKeyboardMarkup([])
 
-    # Build full affiliate URLs then shorten them all at once
-    long_urls  = [item.affiliate_url(affiliate_tag) for item in items]
-    url_map    = await url_shortener.shorten_many(long_urls)
-
-    item_rows = [
-        [InlineKeyboardButton(
-            f"🛒  #{session.page * config.RESULTS_PER_PAGE + i + 1}  View on Amazon",
-            url=url_map.get(item.affiliate_url(affiliate_tag), item.affiliate_url(affiliate_tag)),
-        )]
-        for i, item in enumerate(items)
-    ]
+    long_url  = item.affiliate_url(affiliate_tag)
+    short_url = await url_shortener.shorten(long_url)
 
     # Navigation row
     nav = []
     if session.page > 0:
         nav.append(InlineKeyboardButton("◀", callback_data=CB_PREV))
     nav.append(InlineKeyboardButton(
-        f"· {session.page + 1} / {session.total_pages} ·", callback_data="nav:noop"
+        f"{session.page + 1} / {session.total_items}", callback_data="nav:noop"
     ))
-    if session.page < session.total_pages - 1:
+    if session.page < session.total_items - 1:
         nav.append(InlineKeyboardButton("▶", callback_data=CB_NEXT))
 
-    toggle = (
-        "🌐  Show all"
-        if session.israel_only
-        else "✈️  Free delivery only"
-    )
+    toggle = "🌐  Show all" if session.israel_only else "✈️  Free delivery only"
 
     return InlineKeyboardMarkup([
-        *item_rows,
+        [InlineKeyboardButton("🛒  Shop on Amazon  →", url=short_url)],
         nav,
         [InlineKeyboardButton(toggle, callback_data=CB_CHANGE_FILTER)],
     ])
@@ -366,37 +362,94 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await query.edit_message_text(style.error_no_results(), parse_mode="MarkdownV2")
             return
 
-        await _render_results(query, session)
+        # Reset carousel so _render_results does first-render (delete text → send photo)
+        session.results_msg_id  = None
+        session.results_chat_id = None
+        await _render_results(query, context, session)
         return
 
     # ── Toggle filter ─────────────────────────────────────────────────────────
     if data == CB_CHANGE_FILTER:
         session.apply_filter(not session.israel_only)
-        await _render_results(query, session)
+        if not session.filtered_items:
+            await query.edit_message_caption(
+                caption=style.esc("😔 No results with that filter. Try the other option."),
+                parse_mode="MarkdownV2",
+            )
+            return
+        await _render_results(query, context, session)
         return
 
     # ── Pagination ────────────────────────────────────────────────────────────
     if data == CB_PREV:
         session.page = max(0, session.page - 1)
-        await _render_results(query, session)
+        await _render_results(query, context, session)
         return
     if data == CB_NEXT:
-        session.page = min(session.total_pages - 1, session.page + 1)
-        await _render_results(query, session)
+        session.page = min(session.total_items - 1, session.page + 1)
+        await _render_results(query, context, session)
         return
 
 
-async def _render_results(query, session: UserSession) -> None:
-    affiliate_tag = await db.get_active_tag()
-    text     = style.results_page(session, affiliate_tag)
-    keyboard = await results_keyboard(session, affiliate_tag)
+_PLACEHOLDER_IMG = "https://placehold.co/600x400/FF9900/FFF.png?text=Amazon"
 
-    await query.edit_message_text(
-        text,
-        parse_mode="MarkdownV2",
-        reply_markup=keyboard,
-        disable_web_page_preview=True,
+
+async def _render_results(query, context, session: UserSession) -> None:
+    """
+    Render the current product as a photo card.
+
+    First call (results_msg_id is None):
+        Delete the current text message → send a new photo message.
+    Subsequent calls (navigation / filter toggle):
+        Edit the existing photo message via edit_message_media.
+    """
+    item = session.current_item()
+    if not item:
+        await query.edit_message_text("😔 No results\\.", parse_mode="MarkdownV2")
+        return
+
+    affiliate_tag = await db.get_active_tag()
+
+    # Resolve admin status once per session
+    if session.is_admin is None:
+        uid = query.from_user.id
+        session.is_admin = uid in config.ADMIN_IDS or await db.is_admin_in_db(uid)
+
+    provider_name = session.chosen_result.provider_name if session.chosen_result else None
+    caption  = style.product_caption(
+        item,
+        index=session.page + 1,
+        total=session.total_items,
+        is_admin=session.is_admin,
+        provider_name=provider_name,
+        affiliate_tag=affiliate_tag,
     )
+    keyboard = await product_keyboard(session, affiliate_tag)
+    image    = item.image_url or _PLACEHOLDER_IMG
+
+    if session.results_msg_id:
+        # Already showing a photo — just swap media + caption
+        await context.bot.edit_message_media(
+            chat_id=session.results_chat_id,
+            message_id=session.results_msg_id,
+            media=InputMediaPhoto(media=image, caption=caption, parse_mode="MarkdownV2"),
+            reply_markup=keyboard,
+        )
+    else:
+        # First render: delete loading text → send photo
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+        msg = await context.bot.send_photo(
+            chat_id=query.message.chat.id,
+            photo=image,
+            caption=caption,
+            parse_mode="MarkdownV2",
+            reply_markup=keyboard,
+        )
+        session.results_msg_id  = msg.message_id
+        session.results_chat_id = msg.chat.id
 
 
 async def handle_non_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

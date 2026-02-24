@@ -215,6 +215,52 @@ def product_card(item, index: int) -> str:
     )
 
 
+def product_caption(
+    item,
+    index: int = 1,
+    total: int = 1,
+    is_admin: bool = False,
+    provider_name: Optional[str] = None,
+    affiliate_tag: Optional[str] = None,
+) -> str:
+    """
+    Single-product caption for the photo carousel (max 1024 chars).
+    Admin users see the AI provider name; regular users just see the product info.
+    """
+    title = esc(item.title[:110])
+
+    price = f"💰 *{esc(f'${item.price_usd:.2f}')}*" if item.price_usd else "💰 _Price not listed_"
+
+    if item.rating and item.review_count:
+        stars    = star_bar(item.rating)
+        rating   = f"⭐ `{item.rating}` {esc(stars)}  _{esc(fmt_reviews(item.review_count))} reviews_"
+    elif item.rating:
+        rating   = f"⭐ `{item.rating}` {esc(star_bar(item.rating))}"
+    else:
+        rating   = "⭐ _No ratings yet_"
+
+    delivery = esc(item.delivery_badge)
+    israel   = esc(item.israel_delivery_note)
+
+    admin_line = ""
+    if is_admin and provider_name:
+        tag_note = f"  🏷️ `{esc(affiliate_tag)}`" if affiliate_tag else ""
+        admin_line = f"\n{SDIV}\n🤖 _{esc(provider_name)}{tag_note}_"
+
+    caption = (
+        f"*{title}*\n"
+        f"{SDIV}\n"
+        f"{price}   {rating}\n"
+        f"{delivery}\n"
+        f"{israel}"
+        f"{admin_line}"
+    )
+
+    if len(caption) > 1020:
+        caption = caption[:1020] + "\\.\\.\\."
+    return caption
+
+
 def results_page(session, affiliate_tag: Optional[str] = None) -> str:
     """Full results page with header, cards, and footer."""
     p = session.page + 1

@@ -33,12 +33,13 @@ logger = logging.getLogger(__name__)
 _providers: dict[str, VisionProvider] = {}
 
 
-def _model_enabled(env_key: str) -> bool:
+def _model_enabled(env_key: str, default: bool = True) -> bool:
     """
     Check whether a specific model is enabled via an environment variable.
-    Default is True (opt-in disabled, not opt-in enabled).
+    Default is True for most models; pass default=False to require explicit opt-in.
     """
-    return os.getenv(env_key, "true").strip().lower() not in ("false", "0", "no")
+    raw = os.getenv(env_key, "true" if default else "false")
+    return raw.strip().lower() not in ("false", "0", "no")
 
 
 async def _build_providers() -> dict[str, VisionProvider]:
@@ -69,11 +70,12 @@ async def _build_providers() -> dict[str, VisionProvider]:
     anthropic_key = await key_store.get("anthropic_api_key")
     if anthropic_key:
         from providers.anthropic_provider import AnthropicProvider
-        for model, env_flag in [
-            ("claude-3-haiku-20240307",    "ENABLE_CLAUDE_3_HAIKU_20240307"),
-            ("claude-3-5-sonnet-20241022", "ENABLE_CLAUDE_3_5_SONNET_20241022"),
+        for model, env_flag, default_on in [
+            ("claude-3-haiku-20240307",    "ENABLE_CLAUDE_3_HAIKU_20240307",    True),
+            # Sonnet requires a paid Anthropic tier; opt-in only (set =true to enable).
+            ("claude-3-5-sonnet-20241022", "ENABLE_CLAUDE_3_5_SONNET_20241022", False),
         ]:
-            if _model_enabled(env_flag):
+            if _model_enabled(env_flag, default=default_on):
                 p = AnthropicProvider(anthropic_key, model)
                 providers[p.full_name] = p
                 logger.info("Loaded provider: %s", p.full_name)
@@ -85,9 +87,9 @@ async def _build_providers() -> dict[str, VisionProvider]:
     if google_key:
         from providers.gemini_provider import GeminiProvider
         for model, env_flag in [
-            ("gemini-1.5-flash", "ENABLE_GEMINI_1_5_FLASH"),
-            ("gemini-2.0-flash", "ENABLE_GEMINI_2_0_FLASH"),
-            ("gemini-1.5-pro",   "ENABLE_GEMINI_1_5_PRO"),
+            ("gemini-1.5-flash",   "ENABLE_GEMINI_1_5_FLASH"),
+            ("gemini-2.0-flash-001", "ENABLE_GEMINI_2_0_FLASH"),
+            ("gemini-1.5-pro",     "ENABLE_GEMINI_1_5_PRO"),
         ]:
             if _model_enabled(env_flag):
                 p = GeminiProvider(google_key, model)

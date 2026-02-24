@@ -47,7 +47,8 @@ class GeminiProvider(VisionProvider):
     def __init__(self, api_key: str, model: str = "gemini-2.0-flash"):
         self.name     = "google"
         self.model_id = model
-        self._client  = genai.Client(api_key=api_key)
+        # Force v1 (stable) API — v1beta doesn't expose gemini-1.5-* by bare name
+        self._client  = genai.Client(api_key=api_key, http_options={"api_version": "v1"})
 
         rates = _PRICING.get(model, _PRICING["gemini-2.0-flash"])
         self.cost_per_1k_input_tokens  = rates[0]
