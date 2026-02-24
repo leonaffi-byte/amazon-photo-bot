@@ -22,3 +22,23 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+  test-bot:
+    image: amazon-photo-bot          # reuse same image (built above)
+    container_name: amazon-test-bot
+    restart: unless-stopped
+    command: python testbot.py        # different entrypoint
+    env_file:
+      - .env
+    environment:
+      DATA_DIR: /app/data
+    volumes:
+      # Share the same data dir → same DB → same API keys
+      - ./data:/app/data
+    depends_on:
+      - amazon-bot
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
