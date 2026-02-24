@@ -33,25 +33,36 @@ _GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
 _PRICING: dict[str, tuple[float, float, float]] = {
     # model: ($/1k_input, $/1k_output, $/image)
-    "meta-llama/llama-3.2-11b-vision-preview": (0.00018, 0.00018, 0.00009),
-    "meta-llama/llama-3.2-90b-vision-preview": (0.00079, 0.00079, 0.00040),
     "meta-llama/llama-4-scout-17b-16e-instruct": (0.00011, 0.00034, 0.00006),
+    "meta-llama/llama-3.2-90b-vision-preview":   (0.00079, 0.00079, 0.00040),
+}
+
+# Clean short display names shown in the bot UI
+_DISPLAY_NAMES: dict[str, str] = {
+    "meta-llama/llama-4-scout-17b-16e-instruct": "llama-4-scout",
+    "meta-llama/llama-3.2-90b-vision-preview":   "llama-3.2-90b-vision",
 }
 
 
 class GroqProvider(VisionProvider):
 
-    def __init__(self, api_key: str, model: str = "meta-llama/llama-3.2-11b-vision-preview"):
+    def __init__(self, api_key: str, model: str = "meta-llama/llama-4-scout-17b-16e-instruct"):
         self.name     = "groq"
         self.model_id = model
         self._client  = openai.AsyncOpenAI(
             api_key=api_key,
             base_url=_GROQ_BASE_URL,
         )
-        rates = _PRICING.get(model, (0.00018, 0.00018, 0.00009))
+        rates = _PRICING.get(model, (0.00011, 0.00034, 0.00006))
         self.cost_per_1k_input_tokens  = rates[0]
         self.cost_per_1k_output_tokens = rates[1]
         self.cost_per_image            = rates[2]
+        self._display_name = _DISPLAY_NAMES.get(model, model.split("/")[-1])
+
+    @property
+    def full_name(self) -> str:
+        """Short display name — the raw model ID path is too long for the UI."""
+        return f"groq/{self._display_name}"
 
     async def analyse(
         self,
