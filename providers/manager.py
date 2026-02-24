@@ -98,6 +98,24 @@ async def _build_providers() -> dict[str, VisionProvider]:
             else:
                 logger.info("Skipped provider google/%s (disabled by %s)", model, env_flag)
 
+    # ── Groq (Llama vision — very fast & cheap) ──────────────────────────────
+    groq_key = await key_store.get("groq_api_key")
+    if groq_key:
+        from providers.groq_provider import GroqProvider
+        for model, env_flag in [
+            ("meta-llama/llama-3.2-11b-vision-preview", "ENABLE_GROQ_LLAMA_11B"),
+            ("meta-llama/llama-4-scout-17b-16e-instruct", "ENABLE_GROQ_LLAMA4_SCOUT"),
+        ]:
+            if _model_enabled(env_flag):
+                try:
+                    p = GroqProvider(groq_key, model)
+                    providers[p.full_name] = p
+                    logger.info("Loaded provider: %s", p.full_name)
+                except Exception as exc:
+                    logger.warning("Could not load groq/%s: %s", model, exc)
+            else:
+                logger.info("Skipped provider groq/%s (disabled by %s)", model, env_flag)
+
     if not providers:
         raise RuntimeError(
             "No vision providers available.\n"

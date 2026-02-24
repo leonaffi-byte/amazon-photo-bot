@@ -336,6 +336,7 @@ _KEY_LABELS = {
     "openai_api_key":       ("🤖 OpenAI",           "Used for GPT-4o vision"),
     "anthropic_api_key":    ("🤖 Anthropic",         "Used for Claude vision"),
     "google_api_key":       ("🤖 Google",            "Used for Gemini vision"),
+    "groq_api_key":         ("🤖 Groq",              "Llama vision (free at console.groq.com)"),
     "rapidapi_key":         ("🛒 RapidAPI",          "Amazon product search (recommended)"),
     "amazon_access_key":    ("🛒 Amazon Access Key", "PA-API (optional)"),
     "amazon_secret_key":    ("🛒 Amazon Secret Key", "PA-API (optional)"),
@@ -428,7 +429,7 @@ def _reload_backends(changed_key: str) -> None:
     import amazon_search
     amazon_search._backend = None   # force re-init with new key
 
-    if changed_key in ("openai_api_key", "anthropic_api_key", "google_api_key"):
+    if changed_key in ("openai_api_key", "anthropic_api_key", "google_api_key", "groq_api_key"):
         import providers.manager as pm
         pm._providers = {}          # force re-init of vision providers
 

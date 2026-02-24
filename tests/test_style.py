@@ -96,18 +96,16 @@ class TestFmtReviews:
 # ── welcome() ────────────────────────────────────────────────────────────────
 
 class TestWelcome:
-    def test_contains_providers(self):
-        text = style.welcome("openai/gpt-4o", "best", "PA-API 5.0")
-        assert "openai" in text
+    def test_contains_amazon(self):
+        text = style.welcome()
+        assert "Amazon" in text or "amazon" in text.lower()
 
-    def test_contains_search_backend(self):
-        # welcome() calls esc() on the backend name, which escapes MarkdownV2
-        # special chars (-  →  \-, .  →  \.).  Check for the safe prefix instead.
-        text = style.welcome("openai", "best", "PA-API 5.0")
-        assert "PA" in text   # "PA\\-API" appears in the escaped output
+    def test_contains_photo_prompt(self):
+        text = style.welcome()
+        assert "photo" in text.lower() or "Photo" in text
 
     def test_non_empty(self):
-        text = style.welcome("openai", "best", "rapidapi")
+        text = style.welcome()
         assert len(text) > 50
 
 

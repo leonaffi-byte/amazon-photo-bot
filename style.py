@@ -70,21 +70,18 @@ SEARCH_LOADING = [
 # START / WELCOME
 # ══════════════════════════════════════════════════════════════════════════════
 
-def welcome(provider_list: str, vision_mode: str, search_backend: str) -> str:
+def welcome() -> str:
     return (
         f"🛍️ *AMAZON PHOTO FINDER*\n"
         f"{DIV}\n\n"
-        f"Drop a product photo — I'll identify it with AI\n"
-        f"and hunt it down on Amazon for you\\.\n\n"
+        f"Drop a product photo and I'll identify it with AI\n"
+        f"and find it on Amazon for you\\.\n\n"
         f"✨  *What I can do*\n"
         f"▸ Recognise any product from a photo\n"
         f"▸ Search Amazon in real\\-time\n"
         f"▸ Filter by free delivery to 🇮🇱 Israel\n"
-        f"▸ Send you direct affiliate links\n\n"
+        f"▸ Browse results with direct Amazon links\n\n"
         f"{DIV}\n"
-        f"🤖  *Vision:* {esc(provider_list)}  `{esc(vision_mode)}`\n"
-        f"🛒  *Search:* {esc(search_backend)}\n"
-        f"{DIV}\n\n"
         f"_📸 Just send a photo to get started_"
     )
 
@@ -261,7 +258,7 @@ def product_caption(
     return caption
 
 
-def results_page(session, affiliate_tag: Optional[str] = None) -> str:
+def results_page(session, affiliate_tag: Optional[str] = None, is_admin: bool = False) -> str:
     """Full results page with header, cards, and footer."""
     p = session.page + 1
     t = session.total_pages
@@ -270,13 +267,19 @@ def results_page(session, affiliate_tag: Optional[str] = None) -> str:
     n_eligible = sum(1 for i in session.all_items if i.qualifies_for_israel_free_delivery)
 
     filter_badge = "✈️  Free delivery to 🇮🇱" if session.israel_only else "🌐  All items"
-    provider = esc(session.chosen_result.provider_name) if session.chosen_result else ""
-    tag_note  = f"   🏷️ `{esc(affiliate_tag)}`" if affiliate_tag else ""
+
+    # Admin-only: show which AI model + affiliate tag were used
+    admin_info = ""
+    if is_admin:
+        provider = esc(session.chosen_result.provider_name) if session.chosen_result else ""
+        tag_note  = f"   🏷️ `{esc(affiliate_tag)}`" if affiliate_tag else ""
+        if provider:
+            admin_info = f"   🤖 {provider}{tag_note}"
 
     header = (
         f"🛍️ *{esc(session.product_info.product_name)}*\n"
         f"{DIV}\n"
-        f"{filter_badge}   📄 {p}/{t}   🤖 {provider}{tag_note}\n"
+        f"{filter_badge}   📄 {p}/{t}{admin_info}\n"
         f"{SDIV}\n"
     )
 

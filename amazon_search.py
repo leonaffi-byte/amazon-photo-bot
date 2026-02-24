@@ -114,6 +114,7 @@ async def search_amazon(
     product: ProductInfo,
     max_results: int = config.MAX_RESULTS,
     israel_free_delivery_only: bool = False,
+    page: int = 1,
 ) -> list[AmazonItem]:
     """
     Search Amazon for the identified product.
@@ -136,25 +137,35 @@ async def search_amazon(
     backend = await get_backend()
     seen: dict[str, AmazonItem] = {}
 
-    # Primary query
-    try:
-        items = await backend.search(product.amazon_search_query, max_results)
-        for item in items:
-            seen[item.asin] = item
-        logger.info("[%s] Primary '%s' → %d results", backend.name, product.amazon_search_query, len(seen))
-    except Exception as exc:
-        logger.warning("Primary search failed: %s", exc)
-
-    # Fallback if too few results
-    if len(seen) < 3 and product.alternative_query != product.amazon_search_query:
+    if page > 1:
+        # Lazy-load: fetch a specific Amazon results page directly (no fallback needed)
         try:
-            items = await backend.search(product.alternative_query, max_results)
+            items = await backend.search(product.amazon_search_query, max_results, page=page)
             for item in items:
-                if item.asin not in seen:
-                    seen[item.asin] = item
-            logger.info("[%s] Fallback '%s' → %d total", backend.name, product.alternative_query, len(seen))
+                seen[item.asin] = item
+            logger.info("[%s] Page %d '%s' → %d items", backend.name, page, product.amazon_search_query, len(seen))
         except Exception as exc:
-            logger.warning("Fallback search failed: %s", exc)
+            logger.warning("Page %d search failed: %s", page, exc)
+    else:
+        # Primary query
+        try:
+            items = await backend.search(product.amazon_search_query, max_results)
+            for item in items:
+                seen[item.asin] = item
+            logger.info("[%s] Primary '%s' → %d results", backend.name, product.amazon_search_query, len(seen))
+        except Exception as exc:
+            logger.warning("Primary search failed: %s", exc)
+
+        # Fallback if too few results
+        if len(seen) < 3 and product.alternative_query != product.amazon_search_query:
+            try:
+                items = await backend.search(product.alternative_query, max_results)
+                for item in items:
+                    if item.asin not in seen:
+                        seen[item.asin] = item
+                logger.info("[%s] Fallback '%s' → %d total", backend.name, product.alternative_query, len(seen))
+            except Exception as exc:
+                logger.warning("Fallback search failed: %s", exc)
 
     result = list(seen.values())
 

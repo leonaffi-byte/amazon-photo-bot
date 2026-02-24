@@ -51,16 +51,14 @@ class RapidAPIBackend(SearchBackend):
     def name(self) -> str:
         return "RapidAPI / Real-Time Amazon Data"
 
-    async def search(self, query: str, max_results: int = 20) -> list[AmazonItem]:
+    async def search(self, query: str, max_results: int = 20, page: int = 1) -> list[AmazonItem]:
         """
-        Fetch search results. We call the search endpoint (1 API call).
-        For items that return Prime info we can detect Israel eligibility immediately.
-        For items missing seller info, we do NOT make a second product-detail call
-        (that would double costs); instead we rely on the is_prime flag.
+        Fetch search results from a specific Amazon results page.
+        page=1 is the default first page, page=2 fetches items 21-40, etc.
         """
         params = {
             "query":             query,
-            "page":              "1",
+            "page":              str(page),
             "country":           "US",
             "sort_by":           "RELEVANCE",
             "product_condition": "ALL",
@@ -130,9 +128,17 @@ class RapidAPIBackend(SearchBackend):
             # ── Fulfillment / Israel delivery detection ────────────────────────
             is_prime = bool(raw.get("is_prime", False))
 
-            # Some API variants return a "sales_volume" or "delivery" text
+            # RapidAPI search returns a human-readable delivery string such as
+            # "FREE delivery Mon, Mar 2" or "FREE Shipping on eligible orders".
+            # is_prime is almost always False in search results even for FBA items,
+            # so we rely on the delivery text as the primary signal.
             delivery_text = (raw.get("delivery") or "").lower()
-            has_free_delivery_text = "free delivery" in delivery_text or "free shipping" in delivery_text
+            has_free_delivery_text = (
+                "free delivery" in delivery_text
+                or "free shipping" in delivery_text
+                or "ships free" in delivery_text
+                or (delivery_text.startswith("free") and len(delivery_text) > 4)
+            )
 
             # Seller name can appear in different fields depending on API version
             seller = (

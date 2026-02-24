@@ -94,6 +94,7 @@ class SearchBackend(ABC):
         self,
         query: str,
         max_results: int,
+        page: int = 1,
     ) -> list[AmazonItem]:
         """
         Search Amazon for products matching `query`.

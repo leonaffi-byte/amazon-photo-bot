@@ -71,7 +71,8 @@ async def handle_redirect(request: web.Request) -> web.Response:
         )
     )
 
-    return web.HTTPMovedPermanently(location=long_url)
+    # 302 (temporary) works better than 301 in Telegram's in-app browser
+    return web.HTTPFound(location=long_url)
 
 
 async def handle_health(request: web.Request) -> web.Response:
