@@ -8,6 +8,8 @@ Session state is kept in-memory per user_id.
 from __future__ import annotations
 
 import logging
+import time
+from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -70,6 +72,36 @@ class UserSession:
 
 
 _sessions: dict[int, UserSession] = {}
+
+
+# ── Rate limiter ───────────────────────────────────────────────────────────────
+# Sliding-window: at most RATE_MAX_REQUESTS photo analyses per RATE_WINDOW_SECS.
+
+RATE_MAX_REQUESTS  = 5   # max photo analyses allowed …
+RATE_WINDOW_SECS   = 60  # … within this many seconds per user
+
+_rate_buckets: dict[int, deque] = defaultdict(deque)
+
+
+def _is_rate_limited(user_id: int) -> bool:
+    """
+    Return True when the user has exceeded RATE_MAX_REQUESTS in the last
+    RATE_WINDOW_SECS seconds, and refuse the request.  The deque stores the
+    timestamps of the user's recent photo analyses so the window always slides
+    correctly without a background timer.
+    """
+    now    = time.monotonic()
+    bucket = _rate_buckets[user_id]
+
+    # Evict timestamps outside the current window
+    while bucket and now - bucket[0] > RATE_WINDOW_SECS:
+        bucket.popleft()
+
+    if len(bucket) >= RATE_MAX_REQUESTS:
+        return True
+
+    bucket.append(now)
+    return False
 
 
 def get_session(user_id: int) -> UserSession:
@@ -197,6 +229,15 @@ async def cmd_providers(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
+
+    # ── Rate limit ─────────────────────────────────────────────────────────────
+    if _is_rate_limited(user_id):
+        await update.message.reply_text(
+            style.error_rate_limited(RATE_MAX_REQUESTS, RATE_WINDOW_SECS),
+            parse_mode="MarkdownV2",
+        )
+        return
+
     _sessions[user_id] = UserSession()
     session = _sessions[user_id]
 

@@ -91,6 +91,7 @@ CB_SETTINGS      = f"{P}settings"
 CB_SET_EDIT      = f"{P}set_edit:"     # + setting_key
 CB_SET_CHOICE    = f"{P}set_choice:"   # + setting_key + ":" + value
 CB_SET_RESET     = f"{P}set_reset:"    # + setting_key
+CB_SET_FREETEXT  = f"{P}set_freetext:" # + setting_key  → enter free-text mode
 
 
 # ── Auth ───────────────────────────────────────────────────────────────────────
@@ -585,7 +586,8 @@ async def _setting_edit_entry(update: Update, context: ContextTypes.DEFAULT_TYPE
     current = await settings_store.get_raw(key)
     context.user_data["setting_flow"] = {"key": key, "meta": meta}
 
-    # If this setting has a fixed choice list, show buttons instead of free text
+    # If this setting has a fixed choice list, show buttons instead of free text.
+    # If allow_custom=True, also show a "📝 Custom…" button for free-text entry.
     if meta["choices"]:
         rows = [
             [InlineKeyboardButton(
@@ -594,6 +596,11 @@ async def _setting_edit_entry(update: Update, context: ContextTypes.DEFAULT_TYPE
             )]
             for c in meta["choices"]
         ]
+        if meta.get("allow_custom"):
+            rows.append([InlineKeyboardButton(
+                "📝  Enter custom value…",
+                callback_data=f"{CB_SET_FREETEXT}{key}",
+            )])
         rows.append([InlineKeyboardButton("◀  Cancel", callback_data=CB_SETTINGS)])
         await q.edit_message_text(
             f"⚙️ *{e(meta['label'])}*\n{st.DIV}\n\n"
@@ -670,6 +677,38 @@ async def reset_setting_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     )
     context.user_data.pop("setting_flow", None)
     return ConversationHandler.END
+
+
+async def _setting_freetext_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Entry via the '📝 Enter custom value…' button on a choices-based setting.
+    Transitions the conversation into free-text mode (ST_SETTING_VALUE).
+    """
+    q = update.callback_query
+    await q.answer()
+    if not await is_admin(q.from_user.id):
+        await q.answer("⛔", show_alert=True)
+        return ConversationHandler.END
+
+    key  = q.data[len(CB_SET_FREETEXT):]
+    meta = settings_store.SETTINGS_META.get(key)
+    if not meta:
+        await q.answer("Unknown setting.", show_alert=True)
+        return ConversationHandler.END
+
+    current = await settings_store.get_raw(key)
+    context.user_data["setting_flow"] = {"key": key, "meta": meta}
+
+    await q.edit_message_text(
+        f"⚙️ *{e(meta['label'])}*\n{st.DIV}\n\n"
+        f"_{e(meta['desc'])}_\n\n"
+        f"Current: `{e(current)}`\n\n"
+        f"Type the new value and send it\\.\n\n"
+        f"{st.SDIV}\n"
+        f"_/cancel to abort  ·  /reset\\_setting to restore default_",
+        parse_mode="MarkdownV2",
+    )
+    return ST_SETTING_VALUE
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -926,10 +965,11 @@ def get_admin_handlers():
         allow_reentry=True,
     )
 
-    # Conversation: edit a free-text bot setting
+    # Conversation: edit a free-text bot setting (or custom value for choice settings)
     setting_conv = ConversationHandler(
         entry_points=[
-            CallbackQueryHandler(_setting_edit_entry, pattern=f"^{CB_SET_EDIT}"),
+            CallbackQueryHandler(_setting_edit_entry,    pattern=f"^{CB_SET_EDIT}"),
+            CallbackQueryHandler(_setting_freetext_entry, pattern=f"^{CB_SET_FREETEXT}"),
         ],
         states={
             ST_SETTING_VALUE: [

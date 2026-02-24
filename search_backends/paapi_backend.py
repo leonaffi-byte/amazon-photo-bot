@@ -14,13 +14,20 @@ Advantages over RapidAPI:
 Free delivery to Israel detection:
   Uses Offers.Listings[0].DeliveryInfo.IsAmazonFulfilled (exact PA-API field).
   See amazon_search.py header comment for full explanation.
+
+Pagination:
+  PA-API returns max 10 items per call but supports ItemPage 1–10.
+  We make as many page calls as needed (sequentially, to respect 1 req/s limit)
+  until we have max_results unique items or exhaust all pages.
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
-import hmac
+import hmac as _hmac
 import json
 import logging
+import math
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -30,6 +37,10 @@ from search_backends.base import AmazonItem, SearchBackend
 import config
 
 logger = logging.getLogger(__name__)
+
+_PAAPI_PAGE_SIZE  = 10    # PA-API hard maximum per call
+_PAAPI_MAX_PAGES  = 10    # PA-API supports pages 1-10
+_PAAPI_RATE_SLEEP = 1.05  # seconds between calls (PA-API rate limit: 1 req/s)
 
 _SEARCH_RESOURCES = [
     "Images.Primary.Medium",
@@ -65,39 +76,61 @@ class PaapiBackend(SearchBackend):
         return "Amazon PA-API 5.0"
 
     async def search(self, query: str, max_results: int = 20) -> list[AmazonItem]:
+        """
+        Search PA-API using multiple pages (up to _PAAPI_MAX_PAGES × 10 items).
+        Pages are fetched sequentially to honour the 1 req/s rate limit.
+        """
         items: dict[str, AmazonItem] = {}
 
-        # PA-API max 10 per call; fetch in one batch (or two if needed)
-        for keyword in self._query_variants(query):
+        pages_needed = math.ceil(max_results / _PAAPI_PAGE_SIZE)
+        pages_needed = min(pages_needed, _PAAPI_MAX_PAGES)
+
+        for page in range(1, pages_needed + 1):
             if len(items) >= max_results:
                 break
             try:
-                raw_data = await self._call(keyword, min(max_results, 10))
-                for raw in raw_data.get("SearchResult", {}).get("Items", []):
-                    parsed = self._parse_item(raw)
-                    if parsed and parsed.asin not in items:
-                        items[parsed.asin] = parsed
+                raw_data = await self._call(query, item_count=_PAAPI_PAGE_SIZE, item_page=page)
+            except RuntimeError as exc:
+                # If page > 1 fails (e.g. no more results), stop cleanly
+                logger.warning("PA-API page %d for '%s' failed: %s", page, query, exc)
+                break
             except Exception as exc:
-                logger.warning("PA-API search '%s' failed: %s", keyword, exc)
+                logger.warning("PA-API page %d error: %s", page, exc)
+                break
+
+            page_items = raw_data.get("SearchResult", {}).get("Items", [])
+            if not page_items:
+                logger.info("PA-API: no more items on page %d — stopping", page)
+                break
+
+            for raw in page_items:
+                parsed = self._parse_item(raw)
+                if parsed and parsed.asin not in items:
+                    items[parsed.asin] = parsed
+
+            logger.info(
+                "PA-API page %d/%d → %d new items, %d total",
+                page, pages_needed, len(page_items), len(items),
+            )
+
+            # Respect the 1 req/s rate limit between pages
+            if page < pages_needed and len(items) < max_results:
+                await asyncio.sleep(_PAAPI_RATE_SLEEP)
 
         result = list(items.values())
-        result = [i for i in result if i.review_count is None or i.review_count >= 1]
         result.sort(key=lambda i: i.score, reverse=True)
         return result[:max_results]
 
-    def _query_variants(self, query: str) -> list[str]:
-        """Return primary query only (extend to add fallback if needed)."""
-        return [query]
-
     # ── PA-API HTTP call with AWS SigV4 ───────────────────────────────────────
 
-    async def _call(self, keyword: str, item_count: int) -> dict:
+    async def _call(self, keyword: str, item_count: int, item_page: int = 1) -> dict:
         payload = {
             "Keywords":    keyword,
             "PartnerTag":  self._associate_tag,
             "PartnerType": "Associates",
             "Marketplace": self._marketplace,
             "ItemCount":   item_count,
+            "ItemPage":    item_page,
             "Resources":   _SEARCH_RESOURCES,
         }
         url     = f"https://{self._host}/paapi5/searchitems"
@@ -145,7 +178,7 @@ class PaapiBackend(SearchBackend):
         ])
 
         signing_key = self._get_signing_key(date_stamp)
-        signature   = hmac.new(signing_key, string_to_sign.encode(), hashlib.sha256).hexdigest()
+        signature   = _hmac.new(signing_key, string_to_sign.encode(), hashlib.sha256).hexdigest()
 
         return {
             "Content-Encoding": "amz-1.0",
@@ -161,7 +194,7 @@ class PaapiBackend(SearchBackend):
 
     def _get_signing_key(self, date_stamp: str) -> bytes:
         def sign(key: bytes, msg: str) -> bytes:
-            return hmac.new(key, msg.encode(), hashlib.sha256).digest()
+            return _hmac.new(key, msg.encode(), hashlib.sha256).digest()
         k = sign(f"AWS4{self._secret_key}".encode(), date_stamp)
         k = sign(k, self._region)
         k = sign(k, "ProductAdvertisingAPI")

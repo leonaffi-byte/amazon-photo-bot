@@ -322,3 +322,12 @@ def not_a_photo() -> str:
         f"I need a product photo to search Amazon\\.\n"
         f"_Just take a pic and send it here\\!_"
     )
+
+
+def error_rate_limited(max_requests: int, window_secs: int) -> str:
+    return (
+        f"⏱ *Slow Down\\!*\n"
+        f"{SDIV}\n"
+        f"You can analyse up to *{max_requests} photos* every *{window_secs} seconds*\\.\n\n"
+        f"_Please wait a moment before sending another photo\\._"
+    )

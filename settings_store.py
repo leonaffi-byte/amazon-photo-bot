@@ -36,8 +36,11 @@ SETTINGS_META: dict[str, dict] = {
         "default": "best",
         "type": "str",
         "label": "🤖 Vision Mode",
-        "desc": "How to use multiple AI providers",
+        "desc": "best | cheapest | compare | single:provider/model",
+        # Preset buttons shown first; "allow_custom" also shows a free-text option
+        # so admins can type  single:openai/gpt-4o  etc.
         "choices": ["best", "cheapest", "compare"],
+        "allow_custom": True,
     },
     "show_cost_info": {
         "env": "SHOW_COST_INFO",

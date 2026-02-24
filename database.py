@@ -11,15 +11,22 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Optional
 
 import aiosqlite
 
 logger = logging.getLogger(__name__)
 
-DB_PATH = "bot_data.db"
+# Store the DB in a dedicated data/ directory so Docker volume mounts work
+# correctly (mount ./data:/app/data) and the file survives container restarts.
+_DATA_DIR = Path(os.getenv("DATA_DIR", "data"))
+_DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+DB_PATH = str(_DATA_DIR / "bot_data.db")
 _lock = asyncio.Lock()          # serialise schema migrations
 
 
@@ -196,7 +203,7 @@ async def add_tag(
     If make_active=True, deactivate all others first.
     Raises ValueError if tag already exists.
     """
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     async with aiosqlite.connect(DB_PATH) as db:
         # Check for duplicate
         async with db.execute("SELECT id FROM affiliate_tags WHERE tag = ?", (tag,)) as cur:
@@ -271,7 +278,7 @@ async def log_search(
     israel_filter: bool,
 ) -> None:
     """Record a search event."""
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             """INSERT INTO search_logs
@@ -332,7 +339,7 @@ async def get_api_key(key_name: str) -> Optional[str]:
 
 async def set_api_key(key_name: str, key_value: str, admin_id: int) -> None:
     """Insert or replace an API key in the DB."""
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             """INSERT INTO api_keys (key_name, key_value, updated_by, updated_at)
@@ -377,7 +384,7 @@ async def seed_admins(user_ids: set[int]) -> None:
     Insert bootstrap admins from ADMIN_IDS env var.
     Called once at startup — safe to call multiple times (ignores existing rows).
     """
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     async with aiosqlite.connect(DB_PATH) as db:
         for uid in user_ids:
             await db.execute(
@@ -412,7 +419,7 @@ async def is_admin_in_db(user_id: int) -> bool:
 
 
 async def add_admin(user_id: int, username: str, full_name: str, added_by: int) -> None:
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             """INSERT OR IGNORE INTO admins (user_id, username, full_name, added_by, added_at)
@@ -434,9 +441,8 @@ async def remove_admin(user_id: int) -> bool:
 async def create_invite(created_by: int, label: str, ttl_minutes: int = 30) -> str:
     """Generate a one-time invite code. Returns the code string."""
     import secrets
-    from datetime import timedelta
     code = secrets.token_urlsafe(16)
-    expires = (datetime.utcnow() + timedelta(minutes=ttl_minutes)).isoformat()
+    expires = (datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes)).isoformat()
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             """INSERT INTO admin_invites (code, created_by, label, expires_at)
@@ -452,7 +458,7 @@ async def use_invite(code: str, user_id: int) -> Optional[str]:
     Attempt to redeem an invite code.
     Returns the label string on success, None if invalid/expired/already used.
     """
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute(
             """SELECT label, expires_at, used_by FROM admin_invites WHERE code = ?""",
@@ -486,7 +492,7 @@ async def create_short_link(
     created_by: Optional[int] = None,
 ) -> str:
     """Store a new short link. Returns the code."""
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             """INSERT OR IGNORE INTO short_links (code, long_url, created_at, created_by, label)
@@ -519,7 +525,7 @@ async def get_code_by_long_url(long_url: str) -> Optional[str]:
 
 async def log_click(code: str, user_agent: str, referrer: str, ip: str = "") -> None:
     """Record a click on a short link and bump the counter atomically."""
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             """INSERT INTO link_clicks (code, clicked_at, user_agent, referrer, ip)
@@ -633,7 +639,7 @@ async def get_short_url(long_url: str) -> Optional[str]:
 
 async def cache_short_url(long_url: str, short_url: str) -> None:
     """Store a long→short URL mapping in the cache."""
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             """INSERT OR REPLACE INTO url_cache (long_url, short_url, created_at)
@@ -657,7 +663,7 @@ async def get_setting(key: str) -> Optional[str]:
 
 async def set_setting(key: str, value: str, admin_id: int) -> None:
     """Insert or replace a setting in the DB."""
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             """INSERT INTO bot_settings (key, value, updated_by, updated_at)
@@ -680,7 +686,7 @@ async def delete_setting(key: str) -> None:
 
 async def get_active_invites(created_by: int) -> list[dict]:
     """List unexpired, unused invite codes created by this admin."""
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute(
             """SELECT code, label, expires_at FROM admin_invites

@@ -18,12 +18,19 @@ import sys
 import config
 from bot import build_application
 
+# Log file lives in the same data/ directory as the database so that a single
+# Docker volume mount (./data:/app/data) captures both.
+import os
+from pathlib import Path
+_data_dir = Path(os.getenv("DATA_DIR", "data"))
+_data_dir.mkdir(parents=True, exist_ok=True)
+
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     level=logging.INFO,
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler("bot.log", encoding="utf-8"),
+        logging.FileHandler(str(_data_dir / "bot.log"), encoding="utf-8"),
     ],
 )
 logging.getLogger("httpx").setLevel(logging.WARNING)

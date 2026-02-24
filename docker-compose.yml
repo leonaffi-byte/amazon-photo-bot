@@ -8,9 +8,12 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      # DB and logs live under /app/data so the volume mount persists them
+      DATA_DIR: /app/data
     volumes:
+      # Single directory mount — contains both bot_data.db and bot.log
       - ./data:/app/data
-      - ./bot.log:/app/bot.log
     logging:
       driver: "json-file"
       options:

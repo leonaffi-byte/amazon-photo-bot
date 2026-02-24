@@ -97,6 +97,8 @@ class RapidAPIBackend(SearchBackend):
 
     def _parse_product(self, raw: dict) -> Optional[AmazonItem]:
         try:
+            if not raw or not isinstance(raw, dict):
+                return None
             asin = raw.get("asin", "")
             if not asin:
                 return None
