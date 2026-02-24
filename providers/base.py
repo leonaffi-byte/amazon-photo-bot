@@ -33,11 +33,15 @@ Rules:
 - amazon_search_query: most specific terms first, include model# if visible
 - If brand unknown, omit it from search query to avoid zero results
 - key_features: focus on what distinguishes this from similar products
+- If a person is wearing or holding the product, describe ONLY the product — ignore the person entirely
+- Never refuse: if the photo shows a person, identify the clothing/accessory/item they are wearing
 """
 
 USER_PROMPT = (
     "Analyse this product photo and return the JSON. "
-    "Focus on identifying exactly what this is so a shopper can find it on Amazon."
+    "Focus ONLY on the PRODUCT or ITEM itself (clothing, accessory, gadget, object) — "
+    "not on any person who may appear in the photo. "
+    "Identify what the item is so a shopper can find it on Amazon."
 )
 
 

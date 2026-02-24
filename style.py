@@ -197,7 +197,7 @@ def product_card(item, index: int) -> str:
     """Format a single Amazon product as a rich card."""
     title = esc(item.title[:100])
 
-    price = f"💰 *\\${item.price_usd:.2f}*" if item.price_usd else "💰 _Price not listed_"
+    price = f"💰 *{esc(f'${item.price_usd:.2f}')}*" if item.price_usd else "💰 _Price not listed_"
 
     if item.rating and item.review_count:
         stars = star_bar(item.rating)
