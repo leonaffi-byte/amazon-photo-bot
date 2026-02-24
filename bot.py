@@ -371,6 +371,8 @@ async def _post_init(application: Application) -> None:
     if config.ADMIN_IDS:
         await db.seed_admins(config.ADMIN_IDS)
         logger.info("Seeded %d bootstrap admin(s)", len(config.ADMIN_IDS))
+    await config.apply_db_settings()
+    logger.info("DB settings applied to config.")
 
 
 def build_application() -> Application:

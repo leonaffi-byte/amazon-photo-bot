@@ -129,6 +129,14 @@ CREATE TABLE IF NOT EXISTS link_clicks (
 );
 CREATE INDEX IF NOT EXISTS idx_link_clicks_code ON link_clicks (code);
 CREATE INDEX IF NOT EXISTS idx_link_clicks_at   ON link_clicks (clicked_at);
+
+-- Bot settings editable via Telegram admin panel (override .env values)
+CREATE TABLE IF NOT EXISTS bot_settings (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_by INTEGER NOT NULL,
+    updated_at TEXT    NOT NULL
+);
 """
 
 
@@ -632,6 +640,41 @@ async def cache_short_url(long_url: str, short_url: str) -> None:
                VALUES (?, ?, ?)""",
             (long_url, short_url, now),
         )
+        await db.commit()
+
+
+# ── Bot settings (editable via admin panel) ───────────────────────────────────
+
+async def get_setting(key: str) -> Optional[str]:
+    """Return DB-stored value for setting key, or None if not set."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT value FROM bot_settings WHERE key = ?", (key,)
+        ) as cur:
+            row = await cur.fetchone()
+            return row[0] if row else None
+
+
+async def set_setting(key: str, value: str, admin_id: int) -> None:
+    """Insert or replace a setting in the DB."""
+    now = datetime.utcnow().isoformat()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """INSERT INTO bot_settings (key, value, updated_by, updated_at)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(key) DO UPDATE SET
+                 value=excluded.value,
+                 updated_by=excluded.updated_by,
+                 updated_at=excluded.updated_at""",
+            (key, value, admin_id, now),
+        )
+        await db.commit()
+
+
+async def delete_setting(key: str) -> None:
+    """Remove a setting from DB (bot falls back to .env / default)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM bot_settings WHERE key = ?", (key,))
         await db.commit()
 
 

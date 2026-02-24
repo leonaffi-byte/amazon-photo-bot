@@ -39,6 +39,7 @@ from telegram.ext import (
 import config
 import database as db
 import key_store
+import settings_store
 import style as st
 
 logger = logging.getLogger(__name__)
@@ -47,7 +48,8 @@ logger = logging.getLogger(__name__)
 (
     ST_TAG_NAME, ST_TAG_DESC, ST_TAG_CONFIRM,   # add affiliate tag
     ST_KEY_VALUE,                                # set API key
-) = range(4)
+    ST_SETTING_VALUE,                            # edit a bot setting
+) = range(5)
 
 # ── Callback prefixes ──────────────────────────────────────────────────────────
 P = "adm:"   # all admin callbacks start with this
@@ -83,6 +85,12 @@ CB_BACK_PANEL = f"{P}panel"
 CB_SHORTENER     = f"{P}shortener"
 CB_SHORT_DEL     = f"{P}short_del:"    # + code
 CB_SHORT_DELOK   = f"{P}short_delok:"  # + code
+
+# Settings
+CB_SETTINGS      = f"{P}settings"
+CB_SET_EDIT      = f"{P}set_edit:"     # + setting_key
+CB_SET_CHOICE    = f"{P}set_choice:"   # + setting_key + ":" + value
+CB_SET_RESET     = f"{P}set_reset:"    # + setting_key
 
 
 # ── Auth ───────────────────────────────────────────────────────────────────────
@@ -134,12 +142,17 @@ async def _panel_content() -> tuple[str, InlineKeyboardMarkup]:
     active    = next((t for t in tags if t.is_active), None)
     tag_line  = f"`{e(active.tag)}`" if active else "_none_ ⚠️"
 
+    vision_mode = await settings_store.get("vision_mode")
+    search_backend = await settings_store.get("search_backend")
+
     text = (
         f"⚙️ *ADMIN PANEL*\n{st.DIV}\n\n"
         f"🏷️  Affiliate tag: {tag_line}\n"
         f"🔑  Keys set: *{keys_set}*/{len(all_keys)}\n"
         f"👥  Admins: *{len(admins)}*\n\n"
         f"{st.SDIV}\n"
+        f"🤖  Vision mode: `{e(str(vision_mode))}`\n"
+        f"🛒  Search backend: `{e(str(search_backend))}`\n"
         f"🔍  Searches: *{stats['total_searches']:,}*\n"
         f"👤  Users: *{stats['unique_users']:,}*\n"
     )
@@ -154,10 +167,11 @@ async def _panel_content() -> tuple[str, InlineKeyboardMarkup]:
             InlineKeyboardButton("🔑  API Keys",        callback_data=CB_KEYS),
         ],
         [
+            InlineKeyboardButton("⚙️  Settings",  callback_data=CB_SETTINGS),
             InlineKeyboardButton("🔗  Shortener", callback_data=CB_SHORTENER),
-            InlineKeyboardButton("👥  Admins",    callback_data=CB_ADMINS),
         ],
         [
+            InlineKeyboardButton("👥  Admins",  callback_data=CB_ADMINS),
             InlineKeyboardButton("📊  Stats",   callback_data=CB_STATS),
         ],
     ])
@@ -307,7 +321,7 @@ async def tag_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def cancel_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    for k in ("tag_flow", "key_flow"):
+    for k in ("tag_flow", "key_flow", "setting_flow"):
         context.user_data.pop(k, None)
     await update.message.reply_text("❌ Cancelled\\.", parse_mode="MarkdownV2")
     return ConversationHandler.END
@@ -531,6 +545,134 @@ async def _shortener_content() -> tuple[str, InlineKeyboardMarkup]:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# SECTION 6 — BOT SETTINGS
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def _settings_content() -> tuple[str, InlineKeyboardMarkup]:
+    all_vals = await settings_store.get_all()
+    lines = [
+        f"⚙️ *BOT SETTINGS*\n{st.DIV}\n",
+        f"_Changes take effect immediately — no restart needed\\._\n",
+        f"_Overrides your \\.env file\\._\n",
+        f"{st.SDIV}\n",
+    ]
+    rows = []
+    for key, meta in settings_store.SETTINGS_META.items():
+        raw = all_vals.get(key, meta["default"])
+        lines.append(f"*{e(meta['label'])}*\n  `{e(raw)}`  _{e(meta['desc'])}_\n")
+        rows.append([InlineKeyboardButton(
+            f"✏️  {meta['label']}", callback_data=f"{CB_SET_EDIT}{key}"
+        )])
+
+    rows.append([InlineKeyboardButton("◀  Back", callback_data=CB_PANEL)])
+    return "\n".join(lines), InlineKeyboardMarkup(rows)
+
+
+async def _setting_edit_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Entry via callback — show current value and prompt for new one."""
+    q = update.callback_query
+    await q.answer()
+    if not await is_admin(q.from_user.id):
+        await q.answer("⛔", show_alert=True)
+        return ConversationHandler.END
+
+    key = q.data[len(CB_SET_EDIT):]
+    meta = settings_store.SETTINGS_META.get(key)
+    if not meta:
+        await q.answer("Unknown setting.", show_alert=True)
+        return ConversationHandler.END
+
+    current = await settings_store.get_raw(key)
+    context.user_data["setting_flow"] = {"key": key, "meta": meta}
+
+    # If this setting has a fixed choice list, show buttons instead of free text
+    if meta["choices"]:
+        rows = [
+            [InlineKeyboardButton(
+                f"{'✅ ' if c == current else ''}{c}",
+                callback_data=f"{CB_SET_CHOICE}{key}:{c}",
+            )]
+            for c in meta["choices"]
+        ]
+        rows.append([InlineKeyboardButton("◀  Cancel", callback_data=CB_SETTINGS)])
+        await q.edit_message_text(
+            f"⚙️ *{e(meta['label'])}*\n{st.DIV}\n\n"
+            f"_{e(meta['desc'])}_\n\n"
+            f"Current: `{e(current)}`\n\n"
+            f"Choose a value:",
+            parse_mode="MarkdownV2",
+            reply_markup=InlineKeyboardMarkup(rows),
+        )
+        return ConversationHandler.END   # handled entirely via callbacks
+
+    # Free-text setting
+    await q.edit_message_text(
+        f"⚙️ *{e(meta['label'])}*\n{st.DIV}\n\n"
+        f"_{e(meta['desc'])}_\n\n"
+        f"Current: `{e(current)}`\n\n"
+        f"Type the new value and send it\\.\n\n"
+        f"{st.SDIV}\n"
+        f"_/cancel to abort  ·  /reset\\_setting to restore default_",
+        parse_mode="MarkdownV2",
+    )
+    return ST_SETTING_VALUE
+
+
+async def received_setting_value(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    if not await guard(update, context):
+        return ConversationHandler.END
+
+    flow = context.user_data.get("setting_flow", {})
+    key  = flow.get("key", "")
+    meta = flow.get("meta", {})
+
+    raw = update.message.text.strip()
+
+    # Validate
+    try:
+        settings_store._cast(raw, meta.get("type", "str"))
+    except (ValueError, TypeError) as exc:
+        await update.message.reply_text(
+            f"⚠️ Invalid value: {e(str(exc))}\n\nTry again or /cancel\\.",
+            parse_mode="MarkdownV2",
+        )
+        return ST_SETTING_VALUE
+
+    await settings_store.set(key, raw, update.effective_user.id)
+
+    text, kb = await _settings_content()
+    await update.message.reply_text(
+        f"✅ *{e(meta.get('label', key))}* set to `{e(raw)}`\\!\n\n" + text,
+        parse_mode="MarkdownV2",
+        reply_markup=kb,
+    )
+    context.user_data.pop("setting_flow", None)
+    return ConversationHandler.END
+
+
+async def reset_setting_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Allow /reset_setting inside a setting conversation to clear the DB override."""
+    if not await guard(update, context):
+        return ConversationHandler.END
+    flow = context.user_data.get("setting_flow", {})
+    key  = flow.get("key")
+    if not key:
+        await update.message.reply_text("Nothing to reset\\.", parse_mode="MarkdownV2")
+        return ConversationHandler.END
+    await settings_store.delete(key)
+    meta = settings_store.SETTINGS_META.get(key, {})
+    default = meta.get("default", "")
+    text, kb = await _settings_content()
+    await update.message.reply_text(
+        f"↩️ *{e(meta.get('label', key))}* reset to default: `{e(default)}`\n\n" + text,
+        parse_mode="MarkdownV2",
+        reply_markup=kb,
+    )
+    context.user_data.pop("setting_flow", None)
+    return ConversationHandler.END
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # MAIN CALLBACK ROUTER
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -654,6 +796,40 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         text = await _stats_content()
         await q.edit_message_text(text, parse_mode="MarkdownV2", reply_markup=back_kb)
 
+    # ── Settings ───────────────────────────────────────────────────────────────
+    elif data == CB_SETTINGS:
+        text, kb = await _settings_content()
+        await q.edit_message_text(text, parse_mode="MarkdownV2", reply_markup=kb)
+
+    elif data.startswith(CB_SET_CHOICE):
+        # Inline choice selection (no conversation needed)
+        rest = data[len(CB_SET_CHOICE):]           # "key:value"
+        key, _, value = rest.partition(":")
+        meta = settings_store.SETTINGS_META.get(key)
+        if meta:
+            await settings_store.set(key, value, uid)
+            text, kb = await _settings_content()
+            await q.edit_message_text(
+                f"✅ *{e(meta['label'])}* set to `{e(value)}`\\!\n\n" + text,
+                parse_mode="MarkdownV2", reply_markup=kb,
+            )
+        else:
+            await q.answer("Unknown setting.", show_alert=True)
+
+    elif data.startswith(CB_SET_RESET):
+        key = data[len(CB_SET_RESET):]
+        meta = settings_store.SETTINGS_META.get(key)
+        if meta:
+            await settings_store.delete(key)
+            default = meta.get("default", "")
+            text, kb = await _settings_content()
+            await q.edit_message_text(
+                f"↩️ *{e(meta['label'])}* reset to default: `{e(default)}`\n\n" + text,
+                parse_mode="MarkdownV2", reply_markup=kb,
+            )
+        else:
+            await q.answer("Unknown setting.", show_alert=True)
+
     # ── Shortener ──────────────────────────────────────────────────────────────
     elif data == CB_SHORTENER:
         text, kb = await _shortener_content()
@@ -750,10 +926,26 @@ def get_admin_handlers():
         allow_reentry=True,
     )
 
+    # Conversation: edit a free-text bot setting
+    setting_conv = ConversationHandler(
+        entry_points=[
+            CallbackQueryHandler(_setting_edit_entry, pattern=f"^{CB_SET_EDIT}"),
+        ],
+        states={
+            ST_SETTING_VALUE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, received_setting_value),
+                CommandHandler("reset_setting", reset_setting_cmd),
+            ],
+        },
+        fallbacks=[CommandHandler("cancel", cancel_flow)],
+        allow_reentry=True,
+    )
+
     return [
         CommandHandler("admin", cmd_admin),
         tag_conv,
         key_conv,
+        setting_conv,
         # All other adm:* callbacks not handled by conversations
         CallbackQueryHandler(
             admin_callback,
