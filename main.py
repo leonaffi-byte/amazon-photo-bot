@@ -14,6 +14,13 @@ import asyncio
 import logging
 import signal
 import sys
+import warnings
+
+from telegram.warnings import PTBUserWarning
+# PTB always warns when CallbackQueryHandler is used inside a ConversationHandler
+# with per_message=False (the correct setting for our flows). The warning is
+# purely informational — behaviour is exactly what we want — so silence it.
+warnings.filterwarnings("ignore", category=PTBUserWarning, message=".*per_message=False.*")
 
 import config
 from bot import build_application
