@@ -115,19 +115,46 @@ def help_text(threshold: float) -> str:
 # LOADING MESSAGES
 # ══════════════════════════════════════════════════════════════════════════════
 
-def loading_vision(n_providers: int, mode: str) -> str:
+def loading_vision(
+    n_providers: int,
+    mode: str,
+    context_hint: Optional[str] = None,
+) -> str:
+    hint_line = f"\n💬 Hint: _{esc(context_hint[:80])}_" if context_hint else ""
     if mode in ("best", "compare") and n_providers > 1:
         return (
             f"🔍 *Analysing your photo*\n"
             f"{SDIV}\n"
-            f"Running *{n_providers} AI providers* in parallel…\n\n"
+            f"Running *{n_providers} AI providers* in parallel…{hint_line}\n\n"
             f"⠋ Identifying product…"
         )
     return (
         f"🔍 *Analysing your photo*\n"
         f"{SDIV}\n"
-        f"⠋ Reading product details…"
+        f"⠋ Reading product details…{hint_line}"
     )
+
+
+def text_search_ready(
+    original: str,
+    english: str,
+    refined: str,
+    lang_label: Optional[str] = None,
+) -> str:
+    """Shown after translating/refining the user's text query."""
+    lines = [
+        "🔍 *Text Search*",
+        f"{SDIV}",
+    ]
+    if lang_label and original != english:
+        lines += [
+            f"{lang_label}: _{esc(original[:80])}_",
+            f"🇺🇸 English: _{esc(english[:80])}_",
+        ]
+    lines += [
+        f"🛒 Amazon query: `{esc(refined[:100])}`",
+    ]
+    return "\n".join(lines)
 
 
 def loading_search(product_name: str, filter_label: str) -> str:

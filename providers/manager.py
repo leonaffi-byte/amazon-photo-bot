@@ -148,6 +148,7 @@ async def cheapest_provider() -> VisionProvider:
 async def analyse_image(
     image_bytes: bytes,
     mode: str = "best",
+    context_hint: Optional[str] = None,
 ) -> tuple[ProviderResult, list[ProviderResult]]:
     """
     Run image analysis using the requested mode.
@@ -170,7 +171,7 @@ async def analyse_image(
 
     async def _safe_run(provider: VisionProvider) -> Optional[ProviderResult]:
         try:
-            result = await provider.analyse(image_bytes)
+            result = await provider.analyse(image_bytes, context_hint=context_hint)
             logger.info(
                 "[%s] OK — confidence=%s cost=%s latency=%dms",
                 provider.full_name, result.confidence, result.cost_str, result.latency_ms,

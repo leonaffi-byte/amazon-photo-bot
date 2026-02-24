@@ -21,8 +21,9 @@ import logging
 
 import openai
 
+from typing import Optional
 from providers.base import (
-    SYSTEM_PROMPT, USER_PROMPT,
+    SYSTEM_PROMPT, USER_PROMPT, build_user_prompt,
     ProviderResult, VisionProvider, parse_json_response,
 )
 
@@ -52,7 +53,11 @@ class GroqProvider(VisionProvider):
         self.cost_per_1k_output_tokens = rates[1]
         self.cost_per_image            = rates[2]
 
-    async def analyse(self, image_bytes: bytes) -> ProviderResult:
+    async def analyse(
+        self,
+        image_bytes: bytes,
+        context_hint: Optional[str] = None,
+    ) -> ProviderResult:
         b64 = base64.b64encode(image_bytes).decode()
 
         media_type = "image/jpeg"
@@ -76,7 +81,7 @@ class GroqProvider(VisionProvider):
                             "type":      "image_url",
                             "image_url": {"url": f"data:{media_type};base64,{b64}"},
                         },
-                        {"type": "text", "text": USER_PROMPT},
+                        {"type": "text", "text": build_user_prompt(context_hint)},
                     ],
                 },
             ],

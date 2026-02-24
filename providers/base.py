@@ -45,6 +45,16 @@ USER_PROMPT = (
 )
 
 
+def build_user_prompt(context_hint: Optional[str] = None) -> str:
+    """Return the user prompt, optionally prepending a user-provided hint."""
+    if context_hint and context_hint.strip():
+        return (
+            f"User context about this product: \"{context_hint.strip()}\"\n\n"
+            + USER_PROMPT
+        )
+    return USER_PROMPT
+
+
 # ── Shared result type ─────────────────────────────────────────────────────────
 
 @dataclass
@@ -130,7 +140,11 @@ class VisionProvider(ABC):
     cost_per_image: float = 0.0
 
     @abstractmethod
-    async def analyse(self, image_bytes: bytes) -> ProviderResult:
+    async def analyse(
+        self,
+        image_bytes: bytes,
+        context_hint: Optional[str] = None,
+    ) -> ProviderResult:
         """Run vision inference on image_bytes. Must return ProviderResult."""
         ...
 

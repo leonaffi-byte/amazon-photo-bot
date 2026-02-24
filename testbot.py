@@ -68,8 +68,17 @@ def _conf(c: str) -> str:
 class TestSession:
     photo_count: int = 0
     total_cost_usd: float = 0.0
-    provider_costs: dict[str, float]  = field(default_factory=dict)
-    provider_counts: dict[str, int]   = field(default_factory=dict)
+
+    # Per-model accumulators
+    provider_costs:       dict[str, float]      = field(default_factory=dict)
+    provider_counts:      dict[str, int]        = field(default_factory=dict)
+    provider_high:        dict[str, int]        = field(default_factory=dict)
+    provider_medium:      dict[str, int]        = field(default_factory=dict)
+    provider_low:         dict[str, int]        = field(default_factory=dict)
+    provider_errors:      dict[str, int]        = field(default_factory=dict)
+    provider_accepted:    dict[str, int]        = field(default_factory=dict)   # user clicked Search
+    provider_latencies:   dict[str, list[int]]  = field(default_factory=dict)
+
     # Current photo results — keyed by index for callback dispatch
     current_results: list[ProviderResult] = field(default_factory=list)
 
@@ -154,26 +163,74 @@ def _amazon_card(items: list[AmazonItem], provider_name: str, query: str) -> str
     return "\n".join(lines)
 
 
+def _bar(ratio: float, width: int = 10) -> str:
+    """Render a simple ASCII progress bar like ████████░░"""
+    filled = round(ratio * width)
+    return "█" * filled + "░" * (width - filled)
+
+
 def _stats_card(session: TestSession) -> str:
     if session.photo_count == 0:
         return "📊 No photos analyzed yet\\."
 
-    avg = session.total_cost_usd / session.photo_count
+    n     = session.photo_count
+    avg   = session.total_cost_usd / n
     lines = [
-        "📊 *SESSION STATISTICS*",
+        "📊 *SESSION REPORT*",
         "━━━━━━━━━━━━━━━━━━━━",
-        f"📸 Photos: *{session.photo_count}*",
+        f"📸 Photos analyzed: *{n}*",
         f"💸 Total cost: *{esc(f'${session.total_cost_usd:.4f}')}*",
-        f"📉 Avg/photo: {esc(f'${avg:.5f}')}",
+        f"📉 Avg cost / photo: {esc(f'${avg:.5f}')}",
         "",
-        "*Per\\-model breakdown:*",
+        "*🎯 Success rate \\(high confidence\\):*",
     ]
-    for provider, cost in sorted(session.provider_costs.items(), key=lambda x: x[1]):
-        count = session.provider_counts.get(provider, 0)
-        short = esc(provider.split("/")[-1][:22])
+
+    # Success rates — sorted by success ratio descending
+    all_providers = sorted(
+        session.provider_counts.keys(),
+        key=lambda p: session.provider_high.get(p, 0) / max(session.provider_counts.get(p, 1), 1),
+        reverse=True,
+    )
+    for p in all_providers:
+        total   = session.provider_counts.get(p, 0)
+        high    = session.provider_high.get(p, 0)
+        medium  = session.provider_medium.get(p, 0)
+        low     = session.provider_low.get(p, 0)
+        errors  = session.provider_errors.get(p, 0)
+        success = high / total if total else 0.0
+        short   = esc(p.split("/")[-1][:20])
+        bar     = esc(_bar(success))
+        pct     = esc(f"{success*100:.0f}%")
         lines.append(
-            f"  `{short}` — {esc(f'${cost:.4f}')} \\({count}×\\)"
+            f"  `{short}` {bar} {pct}\n"
+            f"    🟢{high} 🟡{medium} 🔴{low} ❌{errors} / {total} calls"
         )
+
+    # Acceptance rates
+    any_accepted = any(session.provider_accepted.get(p, 0) for p in all_providers)
+    if any_accepted:
+        lines += ["", "*✅ Acceptance rate \\(user searched with\\):*"]
+        for p in all_providers:
+            total    = session.provider_counts.get(p, 0)
+            accepted = session.provider_accepted.get(p, 0)
+            ratio    = accepted / total if total else 0.0
+            short    = esc(p.split("/")[-1][:20])
+            bar      = esc(_bar(ratio))
+            pct      = esc(f"{ratio*100:.0f}%")
+            lines.append(f"  `{short}` {bar} {pct} \\({accepted}/{total}\\)")
+
+    # Speed + cost table
+    lines += ["", "*⚡ Speed \\& cost:*"]
+    for p in all_providers:
+        lats  = session.provider_latencies.get(p, [])
+        avg_l = int(sum(lats) / len(lats)) if lats else 0
+        cost  = session.provider_costs.get(p, 0.0)
+        count = session.provider_counts.get(p, 1)
+        short = esc(p.split("/")[-1][:20])
+        lines.append(
+            f"  `{short}` — avg {esc(f'{avg_l}ms')}  •  total {esc(f'${cost:.4f}')}"
+        )
+
     return "\n".join(lines)
 
 
@@ -274,6 +331,19 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     await status.delete()
 
+    # ── Track which providers ran but produced no result (errors) ──────────────
+    # all_results only contains successes; detect errors by comparing with
+    # the expected provider list
+    try:
+        all_providers = await get_providers()
+        expected_names = set(all_providers.keys())
+    except Exception:
+        expected_names = set()
+    got_names = {r.provider_name for r in all_results}
+    for missing in expected_names - got_names:
+        session.provider_errors[missing] = session.provider_errors.get(missing, 0) + 1
+        session.provider_counts[missing] = session.provider_counts.get(missing, 0) + 1
+
     # Send one card per provider
     for idx, result in enumerate(all_results):
         session.provider_costs[result.provider_name] = (
@@ -282,6 +352,15 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         session.provider_counts[result.provider_name] = (
             session.provider_counts.get(result.provider_name, 0) + 1
         )
+        # Confidence breakdown
+        conf_key = f"provider_{result.confidence}"  # provider_high / provider_medium / provider_low
+        bucket = getattr(session, conf_key, None)
+        if bucket is not None:
+            bucket[result.provider_name] = bucket.get(result.provider_name, 0) + 1
+        # Latency tracking
+        lats = session.provider_latencies.setdefault(result.provider_name, [])
+        lats.append(result.latency_ms)
+
         photo_cost += result.cost_usd
 
         await update.message.reply_text(
@@ -318,6 +397,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
 
         result = session.current_results[idx]
+
+        # Record acceptance for this provider
+        session.provider_accepted[result.provider_name] = (
+            session.provider_accepted.get(result.provider_name, 0) + 1
+        )
 
         # Remove the Search button so it can't be double-clicked
         await query.edit_message_reply_markup(None)

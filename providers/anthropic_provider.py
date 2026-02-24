@@ -20,8 +20,9 @@ import logging
 
 import anthropic
 
+from typing import Optional
 from providers.base import (
-    SYSTEM_PROMPT, USER_PROMPT,
+    SYSTEM_PROMPT, USER_PROMPT, build_user_prompt,
     ProviderResult, VisionProvider, parse_json_response,
 )
 
@@ -46,7 +47,11 @@ class AnthropicProvider(VisionProvider):
         )
         self.cost_per_image = _ANTHROPIC_IMAGE_TOKENS / 1000 * self.cost_per_1k_input_tokens
 
-    async def analyse(self, image_bytes: bytes) -> ProviderResult:
+    async def analyse(
+        self,
+        image_bytes: bytes,
+        context_hint: Optional[str] = None,
+    ) -> ProviderResult:
         b64 = base64.b64encode(image_bytes).decode()
         t0 = time.monotonic()
 
@@ -75,7 +80,7 @@ class AnthropicProvider(VisionProvider):
                                 "data": b64,
                             },
                         },
-                        {"type": "text", "text": USER_PROMPT},
+                        {"type": "text", "text": build_user_prompt(context_hint)},
                     ],
                 }
             ],

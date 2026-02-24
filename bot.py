@@ -31,6 +31,7 @@ from image_analyzer import ProductInfo
 from providers.base import ProviderResult
 from providers.manager import analyse_image, get_providers
 from amazon_search import AmazonItem, search_amazon, backend_name
+from translator import detect_language, translate_and_refine
 
 logger = logging.getLogger(__name__)
 
@@ -241,8 +242,22 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await update.message.reply_text(style.error_no_providers(), parse_mode="MarkdownV2")
         return
 
+    # ── Handle optional caption (user hint, possibly in Hebrew/Russian) ────────
+    context_hint: Optional[str] = None
+    raw_caption = (update.message.caption or "").strip()
+    if raw_caption:
+        lang = detect_language(raw_caption)
+        if lang != "en":
+            try:
+                en_caption, _ = await translate_and_refine(raw_caption)
+            except Exception:
+                en_caption = raw_caption
+        else:
+            en_caption = raw_caption
+        context_hint = en_caption
+
     msg = await update.message.reply_text(
-        style.loading_vision(n_providers, config.VISION_MODE),
+        style.loading_vision(n_providers, config.VISION_MODE, context_hint=context_hint),
         parse_mode="MarkdownV2",
     )
 
@@ -254,7 +269,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     session.image_bytes = image_bytes
 
     try:
-        winner, all_results = await analyse_image(image_bytes, mode=config.VISION_MODE)
+        winner, all_results = await analyse_image(
+            image_bytes, mode=config.VISION_MODE, context_hint=context_hint
+        )
     except RuntimeError:
         await msg.edit_text(style.error_no_providers(), parse_mode="MarkdownV2")
         return
@@ -463,9 +480,63 @@ async def _render_results(query, context, session: UserSession) -> None:
     )
 
 
-async def handle_non_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_text_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle text messages as product search queries (English / Hebrew / Russian)."""
+    user_id = update.effective_user.id
+    text    = (update.message.text or "").strip()
+
+    if not text:
+        return
+
+    if _is_rate_limited(user_id):
+        await update.message.reply_text(
+            style.error_rate_limited(RATE_MAX_REQUESTS, RATE_WINDOW_SECS),
+            parse_mode="MarkdownV2",
+        )
+        return
+
+    _sessions[user_id] = UserSession()
+    session = _sessions[user_id]
+
+    msg = await update.message.reply_text("🔍 Processing…")
+
+    # ── Detect language & translate ───────────────────────────────────────────
+    lang = detect_language(text)
+    try:
+        english, refined_query = await translate_and_refine(text)
+    except Exception as exc:
+        logger.warning("translate_and_refine failed: %s", exc)
+        english, refined_query = text, text
+
+    lang_labels = {"he": "🇮🇱 Hebrew", "ru": "🇷🇺 Russian"}
+
+    # ── Build a mock ProductInfo from the refined query ───────────────────────
+    session.product_info = ProductInfo(
+        product_name        = english[:100],
+        brand               = None,
+        category            = "All",
+        key_features        = [],
+        amazon_search_query = refined_query,
+        alternative_query   = refined_query,
+        confidence          = "high",
+        notes               = "",
+    )
+
+    # ── Show what we're searching for ─────────────────────────────────────────
+    await msg.edit_text(
+        style.text_search_ready(
+            original     = text,
+            english      = english,
+            refined      = refined_query,
+            lang_label   = lang_labels.get(lang),
+        ),
+        parse_mode="MarkdownV2",
+    )
+
+    # ── Show filter keyboard (reuse existing flow) ────────────────────────────
     await update.message.reply_text(
-        style.not_a_photo(), parse_mode="MarkdownV2"
+        "Choose delivery option:",
+        reply_markup=filter_keyboard(),
     )
 
 
@@ -498,5 +569,5 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("providers", cmd_providers))
     app.add_handler(MessageHandler(filters.PHOTO,                   handle_photo))
     app.add_handler(CallbackQueryHandler(handle_callback))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_non_photo))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_search))
     return app

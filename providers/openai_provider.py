@@ -16,8 +16,9 @@ import logging
 
 from openai import AsyncOpenAI
 
+from typing import Optional
 from providers.base import (
-    SYSTEM_PROMPT, USER_PROMPT,
+    SYSTEM_PROMPT, USER_PROMPT, build_user_prompt,
     ProviderResult, VisionProvider, parse_json_response,
 )
 
@@ -42,7 +43,11 @@ class OpenAIProvider(VisionProvider):
         # High-detail image processing: ~765 tokens for a typical product photo
         self.cost_per_image = 765 / 1000 * self.cost_per_1k_input_tokens
 
-    async def analyse(self, image_bytes: bytes) -> ProviderResult:
+    async def analyse(
+        self,
+        image_bytes: bytes,
+        context_hint: Optional[str] = None,
+    ) -> ProviderResult:
         b64 = base64.b64encode(image_bytes).decode()
         t0 = time.monotonic()
 
@@ -62,7 +67,7 @@ class OpenAIProvider(VisionProvider):
                                 "detail": "high",
                             },
                         },
-                        {"type": "text", "text": USER_PROMPT},
+                        {"type": "text", "text": build_user_prompt(context_hint)},
                     ],
                 },
             ],

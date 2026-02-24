@@ -19,8 +19,9 @@ import logging
 from google import genai
 from google.genai import types as genai_types
 
+from typing import Optional
 from providers.base import (
-    SYSTEM_PROMPT, USER_PROMPT,
+    SYSTEM_PROMPT, USER_PROMPT, build_user_prompt,
     ProviderResult, VisionProvider, parse_json_response,
 )
 
@@ -55,7 +56,11 @@ class GeminiProvider(VisionProvider):
         self.cost_per_1k_output_tokens = rates[1]
         self.cost_per_image            = rates[2]
 
-    async def analyse(self, image_bytes: bytes) -> ProviderResult:
+    async def analyse(
+        self,
+        image_bytes: bytes,
+        context_hint: Optional[str] = None,
+    ) -> ProviderResult:
         # Detect MIME type
         if image_bytes[:8] == b"\x89PNG\r\n\x1a\n":
             mime = "image/png"
@@ -66,7 +71,7 @@ class GeminiProvider(VisionProvider):
         else:
             mime = "image/jpeg"
 
-        config = genai_types.GenerateContentConfig(
+        gen_config = genai_types.GenerateContentConfig(
             system_instruction=SYSTEM_PROMPT,
             temperature=0,
             max_output_tokens=512,
@@ -79,9 +84,9 @@ class GeminiProvider(VisionProvider):
             model=self.model_id,
             contents=[
                 genai_types.Part.from_bytes(data=image_bytes, mime_type=mime),
-                USER_PROMPT,
+                build_user_prompt(context_hint),
             ],
-            config=config,
+            config=gen_config,
         )
 
         latency_ms = int((time.monotonic() - t0) * 1000)
