@@ -341,6 +341,9 @@ _KEY_LABELS = {
     "google_api_key":       ("🤖 Google",            "Used for Gemini vision"),
     "groq_api_key":         ("🤖 Groq",              "Llama vision (free at console.groq.com)"),
     "openrouter_api_key":   ("🤖 OpenRouter",        "100+ vision models via one API (openrouter.ai)"),
+    "azure_openai_key":     ("☁️ Azure OpenAI Key",    "Azure portal → resource → Keys and Endpoint → KEY 1"),
+    "azure_openai_endpoint":("☁️ Azure Endpoint",      "https://YOUR-RESOURCE.openai.azure.com/"),
+    "azure_openai_deployment":("☁️ Azure Deployment",  "Name you gave the deployment in Azure AI Studio"),
     "rapidapi_key":         ("🛒 RapidAPI",          "Amazon product search (recommended)"),
     "amazon_access_key":    ("🛒 Amazon Access Key", "PA-API (optional)"),
     "amazon_secret_key":    ("🛒 Amazon Secret Key", "PA-API (optional)"),
@@ -434,7 +437,8 @@ def _reload_backends(changed_key: str) -> None:
     amazon_search._backend = None   # force re-init with new key
 
     if changed_key in ("openai_api_key", "anthropic_api_key", "google_api_key",
-                       "groq_api_key", "openrouter_api_key"):
+                       "groq_api_key", "openrouter_api_key",
+                       "azure_openai_key", "azure_openai_endpoint", "azure_openai_deployment"):
         import providers.manager as pm
         pm._providers = {}          # force re-init of vision providers
 

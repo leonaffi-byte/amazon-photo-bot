@@ -122,6 +122,27 @@ async def _build_providers() -> dict[str, VisionProvider]:
             else:
                 logger.info("Skipped provider groq/%s (disabled by %s)", model, env_flag)
 
+    # ── Azure OpenAI (GPT-4o on Azure infrastructure) ────────────────────────
+    azure_key        = await key_store.get("azure_openai_key")
+    azure_endpoint   = await key_store.get("azure_openai_endpoint")
+    azure_deployment = await key_store.get("azure_openai_deployment")
+    if azure_key and azure_endpoint and azure_deployment:
+        from providers.azure_openai_provider import AzureOpenAIProvider
+        env_flag = "ENABLE_AZURE_OPENAI"
+        if _model_enabled(env_flag):
+            try:
+                p = AzureOpenAIProvider(
+                    api_key=azure_key,
+                    endpoint=azure_endpoint,
+                    deployment=azure_deployment,
+                )
+                providers[p.full_name] = p
+                logger.info("Loaded provider: %s", p.full_name)
+            except Exception as exc:
+                logger.warning("Could not load Azure OpenAI provider: %s", exc)
+        else:
+            logger.info("Skipped Azure OpenAI provider (disabled by %s)", env_flag)
+
     # ── OpenRouter (unified gateway — models chosen by admin in /admin → Models) ─
     openrouter_key = await key_store.get("openrouter_api_key")
     if openrouter_key:
