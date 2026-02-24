@@ -951,6 +951,7 @@ def get_admin_handlers():
         },
         fallbacks=[CommandHandler("cancel", cancel_flow)],
         allow_reentry=True,
+        per_message=False,
     )
 
     # Conversation: set API key
@@ -963,12 +964,13 @@ def get_admin_handlers():
         },
         fallbacks=[CommandHandler("cancel", cancel_flow)],
         allow_reentry=True,
+        per_message=False,
     )
 
     # Conversation: edit a free-text bot setting (or custom value for choice settings)
     setting_conv = ConversationHandler(
         entry_points=[
-            CallbackQueryHandler(_setting_edit_entry,    pattern=f"^{CB_SET_EDIT}"),
+            CallbackQueryHandler(_setting_edit_entry,     pattern=f"^{CB_SET_EDIT}"),
             CallbackQueryHandler(_setting_freetext_entry, pattern=f"^{CB_SET_FREETEXT}"),
         ],
         states={
@@ -979,6 +981,7 @@ def get_admin_handlers():
         },
         fallbacks=[CommandHandler("cancel", cancel_flow)],
         allow_reentry=True,
+        per_message=False,
     )
 
     return [
