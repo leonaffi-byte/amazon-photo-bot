@@ -11,6 +11,9 @@ services:
     environment:
       # DB and logs live under /app/data so the volume mount persists them
       DATA_DIR: /app/data
+    ports:
+      # URL shortener — Nginx proxies amznl.cc → this port
+      - "8080:8080"
     volumes:
       # Single directory mount — contains both bot_data.db and bot.log
       - ./data:/app/data
