@@ -48,6 +48,26 @@ logger = logging.getLogger(__name__)
 
 
 async def run() -> None:
+    # ── Database bootstrap (must happen before anything else) ─────────────────
+    # Call init_db() here explicitly so that:
+    #   a) any failure is immediately visible in the logs (not swallowed)
+    #   b) the DB is ready before PTB builds the application
+    # (PTB's post_init hook also calls this, but it can be silently skipped in
+    #  some PTB 20.x versions when the event loop is already running.)
+    import database as _db
+    import settings_store as _ss
+    try:
+        await _db.init_db()
+        logger.info("Database ready at %s", _db.DB_PATH)
+        if config.ADMIN_IDS:
+            await _db.seed_admins(config.ADMIN_IDS)
+            logger.info("Seeded %d bootstrap admin(s)", len(config.ADMIN_IDS))
+        await config.apply_db_settings()
+        logger.info("DB settings applied.")
+    except Exception as exc:
+        logger.critical("FATAL: database init failed: %s", exc, exc_info=True)
+        raise
+
     ptb_app = build_application()
 
     # ── Start custom URL shortener server if configured ────────────────────────
