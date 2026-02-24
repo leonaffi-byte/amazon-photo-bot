@@ -1,0 +1,11 @@
+python-telegram-bot==20.7
+python-dotenv==1.0.1
+aiohttp==3.9.3
+aiofiles==23.2.1
+Pillow==10.2.0
+aiosqlite==0.20.0
+
+# Vision providers — install only what you need
+openai==1.12.0                  # OpenAI gpt-4o / gpt-4o-mini
+anthropic==0.21.3               # Anthropic claude-3-5-sonnet / claude-3-haiku
+google-generativeai==0.5.2      # Google gemini-1.5-flash / gemini-1.5-pro
