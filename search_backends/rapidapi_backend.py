@@ -58,30 +58,30 @@ class RapidAPIBackend(SearchBackend):
         """
         Fetch search results from a specific Amazon results page.
         page=1 is the default first page, page=2 fetches items 21-40, etc.
+
+        Notes:
+        - `product_condition` is intentionally omitted — passing "ALL" is not a valid
+          value for this API and causes it to silently return 0 results.
+        - Retries once with a short delay if the first call returns 0 products,
+          since RapidAPI occasionally rate-limits bursts silently.
         """
+        import asyncio
+
         params = {
-            "query":             query,
-            "page":              str(page),
-            "country":           "US",
-            "sort_by":           "RELEVANCE",
-            "product_condition": "ALL",
+            "query":   query,
+            "page":    str(page),
+            "country": "US",
+            "sort_by": "RELEVANCE",
         }
 
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                SEARCH_URL,
-                headers=self._headers,
-                params=params,
-                timeout=aiohttp.ClientTimeout(total=15),
-            ) as resp:
-                if resp.status != 200:
-                    text = await resp.text()
-                    raise RuntimeError(
-                        f"RapidAPI error {resp.status}: {text[:200]}"
-                    )
-                data = await resp.json()
+        raw_products = await self._fetch(params)
 
-        raw_products = data.get("data", {}).get("products", [])
+        # Retry once on empty — RapidAPI sometimes silently rate-limits burst calls
+        if not raw_products:
+            logger.warning("RapidAPI returned 0 for '%s' — retrying in 1.5s", query)
+            await asyncio.sleep(1.5)
+            raw_products = await self._fetch(params)
+
         logger.info("RapidAPI returned %d products for query '%s'", len(raw_products), query)
 
         items: list[AmazonItem] = []
@@ -93,6 +93,23 @@ class RapidAPIBackend(SearchBackend):
         # Sort by score (rating × log reviews)
         items.sort(key=lambda i: i.score, reverse=True)
         return items
+
+    # ── HTTP helper ───────────────────────────────────────────────────────────
+
+    async def _fetch(self, params: dict) -> list:
+        """Single HTTP call to the search endpoint. Returns raw product list (may be empty)."""
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                SEARCH_URL,
+                headers=self._headers,
+                params=params,
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as resp:
+                if resp.status != 200:
+                    text = await resp.text()
+                    raise RuntimeError(f"RapidAPI error {resp.status}: {text[:200]}")
+                data = await resp.json()
+        return data.get("data", {}).get("products", [])
 
     # ── Parser ────────────────────────────────────────────────────────────────
 

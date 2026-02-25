@@ -156,8 +156,10 @@ async def search_amazon(
         except Exception as exc:
             logger.warning("Primary search failed: %s", exc)
 
-        # Fallback if too few results
+        # Fallback if too few results — small delay to avoid burst rate-limiting
         if len(seen) < 3 and product.alternative_query != product.amazon_search_query:
+            import asyncio
+            await asyncio.sleep(1.0)
             try:
                 items = await backend.search(product.alternative_query, max_results)
                 for item in items:
