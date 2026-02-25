@@ -249,29 +249,34 @@ def product_caption(
 ) -> str:
     """
     Single-product caption for the photo carousel (max 1024 chars).
-    Admin users see the AI provider name; regular users just see the product info.
+    Shows position counter, price, rating, and Israel delivery signal.
+    Admin users see the AI provider + affiliate tag in a footer line.
     """
-    title = esc(item.title[:110])
+    title = esc(item.title[:100])
 
     price = f"💰 *{esc(f'${item.price_usd:.2f}')}*" if item.price_usd else "💰 _Price not listed_"
 
     if item.rating and item.review_count:
-        stars    = star_bar(item.rating)
-        rating   = f"⭐ `{item.rating}` {esc(stars)}  _{esc(fmt_reviews(item.review_count))} reviews_"
+        stars  = star_bar(item.rating)
+        rating = f"⭐ `{item.rating}` {esc(stars)}  _{esc(fmt_reviews(item.review_count))} reviews_"
     elif item.rating:
-        rating   = f"⭐ `{item.rating}` {esc(star_bar(item.rating))}"
+        rating = f"⭐ `{item.rating}` {esc(star_bar(item.rating))}"
     else:
-        rating   = "⭐ _No ratings yet_"
+        rating = "⭐ _No ratings yet_"
 
     delivery = esc(item.delivery_badge)
     israel   = esc(item.israel_delivery_note)
 
+    # Position counter e.g. "3 of 18"
+    counter  = f"_{index} of {total}_" if total > 1 else ""
+
     admin_line = ""
     if is_admin and provider_name:
-        tag_note = f"  🏷️ `{esc(affiliate_tag)}`" if affiliate_tag else ""
+        tag_note   = f"  🏷️ `{esc(affiliate_tag)}`" if affiliate_tag else ""
         admin_line = f"\n{SDIV}\n🤖 _{esc(provider_name)}{tag_note}_"
 
     caption = (
+        f"{counter}\n"
         f"*{title}*\n"
         f"{SDIV}\n"
         f"{price}   {rating}\n"
@@ -280,6 +285,7 @@ def product_caption(
         f"{admin_line}"
     )
 
+    # Telegram caption hard-limit is 1024 chars
     if len(caption) > 1020:
         caption = caption[:1020] + "\\.\\.\\."
     return caption

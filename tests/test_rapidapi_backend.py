@@ -74,7 +74,9 @@ class TestParseProduct:
         assert item.rating == 4.3
         assert item.review_count == 5678
         assert item.is_prime is True
-        assert item.is_amazon_fulfilled is True  # prime → fulfilled
+        # is_prime alone does not set is_amazon_fulfilled (only sold_by_amazon does);
+        # but the item still qualifies for Israel via qualifies_for_israel_free_delivery
+        assert item.qualifies_for_israel_free_delivery is True
 
     def test_missing_asin_returns_none(self, backend):
         raw = self._full_raw()
@@ -90,11 +92,14 @@ class TestParseProduct:
         # If no free delivery text or amazon seller detected:
         assert not item.is_amazon_fulfilled
 
-    def test_free_delivery_text_triggers_fba_flag(self, backend):
+    def test_free_delivery_text_does_not_trigger_fba_flag(self, backend):
+        # "FREE delivery" in US search results is US domestic shipping, NOT Israel.
+        # It must NOT be used to flag an item as Amazon-fulfilled / Israel-eligible.
         raw = self._full_raw(is_prime=False, delivery="FREE delivery tomorrow")
         item = backend._parse_product(raw)
         assert item is not None
-        assert item.is_amazon_fulfilled
+        assert not item.is_amazon_fulfilled   # US delivery text ≠ FBA
+        assert not item.qualifies_for_israel_free_delivery  # not prime, not FBA, not sold-by-Amazon
 
     def test_sold_by_amazon_flag(self, backend):
         raw = self._full_raw(is_prime=False, delivery="")

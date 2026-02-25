@@ -56,34 +56,46 @@ class AmazonItem:
     @property
     def qualifies_for_israel_free_delivery(self) -> bool:
         """
-        True when this item is likely eligible for Amazon's free-shipping-to-Israel
-        programme (order must still reach $49 USD total).
+        True when this item is reliably known to be FBA/sold-by-Amazon,
+        meaning it ships internationally to Israel via Amazon Global.
 
-        Detection strategy (works across all backends):
-          1. is_amazon_fulfilled (exact — available from PA-API)
-          2. is_prime as fallback (Prime items are ~97% FBA)
-          3. is_sold_by_amazon (always qualifies)
+        Rules (conservative — prefer false negatives over false positives):
+          1. is_sold_by_amazon → 100% qualifies (Amazon Retail ships globally)
+          2. is_amazon_fulfilled (FBA) → qualifies (FBA items use Amazon's export program)
+          3. is_prime → high-confidence proxy for FBA (~97% of Prime items are FBA)
 
-        We use OR so that even backends that only provide is_prime still filter correctly.
+        Deliberately NOT included:
+          • "FREE delivery …" text from US search results — this is US domestic
+            delivery, completely unrelated to whether the item ships to Israel.
+          • Price-only signals — a cheap 3P item still doesn't ship to Israel.
         """
-        return self.is_amazon_fulfilled or self.is_prime or self.is_sold_by_amazon
+        return self.is_sold_by_amazon or self.is_amazon_fulfilled or self.is_prime
 
     @property
     def delivery_badge(self) -> str:
+        """Short one-line shipping signal shown on every product card."""
         if self.is_sold_by_amazon:
-            return "🟢 Ships from Amazon.com"
+            return "🟢 Sold & shipped by Amazon.com"
         if self.is_amazon_fulfilled:
-            return "🔵 Fulfilled by Amazon (FBA)"
+            return "📦 Fulfilled by Amazon (FBA)"
         if self.is_prime:
-            return "🔵 Prime eligible (likely FBA)"
-        return "🟡 Third-party seller"
+            return "⭐ Prime eligible — FBA"
+        return "🏪 Third-party seller"
 
     @property
     def israel_delivery_note(self) -> str:
-        if self.qualifies_for_israel_free_delivery:
-            threshold = config.FREE_DELIVERY_THRESHOLD
-            return f"✈️ Free delivery to 🇮🇱 Israel (cart ≥ ${threshold:.0f})"
-        return "⚠️ May not qualify for free delivery to Israel"
+        """
+        Delivery note tailored for Israeli users.
+        Shows confidence level so users know how sure we are.
+        """
+        threshold = config.FREE_DELIVERY_THRESHOLD
+        if self.is_sold_by_amazon:
+            return f"✈️ Ships to 🇮🇱 Israel — free when cart ≥ ${threshold:.0f}"
+        if self.is_amazon_fulfilled:
+            return f"✈️ Likely ships to 🇮🇱 Israel (FBA) — free when cart ≥ ${threshold:.0f}"
+        if self.is_prime:
+            return f"✈️ Probably ships to 🇮🇱 Israel (Prime/FBA) — free when cart ≥ ${threshold:.0f}"
+        return "⚠️ Third-party seller — verify Israel shipping on Amazon"
 
 
 class SearchBackend(ABC):

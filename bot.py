@@ -13,7 +13,7 @@ from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from typing import Optional
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, Update
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -36,13 +36,16 @@ from translator import detect_language, translate_and_refine
 logger = logging.getLogger(__name__)
 
 # ── Callback data ──────────────────────────────────────────────────────────────
-CB_FILTER_YES     = "filter:yes"
-CB_FILTER_NO      = "filter:no"
-CB_PREV           = "nav:prev"
-CB_NEXT           = "nav:next"
-CB_CHANGE_FILTER  = "nav:change"
-CB_USE_RESULT     = "use:"           # + index
-CB_TRY_DIFFERENTLY = "nav:try"       # re-search using next provider result
+CB_FILTER_YES      = "filter:yes"
+CB_FILTER_NO       = "filter:no"
+CB_PREV            = "nav:prev"
+CB_NEXT            = "nav:next"
+CB_CHANGE_FILTER   = "nav:change"
+CB_USE_RESULT      = "use:"           # + index
+CB_TRY_DIFFERENTLY = "nav:try"        # re-search using next provider result
+
+# Placeholder image when a product has no photo URL
+_PLACEHOLDER_IMG = "https://placehold.co/600x400/FF9900/FFF.png?text=Amazon"
 
 
 # ── Session ────────────────────────────────────────────────────────────────────
@@ -57,11 +60,16 @@ class UserSession:
     all_items: list[AmazonItem]      = field(default_factory=list)
     filtered_items: list[AmazonItem] = field(default_factory=list)
     israel_only: bool = False
-    page: int = 0          # current PAGE index (0-based), RESULTS_PER_PAGE items per page
+
+    # page = current ITEM index (0-based) in filtered_items
+    page: int = 0
 
     # Lazy loading: track which Amazon results page we last fetched
-    amazon_page: int = 1   # next Amazon page to fetch (1 = first batch already done)
-    more_available: bool = True   # False when Amazon returns empty page
+    amazon_page: int = 1      # next Amazon page to fetch (1 = first batch already done)
+    more_available: bool = True
+
+    # Photo carousel state — message ID of the current product photo card
+    results_msg_id: Optional[int] = None
 
     # Store raw image bytes so "Try differently" can re-analyse without re-upload
     image_bytes: Optional[bytes] = None
@@ -70,12 +78,19 @@ class UserSession:
     is_admin: Optional[bool] = None
 
     @property
-    def total_pages(self) -> int:
-        return max(1, (len(self.filtered_items) + config.RESULTS_PER_PAGE - 1) // config.RESULTS_PER_PAGE)
+    def total_items(self) -> int:
+        return max(1, len(self.filtered_items))
 
+    def current_item(self) -> Optional[AmazonItem]:
+        if not self.filtered_items:
+            return None
+        idx = max(0, min(self.page, len(self.filtered_items) - 1))
+        return self.filtered_items[idx]
+
+    # Keep this for compatibility with any code that calls current_page_items()
     def current_page_items(self) -> list[AmazonItem]:
-        s = self.page * config.RESULTS_PER_PAGE
-        return self.filtered_items[s : s + config.RESULTS_PER_PAGE]
+        item = self.current_item()
+        return [item] if item else []
 
     def apply_filter(self, israel_only: bool) -> None:
         self.israel_only = israel_only
@@ -143,43 +158,46 @@ def compare_keyboard(results: list[ProviderResult]) -> InlineKeyboardMarkup:
 
 
 async def results_keyboard(session: UserSession, affiliate_tag: Optional[str]) -> InlineKeyboardMarkup:
-    """Paginated results keyboard: numbered product links + nav + try-differently."""
-    items = session.current_page_items()
+    """
+    Photo-carousel keyboard: one Shop button for the current product,
+    ◀ N/Total ▶ navigation, filter toggle, and optional Try differently.
+    """
+    item  = session.current_item()
+    total = len(session.filtered_items)
+    idx   = session.page
 
-    long_urls = [item.affiliate_url(affiliate_tag) for item in items]
-    url_map   = await url_shortener.shorten_many(long_urls)
+    rows: list[list[InlineKeyboardButton]] = []
 
-    item_rows = [
-        [InlineKeyboardButton(
-            f"🛒  #{session.page * config.RESULTS_PER_PAGE + i + 1}  Shop on Amazon",
-            url=url_map.get(item.affiliate_url(affiliate_tag), item.affiliate_url(affiliate_tag)),
-        )]
-        for i, item in enumerate(items)
-    ]
+    # ── Shop button ────────────────────────────────────────────────────────────
+    if item:
+        long_url = item.affiliate_url(affiliate_tag)
+        url_map  = await url_shortener.shorten_many([long_url])
+        shop_url = url_map.get(long_url, long_url)
+        rows.append([InlineKeyboardButton("🛒  Shop on Amazon", url=shop_url)])
 
-    # Navigation row — show "Loading more…" counter hint when on last page
+    # ── Navigation row ─────────────────────────────────────────────────────────
     nav = []
-    if session.page > 0:
+    if idx > 0:
         nav.append(InlineKeyboardButton("◀", callback_data=CB_PREV))
-    page_label = f"{session.page + 1} / {session.total_pages}"
-    if session.page == session.total_pages - 1 and session.more_available:
-        page_label += " +"     # hint that more exist
+
+    page_label = f"{idx + 1} / {total}"
+    if idx == total - 1 and session.more_available:
+        page_label += " +"
     nav.append(InlineKeyboardButton(page_label, callback_data="nav:noop"))
-    if session.page < session.total_pages - 1 or session.more_available:
+
+    if idx < total - 1 or session.more_available:
         nav.append(InlineKeyboardButton("▶", callback_data=CB_NEXT))
 
+    if nav:
+        rows.append(nav)
+
+    # ── Filter toggle ──────────────────────────────────────────────────────────
     toggle = "🌐  Show all" if session.israel_only else "✈️  Free delivery only"
+    rows.append([InlineKeyboardButton(toggle, callback_data=CB_CHANGE_FILTER)])
 
-    rows = [*item_rows, nav, [InlineKeyboardButton(toggle, callback_data=CB_CHANGE_FILTER)]]
-
-    # "Try differently" — only shown when multiple AI results are available
+    # ── Try differently ────────────────────────────────────────────────────────
     if len(session.all_provider_results) > 1:
-        next_idx = (session.chosen_provider_idx + 1) % len(session.all_provider_results)
-        next_name = session.all_provider_results[next_idx].provider_name.split("/")[-1][:20]
-        rows.append([InlineKeyboardButton(
-            f"🔄  Try differently",
-            callback_data=CB_TRY_DIFFERENTLY,
-        )])
+        rows.append([InlineKeyboardButton("🔄  Try differently", callback_data=CB_TRY_DIFFERENTLY)])
 
     return InlineKeyboardMarkup(rows)
 
@@ -265,7 +283,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     photo_file = await context.bot.get_file(photo.file_id)
     image_bytes = bytes(await photo_file.download_as_bytearray())
 
-    # Store for potential "Try differently" re-analysis
     session.image_bytes = image_bytes
 
     try:
@@ -354,6 +371,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         session.all_items      = all_items
         session.amazon_page    = 1
         session.more_available = len(all_items) >= config.MAX_RESULTS
+        session.results_msg_id = None   # reset so _render_results sends fresh photo
         session.apply_filter(israel_only)
 
         active_tag = await db.get_active_tag()
@@ -397,18 +415,24 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         session.chosen_result       = session.all_provider_results[next_idx]
         session.product_info        = session.chosen_result.to_product_info()
 
-        await query.edit_message_text(
-            style.loading_search(session.product_info.product_name,
-                                 "free delivery to 🇮🇱 Israel" if session.israel_only else "all items"),
-            parse_mode="MarkdownV2",
-        )
+        # Show loading in caption while keeping the carousel
+        try:
+            await query.edit_message_caption(
+                caption=style.loading_search(
+                    session.product_info.product_name,
+                    "free delivery to 🇮🇱 Israel" if session.israel_only else "all items"
+                ),
+                parse_mode="MarkdownV2",
+            )
+        except Exception:
+            pass
 
         try:
             new_items = await search_amazon(session.product_info, max_results=config.MAX_RESULTS)
         except Exception as exc:
             logger.error("Try-differently search failed: %s", exc)
-            await query.edit_message_text(
-                "❌ Search failed\\. Please try again\\.", parse_mode="MarkdownV2"
+            await query.edit_message_caption(
+                caption="❌ Search failed\\. Please try again\\.", parse_mode="MarkdownV2"
             )
             return
 
@@ -418,7 +442,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         session.apply_filter(session.israel_only)
 
         if not session.filtered_items:
-            await query.edit_message_text(style.error_no_results(), parse_mode="MarkdownV2")
+            try:
+                await query.edit_message_caption(
+                    caption=style.error_no_results(), parse_mode="MarkdownV2"
+                )
+            except Exception:
+                await query.edit_message_text(
+                    style.error_no_results(), parse_mode="MarkdownV2"
+                )
             return
 
         await _render_results(query, context, session)
@@ -431,12 +462,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
 
     if data == CB_NEXT:
+        total = len(session.filtered_items)
         next_page = session.page + 1
-        if next_page < session.total_pages:
+
+        if next_page < total:
             session.page = next_page
         elif session.more_available:
             # Lazy-load: fetch next batch from Amazon
-            await query.edit_message_text("⠙ Loading more results…", parse_mode="MarkdownV2")
             try:
                 session.amazon_page += 1
                 new_items = await search_amazon(
@@ -450,19 +482,26 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     session.page = next_page
                 else:
                     session.more_available = False
-                    session.page = session.total_pages - 1
+                    session.page = max(0, total - 1)
             except Exception as exc:
                 logger.error("Lazy-load failed: %s", exc)
                 session.more_available = False
-                session.page = session.total_pages - 1
+                session.page = max(0, total - 1)
         else:
-            session.page = session.total_pages - 1   # already at end
+            session.page = max(0, total - 1)   # already at end
+
         await _render_results(query, context, session)
         return
 
 
 async def _render_results(query, context, session: UserSession) -> None:
-    """Render the current page as a text list of product cards."""
+    """
+    Render the current product as a photo carousel card.
+
+    First call: sends a new photo message, deletes the old text message.
+    Subsequent calls: edits the existing photo message via edit_message_media.
+    Falls back to text if the image URL is unavailable.
+    """
     affiliate_tag = await db.get_active_tag()
 
     # Resolve admin status once per session
@@ -470,15 +509,80 @@ async def _render_results(query, context, session: UserSession) -> None:
         uid = query.from_user.id
         session.is_admin = uid in config.ADMIN_IDS or await db.is_admin_in_db(uid)
 
-    text     = style.results_page(session, affiliate_tag, is_admin=session.is_admin)
-    keyboard = await results_keyboard(session, affiliate_tag)
+    item  = session.current_item()
+    total = len(session.filtered_items)
 
-    await query.edit_message_text(
-        text,
-        parse_mode="MarkdownV2",
-        reply_markup=keyboard,
-        disable_web_page_preview=True,
+    if not item:
+        await query.edit_message_text(style.error_no_results(), parse_mode="MarkdownV2")
+        return
+
+    caption  = style.product_caption(
+        item,
+        index        = session.page + 1,
+        total        = total,
+        is_admin     = session.is_admin,
+        provider_name= session.chosen_result.provider_name if session.chosen_result else None,
+        affiliate_tag= affiliate_tag,
     )
+    keyboard = await results_keyboard(session, affiliate_tag)
+    image_url = item.image_url or _PLACEHOLDER_IMG
+
+    # ── First render: text msg → send new photo, delete old msg ───────────────
+    if session.results_msg_id is None:
+        try:
+            sent = await context.bot.send_photo(
+                chat_id       = query.message.chat_id,
+                photo         = image_url,
+                caption       = caption,
+                parse_mode    = "MarkdownV2",
+                reply_markup  = keyboard,
+            )
+            session.results_msg_id = sent.message_id
+            # Delete the text identification card (best-effort)
+            try:
+                await query.message.delete()
+            except Exception:
+                pass
+            return
+        except Exception as exc:
+            logger.error("send_photo failed: %s", exc)
+            # Fall through to text fallback
+
+    # ── Subsequent renders: edit the existing photo message ───────────────────
+    else:
+        try:
+            await query.edit_message_media(
+                media        = InputMediaPhoto(
+                    media      = image_url,
+                    caption    = caption,
+                    parse_mode = "MarkdownV2",
+                ),
+                reply_markup = keyboard,
+            )
+            return
+        except Exception as exc:
+            logger.warning("edit_message_media failed (%s), trying caption-only", exc)
+            try:
+                await query.edit_message_caption(
+                    caption      = caption,
+                    parse_mode   = "MarkdownV2",
+                    reply_markup = keyboard,
+                )
+                return
+            except Exception as exc2:
+                logger.error("edit_message_caption also failed: %s", exc2)
+
+    # ── Text fallback ──────────────────────────────────────────────────────────
+    try:
+        text_body = style.results_page(session, affiliate_tag, is_admin=session.is_admin)
+        await query.edit_message_text(
+            text_body,
+            parse_mode            = "MarkdownV2",
+            reply_markup          = keyboard,
+            disable_web_page_preview = True,
+        )
+    except Exception as exc:
+        logger.error("Text fallback also failed: %s", exc)
 
 
 async def handle_text_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

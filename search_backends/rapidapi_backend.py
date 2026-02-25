@@ -128,31 +128,24 @@ class RapidAPIBackend(SearchBackend):
             # ── Fulfillment / Israel delivery detection ────────────────────────
             is_prime = bool(raw.get("is_prime", False))
 
-            # RapidAPI search returns a human-readable delivery string such as
-            # "FREE delivery Mon, Mar 2" or "FREE Shipping on eligible orders".
-            # is_prime is almost always False in search results even for FBA items,
-            # so we rely on the delivery text as the primary signal.
+            # RapidAPI returns a US-domestic delivery string like
+            # "FREE delivery Mon, Mar 2" — this is NOT about Israel shipping.
+            # Do NOT use it as an Israel eligibility signal.
             delivery_text = (raw.get("delivery") or "").lower()
-            has_free_delivery_text = (
-                "free delivery" in delivery_text
-                or "free shipping" in delivery_text
-                or "ships free" in delivery_text
-                or (delivery_text.startswith("free") and len(delivery_text) > 4)
-            )
 
-            # Seller name can appear in different fields depending on API version
+            # Seller name — check several fields depending on API version
             seller = (
-                raw.get("sales_volume", "")      # sometimes contains seller hint
+                raw.get("sales_volume", "")
                 or raw.get("product_details", {}).get("seller", "")
                 or ""
             ).lower()
             is_sold_by_amazon = "amazon.com" in seller or "amazon" == seller.strip()
 
-            # FBA flag: RapidAPI's search endpoint doesn't return IsAmazonFulfilled
-            # directly, but is_prime is a very reliable proxy (~97% accuracy).
-            # We set is_amazon_fulfilled = is_prime here; the base class OR-combines
-            # is_prime and is_amazon_fulfilled anyway, so this doesn't double-count.
-            is_amazon_fulfilled = is_prime or is_sold_by_amazon or has_free_delivery_text
+            # FBA detection: RapidAPI search results rarely set is_prime=True even
+            # for FBA items. is_amazon_fulfilled is our "we're sure it's FBA" flag;
+            # is_prime is the "pretty confident it's FBA" fallback used by base.py.
+            # We only set is_amazon_fulfilled when we have a strong explicit signal.
+            is_amazon_fulfilled = is_sold_by_amazon
 
             return AmazonItem(
                 asin=asin,
