@@ -58,9 +58,10 @@ def _format_report(stats: dict, period_label: str, since: datetime) -> str:
     ]
 
     if stats["total_cost_usd"] > 0:
+        total_cost_str = esc(f"${stats['total_cost_usd']:.4f}")
         lines += [
             "",
-            f"💸 Total API cost: *{esc(f'${stats[\"total_cost_usd\"]:.4f}')}*",
+            f"💸 Total API cost: *{total_cost_str}*",
         ]
         if stats["cost_by_provider"]:
             lines.append("🤖 By model:")
