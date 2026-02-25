@@ -344,10 +344,12 @@ _KEY_LABELS = {
     "azure_openai_key":     ("☁️ Azure OpenAI Key",    "Azure portal → resource → Keys and Endpoint → KEY 1"),
     "azure_openai_endpoint":("☁️ Azure Endpoint",      "https://YOUR-RESOURCE.openai.azure.com/"),
     "azure_openai_deployment":("☁️ Azure Deployment",  "Name you gave the deployment in Azure AI Studio"),
-    "rapidapi_key":         ("🛒 RapidAPI",          "Amazon product search (recommended)"),
-    "amazon_access_key":    ("🛒 Amazon Access Key", "PA-API (optional)"),
-    "amazon_secret_key":    ("🛒 Amazon Secret Key", "PA-API (optional)"),
-    "amazon_associate_tag": ("🛒 Associate Tag",     "PA-API affiliate tag (optional)"),
+    "dataforseo_login":     ("🛒 DataForSEO Login",    "Email used at app.dataforseo.com (~$0.003/search, pay-per-use)"),
+    "dataforseo_password":  ("🛒 DataForSEO Password", "API password — Dashboard → API Access → Password"),
+    "rapidapi_key":         ("🛒 RapidAPI",            "Amazon product search fallback (100 free/month)"),
+    "amazon_access_key":    ("🛒 Amazon Access Key",   "PA-API (free, needs Associates qualification)"),
+    "amazon_secret_key":    ("🛒 Amazon Secret Key",   "PA-API (optional)"),
+    "amazon_associate_tag": ("🛒 Associate Tag",       "PA-API affiliate tag (optional)"),
     "bitly_token":          ("🔗 bit.ly Token",      "URL shortener — free at bitly.com (optional)"),
 }
 

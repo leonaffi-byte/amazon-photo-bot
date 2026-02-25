@@ -51,17 +51,26 @@ async def _build_backend() -> SearchBackend:
     """
     Build the search backend using keys from key_store (DB → .env fallback).
     Called automatically on first search — no restart needed after key changes.
+
+    Priority order (auto mode):
+      1. PA-API          — free, best data quality, needs Associates qualification
+      2. DataForSEO      — pay-per-use (~$0.003/search), no subscription
+      3. RapidAPI        — pay-per-use or subscription, 100 free/month
     """
     import key_store
 
     mode = config.SEARCH_BACKEND.lower()
 
-    rapidapi_key   = await key_store.get("rapidapi_key")
-    amazon_access  = await key_store.get("amazon_access_key")
-    amazon_secret  = await key_store.get("amazon_secret_key")
-    amazon_tag     = await key_store.get("amazon_associate_tag")
+    rapidapi_key       = await key_store.get("rapidapi_key")
+    amazon_access      = await key_store.get("amazon_access_key")
+    amazon_secret      = await key_store.get("amazon_secret_key")
+    amazon_tag         = await key_store.get("amazon_associate_tag")
+    dataforseo_login   = await key_store.get("dataforseo_login")
+    dataforseo_password= await key_store.get("dataforseo_password")
+
     has_paapi      = bool(amazon_access and amazon_secret and amazon_tag)
     has_rapidapi   = bool(rapidapi_key)
+    has_dataforseo = bool(dataforseo_login and dataforseo_password)
 
     if mode == "paapi":
         if not has_paapi:
@@ -79,10 +88,21 @@ async def _build_backend() -> SearchBackend:
             )
         return _make_rapidapi(rapidapi_key)
 
-    # auto mode
+    if mode == "dataforseo":
+        if not has_dataforseo:
+            raise RuntimeError(
+                "SEARCH_BACKEND=dataforseo but DataForSEO keys are not set.\n"
+                "Add dataforseo_login + dataforseo_password via /admin → 🔑 API Keys."
+            )
+        return _make_dataforseo(dataforseo_login, dataforseo_password)
+
+    # auto mode: PA-API → DataForSEO → RapidAPI
     if has_paapi:
         logger.info("Auto-selected PA-API backend")
         return _make_paapi(amazon_access, amazon_secret, amazon_tag)
+    if has_dataforseo:
+        logger.info("Auto-selected DataForSEO backend")
+        return _make_dataforseo(dataforseo_login, dataforseo_password)
     if has_rapidapi:
         logger.info("Auto-selected RapidAPI backend")
         return _make_rapidapi(rapidapi_key)
@@ -90,8 +110,9 @@ async def _build_backend() -> SearchBackend:
     raise RuntimeError(
         "No search backend configured\\.\n\n"
         "Open /admin → 🔑 API Keys and set:\n"
-        "  *RapidAPI key* \\(recommended\\) — free at rapidapi\\.com\n"
-        "  or Amazon PA\\-API keys"
+        "  *DataForSEO* login \\+ password \\(pay\\-per\\-use, ~\\$0\\.003/search\\)\n"
+        "  or *RapidAPI* key \\(100 free searches/month\\)\n"
+        "  or *Amazon PA\\-API* keys \\(free with Associates account\\)"
     )
 
 
@@ -106,6 +127,11 @@ def _make_paapi(access: str, secret: str, tag: str) -> SearchBackend:
 def _make_rapidapi(api_key: str) -> SearchBackend:
     from search_backends.rapidapi_backend import RapidAPIBackend
     return RapidAPIBackend(api_key=api_key)
+
+
+def _make_dataforseo(login: str, password: str) -> SearchBackend:
+    from search_backends.dataforseo_backend import DataForSEOBackend
+    return DataForSEOBackend(login=login, password=password)
 
 
 # ── Public search function ─────────────────────────────────────────────────────
