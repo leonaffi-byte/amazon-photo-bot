@@ -12,12 +12,15 @@ Why this one:
   • Returns: ASIN, title, price, rating, review count, image, Prime flag,
     delivery text, seller name — everything we need
 
-Israel free-delivery detection without PA-API's IsAmazonFulfilled:
-  • is_prime == True  →  item is Prime-eligible → almost certainly FBA
-    (Amazon stats: ~97% of Prime items are FBA or Amazon-fulfilled)
-  • "sold by Amazon" in seller name  →  100% qualifies
-  • delivery field contains "FREE delivery"  →  strong positive signal
-  • We OR all three signals → very few false negatives
+Israel free-delivery detection (empirically verified):
+  • delivery text contains "shipped by Amazon"
+      → definitive FBA signal. Amazon writes:
+        "FREE delivery Mon, Mar 2 on $35 of items shipped by Amazon"
+        for FBA items and simply "FREE delivery Mon, Mar 2" for 3P items.
+      → FBA items are eligible for Amazon's international shipping to 🇮🇱 Israel.
+  • "sold by Amazon" in seller name  → Amazon Retail, 100% qualifies
+  • is_prime from API / "Prime members" in delivery text → fallback proxy
+  • Plain "FREE delivery …" WITHOUT "shipped by Amazon" → 3P domestic only
 """
 from __future__ import annotations
 
@@ -126,26 +129,45 @@ class RapidAPIBackend(SearchBackend):
             image_url: Optional[str] = raw.get("product_photo") or raw.get("thumbnail")
 
             # ── Fulfillment / Israel delivery detection ────────────────────────
-            is_prime = bool(raw.get("is_prime", False))
-
-            # RapidAPI returns a US-domestic delivery string like
-            # "FREE delivery Mon, Mar 2" — this is NOT about Israel shipping.
-            # Do NOT use it as an Israel eligibility signal.
+            #
+            # RapidAPI search results almost never set is_prime=True, but the
+            # delivery text contains the real fulfilment signal:
+            #
+            #   FBA item → "FREE delivery Mon, Mar 2 on $35 of items shipped by Amazon"
+            #   3P item  → "FREE delivery Mon, Mar 2"  (no "shipped by Amazon")
+            #
+            # "shipped by Amazon" = Amazon warehouses this item = FBA
+            # = ships to 🇮🇱 Israel via Amazon's international shipping programme.
+            # This phrase is the most reliable, API-accessible FBA indicator we have.
+            #
             delivery_text = (raw.get("delivery") or "").lower()
 
-            # Seller name — check several fields depending on API version
+            # Definitive FBA signal: Amazon literally says "shipped by Amazon"
+            is_shipped_by_amazon = "shipped by amazon" in delivery_text
+
+            # Secondary FBA signal: "fulfilled by amazon" (less common phrasing)
+            is_fulfilled_by_amazon_text = "fulfilled by amazon" in delivery_text
+
+            # Prime signal from delivery text (appears less often in search)
+            is_prime_in_delivery = "prime members" in delivery_text
+
+            # is_prime: API field (usually False in search) OR delivery-text signal
+            is_prime = bool(raw.get("is_prime", False)) or is_prime_in_delivery
+
+            # Seller field — check multiple locations depending on API version
             seller = (
                 raw.get("sales_volume", "")
-                or raw.get("product_details", {}).get("seller", "")
+                or (raw.get("product_details") or {}).get("seller", "")
                 or ""
             ).lower()
-            is_sold_by_amazon = "amazon.com" in seller or "amazon" == seller.strip()
+            is_sold_by_amazon = "amazon.com" in seller or seller.strip() == "amazon"
 
-            # FBA detection: RapidAPI search results rarely set is_prime=True even
-            # for FBA items. is_amazon_fulfilled is our "we're sure it's FBA" flag;
-            # is_prime is the "pretty confident it's FBA" fallback used by base.py.
-            # We only set is_amazon_fulfilled when we have a strong explicit signal.
-            is_amazon_fulfilled = is_sold_by_amazon
+            # is_amazon_fulfilled = we have explicit evidence this is an FBA item
+            is_amazon_fulfilled = (
+                is_shipped_by_amazon
+                or is_fulfilled_by_amazon_text
+                or is_sold_by_amazon
+            )
 
             return AmazonItem(
                 asin=asin,

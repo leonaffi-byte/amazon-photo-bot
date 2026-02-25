@@ -50,6 +50,12 @@ class TestParsePrice:
 # ── _parse_product ─────────────────────────────────────────────────────────────
 
 class TestParseProduct:
+    # Real delivery text format observed from the RapidAPI (empirically verified):
+    # FBA item: "FREE delivery Mon, Mar 2 on $35 of items shipped by AmazonOr fastest delivery..."
+    # 3P item:  "FREE delivery Mon, Mar 2Or fastest delivery..."
+    _FBA_DELIVERY = "FREE delivery Mon, Mar 2 on $35 of items shipped by AmazonOr fastest delivery Sat, Feb 28"
+    _3P_DELIVERY  = "FREE delivery Mon, Mar 2Or fastest delivery Sat, Feb 28"
+
     def _full_raw(self, **overrides) -> dict:
         base = {
             "asin": "B0RAPID0001",
@@ -58,8 +64,8 @@ class TestParseProduct:
             "product_star_rating": "4.3",
             "product_num_ratings": "5678",
             "product_photo": "https://img.amazon.com/kb.jpg",
-            "is_prime": True,
-            "delivery": "FREE delivery Fri, Jan 10",
+            "is_prime": False,                  # API almost never sets this in search results
+            "delivery": self._FBA_DELIVERY,     # realistic FBA delivery text
             "product_url": "https://www.amazon.com/dp/B0RAPID0001",
         }
         base.update(overrides)
@@ -73,10 +79,25 @@ class TestParseProduct:
         assert item.price_usd == 39.99
         assert item.rating == 4.3
         assert item.review_count == 5678
-        assert item.is_prime is True
-        # is_prime alone does not set is_amazon_fulfilled (only sold_by_amazon does);
-        # but the item still qualifies for Israel via qualifies_for_israel_free_delivery
+        # "shipped by Amazon" in delivery text → is_amazon_fulfilled = True
+        assert item.is_amazon_fulfilled is True
         assert item.qualifies_for_israel_free_delivery is True
+
+    def test_shipped_by_amazon_text_sets_fba_flag(self, backend):
+        """Empirically verified: RapidAPI encodes FBA status via 'shipped by Amazon' in delivery text."""
+        raw = self._full_raw(is_prime=False, delivery=self._FBA_DELIVERY)
+        item = backend._parse_product(raw)
+        assert item is not None
+        assert item.is_amazon_fulfilled is True   # "shipped by Amazon" detected
+        assert item.qualifies_for_israel_free_delivery is True
+
+    def test_3p_delivery_text_does_not_set_fba_flag(self, backend):
+        """3P items have 'FREE delivery Mon' but no 'shipped by Amazon' — not FBA."""
+        raw = self._full_raw(is_prime=False, delivery=self._3P_DELIVERY)
+        item = backend._parse_product(raw)
+        assert item is not None
+        assert not item.is_amazon_fulfilled
+        assert not item.qualifies_for_israel_free_delivery
 
     def test_missing_asin_returns_none(self, backend):
         raw = self._full_raw()
@@ -92,14 +113,13 @@ class TestParseProduct:
         # If no free delivery text or amazon seller detected:
         assert not item.is_amazon_fulfilled
 
-    def test_free_delivery_text_does_not_trigger_fba_flag(self, backend):
-        # "FREE delivery" in US search results is US domestic shipping, NOT Israel.
-        # It must NOT be used to flag an item as Amazon-fulfilled / Israel-eligible.
+    def test_generic_free_delivery_without_shipped_by_amazon_is_3p(self, backend):
+        # "FREE delivery tomorrow" alone — no "shipped by Amazon" phrase — is 3P domestic.
         raw = self._full_raw(is_prime=False, delivery="FREE delivery tomorrow")
         item = backend._parse_product(raw)
         assert item is not None
-        assert not item.is_amazon_fulfilled   # US delivery text ≠ FBA
-        assert not item.qualifies_for_israel_free_delivery  # not prime, not FBA, not sold-by-Amazon
+        assert not item.is_amazon_fulfilled   # no "shipped by Amazon" → not FBA
+        assert not item.qualifies_for_israel_free_delivery
 
     def test_sold_by_amazon_flag(self, backend):
         raw = self._full_raw(is_prime=False, delivery="")
