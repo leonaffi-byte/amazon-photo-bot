@@ -344,6 +344,7 @@ _KEY_LABELS = {
     "azure_openai_key":     ("☁️ Azure OpenAI Key",    "Azure portal → resource → Keys and Endpoint → KEY 1"),
     "azure_openai_endpoint":("☁️ Azure Endpoint",      "https://YOUR-RESOURCE.openai.azure.com/"),
     "azure_openai_deployment":("☁️ Azure Deployment",  "Name you gave the deployment in Azure AI Studio"),
+    "israel_proxy_url":     ("🇮🇱 Israel Proxy URL",   "socks5://host:port or http://host:port — Israeli WireGuard exit for shipping verification"),
     "dataforseo_login":     ("🛒 DataForSEO Login",    "Email used at app.dataforseo.com (~$0.003/search, pay-per-use)"),
     "dataforseo_password":  ("🛒 DataForSEO Password", "API password — Dashboard → API Access → Password"),
     "rapidapi_key":         ("🛒 RapidAPI",            "Amazon product search fallback (100 free/month)"),

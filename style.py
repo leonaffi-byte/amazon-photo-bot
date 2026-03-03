@@ -246,6 +246,7 @@ def product_caption(
     is_admin: bool = False,
     provider_name: Optional[str] = None,
     affiliate_tag: Optional[str] = None,
+    israel_verified=None,           # Optional[israel_scraper.IsraelShippingResult]
 ) -> str:
     """
     Single-product caption for the photo carousel (max 1024 chars).
@@ -265,7 +266,12 @@ def product_caption(
         rating = "⭐ _No ratings yet_"
 
     delivery = esc(item.delivery_badge)
-    israel   = esc(item.israel_delivery_note)
+
+    # Use verified result when available, otherwise heuristic
+    if israel_verified and israel_verified.verified:
+        israel = esc(israel_verified.note)
+    else:
+        israel = esc(item.israel_delivery_note)
 
     # Position counter e.g. "3 of 18"
     counter  = f"_{index} of {total}_" if total > 1 else ""

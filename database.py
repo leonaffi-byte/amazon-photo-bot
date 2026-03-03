@@ -167,6 +167,15 @@ CREATE TABLE IF NOT EXISTS model_health (
     last_failure_ts      TEXT,
     last_failure_reason  TEXT    NOT NULL DEFAULT ''
 );
+
+-- Israel shipping verification cache (24-hour TTL, checked via WireGuard proxy)
+CREATE TABLE IF NOT EXISTS israel_shipping_cache (
+    asin             TEXT    PRIMARY KEY,
+    ships_to_israel  INTEGER NOT NULL,   -- 0 = no, 1 = yes
+    is_free_shipping INTEGER NOT NULL,   -- 0 = no, 1 = yes
+    note             TEXT    NOT NULL,   -- display note for product card
+    checked_at       REAL    NOT NULL    -- Unix timestamp
+);
 """
 
 _MIGRATIONS = [
@@ -912,3 +921,63 @@ async def get_stats_since(since: datetime) -> dict:
         "api_calls":       api_calls,
         "cost_by_provider": cost_by_provider,
     }
+
+
+# ── Israel shipping cache ──────────────────────────────────────────────────────
+
+_ISRAEL_CACHE_TTL = 86_400   # 24 hours in seconds
+
+
+async def get_israel_cache(asin: str):
+    """
+    Return a cached IsraelShippingResult for this ASIN, or None if expired/missing.
+    Import is deferred to avoid circular imports.
+    """
+    import time as _time
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT ships_to_israel, is_free_shipping, note, checked_at "
+            "FROM israel_shipping_cache WHERE asin = ?",
+            (asin,),
+        ) as cur:
+            row = await cur.fetchone()
+
+    if not row:
+        return None
+
+    ships, is_free, note, checked_at = row
+    if _time.time() - checked_at > _ISRAEL_CACHE_TTL:
+        return None   # Expired
+
+    from israel_scraper import IsraelShippingResult
+    return IsraelShippingResult(
+        asin             = asin,
+        verified         = True,
+        ships_to_israel  = bool(ships),
+        is_free_shipping = bool(is_free),
+        note             = note,
+    )
+
+
+async def set_israel_cache(
+    asin: str,
+    ships_to_israel: Optional[bool],
+    is_free_shipping: Optional[bool],
+    note: str,
+) -> None:
+    """Upsert an Israel shipping verification result."""
+    import time as _time
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """INSERT INTO israel_shipping_cache
+               (asin, ships_to_israel, is_free_shipping, note, checked_at)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(asin) DO UPDATE SET
+                 ships_to_israel  = excluded.ships_to_israel,
+                 is_free_shipping = excluded.is_free_shipping,
+                 note             = excluded.note,
+                 checked_at       = excluded.checked_at""",
+            (asin, int(bool(ships_to_israel)), int(bool(is_free_shipping)),
+             note, _time.time()),
+        )
+        await db.commit()

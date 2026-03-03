@@ -494,6 +494,80 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
 
 
+def _spawn_israel_check(context, session: UserSession, item, affiliate_tag: str | None,
+                        chat_id: int | None = None) -> None:
+    """
+    Fire-and-forget: verify Israel shipping in the background and silently
+    update the product card caption when the result arrives.
+    Does nothing if no Israeli proxy is configured.
+    """
+    try:
+        msg_id    = session.results_msg_id
+        page_snap = session.page
+        if not chat_id or not msg_id:
+            return
+        asyncio.create_task(
+            _verify_israel_async(
+                context.bot, chat_id, msg_id,
+                item, session, page_snap, affiliate_tag,
+            )
+        )
+    except Exception:
+        pass
+
+
+async def _verify_israel_async(
+    bot, chat_id: int, msg_id: int,
+    item, session: UserSession, page_snap: int,
+    affiliate_tag: str | None,
+) -> None:
+    """
+    Background coroutine: checks Israel shipping via the proxy,
+    then edits the Telegram message caption with the verified result.
+    Silently aborts if the user has navigated to a different product.
+    """
+    try:
+        import israel_scraper
+        if not await israel_scraper.is_configured():
+            return
+
+        result = await asyncio.wait_for(
+            israel_scraper.check_shipping(item.asin),
+            timeout=14.0,
+        )
+        if not result.verified:
+            return   # no new info — leave heuristic caption as-is
+
+        # Guard: abort if user already moved to another product
+        if session.page != page_snap:
+            return
+
+        caption = style.product_caption(
+            item,
+            index         = page_snap + 1,
+            total         = len(session.filtered_items),
+            is_admin      = session.is_admin,
+            provider_name = session.chosen_result.provider_name if session.chosen_result else None,
+            affiliate_tag = affiliate_tag,
+            israel_verified = result,
+        )
+        keyboard = await results_keyboard(session, affiliate_tag)
+        try:
+            await bot.edit_message_caption(
+                chat_id      = chat_id,
+                message_id   = msg_id,
+                caption      = caption,
+                parse_mode   = "MarkdownV2",
+                reply_markup = keyboard,
+            )
+        except Exception:
+            pass   # message may have been deleted/edited by user — that's fine
+    except asyncio.TimeoutError:
+        pass
+    except Exception as exc:
+        logger.debug("Israel async verify failed: %s", exc)
+
+
 async def _render_results(query, context, session: UserSession) -> None:
     """
     Render the current product as a photo carousel card.
@@ -543,6 +617,9 @@ async def _render_results(query, context, session: UserSession) -> None:
                 await query.message.delete()
             except Exception:
                 pass
+            # Kick off background Israel verification (non-blocking)
+            _spawn_israel_check(context, session, item, affiliate_tag,
+                                chat_id=query.message.chat_id)
             return
         except Exception as exc:
             logger.error("send_photo failed: %s", exc)
@@ -559,6 +636,9 @@ async def _render_results(query, context, session: UserSession) -> None:
                 ),
                 reply_markup = keyboard,
             )
+            # Kick off background Israel verification (non-blocking)
+            _spawn_israel_check(context, session, item, affiliate_tag,
+                                chat_id=query.message.chat_id)
             return
         except Exception as exc:
             logger.warning("edit_message_media failed (%s), trying caption-only", exc)
