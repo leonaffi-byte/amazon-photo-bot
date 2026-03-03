@@ -2,9 +2,19 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install dependencies
+# System packages needed by Playwright/Chromium
+# (playwright install --with-deps handles most, but we need apt certs first)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Install Chromium browser + all its system library dependencies
+# (~350 MB; runs inside the image so no host browser needed)
+RUN playwright install --with-deps chromium
 
 # Copy source code
 COPY . .
