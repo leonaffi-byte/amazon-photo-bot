@@ -8,6 +8,7 @@ Session state is kept in-memory per user_id.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
@@ -736,6 +737,83 @@ async def _post_init(application: Application) -> None:
     logger.info("DB settings applied to config.")
 
 
+async def cmd_shorten(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Admin command:  /shorten <amazon_url_or_asin>
+
+    Extracts the ASIN from any Amazon product URL (or accepts a bare ASIN),
+    injects the active affiliate tag, shortens via amznl.cc, and replies with
+    the ready-to-share link.
+
+    Accepts:
+      /shorten https://www.amazon.com/dp/B08XYZ12AB
+      /shorten https://www.amazon.com/Some-Title/dp/B08XYZ12AB/ref=...
+      /shorten B08XYZ12AB
+    """
+    user_id = update.effective_user.id
+    if not (user_id in config.ADMIN_IDS or await db.is_admin_in_db(user_id)):
+        return   # silently ignore non-admins
+
+    text = (update.message.text or "").strip()
+    parts = text.split(maxsplit=1)
+    if len(parts) < 2 or not parts[1].strip():
+        await update.message.reply_text(
+            "📎 *Usage:*\n"
+            "`/shorten https://amazon.com/dp/ASIN`\n"
+            "`/shorten B08XYZ12AB`",
+            parse_mode="MarkdownV2",
+        )
+        return
+
+    raw = parts[1].strip()
+
+    # ── Resolve ASIN ──────────────────────────────────────────────────────────
+    asin: str | None = None
+
+    # Bare ASIN: exactly 10 alphanumeric characters
+    if re.fullmatch(r"[A-Za-z0-9]{10}", raw):
+        asin = raw.upper()
+    else:
+        # Extract from URL: /dp/XXXXXXXXXX or /gp/product/XXXXXXXXXX
+        m = re.search(r"/(?:dp|gp/product)/([A-Z0-9]{10})", raw, re.IGNORECASE)
+        if m:
+            asin = m.group(1).upper()
+
+    if not asin:
+        await update.message.reply_text(
+            "❌ Could not find an ASIN in that input\\.\n\n"
+            "Make sure the URL contains `/dp/` followed by a 10\\-char product ID\\.",
+            parse_mode="MarkdownV2",
+        )
+        return
+
+    # ── Build affiliate URL ───────────────────────────────────────────────────
+    tag = await db.get_active_tag()   # returns tag string or None
+    base = f"https://www.amazon.com/dp/{asin}"
+    if tag:
+        long_url = f"{base}?tag={tag}&linkCode=ogi&th=1&psc=1"
+    else:
+        long_url = base
+
+    # ── Shorten ───────────────────────────────────────────────────────────────
+    short_url = await url_shortener.shorten(long_url, label=asin, user_id=user_id)
+    shortened  = short_url != long_url   # False if all shorteners failed
+
+    # ── Reply ─────────────────────────────────────────────────────────────────
+    tag_line = f"🏷 Tag: `{style.esc(tag)}`\n" if tag else "🏷 Tag: _none active_\n"
+    short_line   = f"`{style.esc(short_url)}`" if shortened else f"_{style.esc(short_url)}_"
+    full_preview = style.esc(long_url[:80] + ("…" if len(long_url) > 80 else ""))
+
+    msg = (
+        f"🔗 *Short link ready\\!*\n\n"
+        f"{short_line}\n\n"
+        f"📦 ASIN: `{asin}`\n"
+        f"{tag_line}"
+        f"\n_Full:_ `{full_preview}`"
+    )
+    await update.message.reply_text(msg, parse_mode="MarkdownV2")
+
+
 def build_application() -> Application:
     from admin import get_admin_handlers
 
@@ -752,6 +830,7 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("start",     cmd_start))
     app.add_handler(CommandHandler("help",      cmd_help))
     app.add_handler(CommandHandler("providers", cmd_providers))
+    app.add_handler(CommandHandler("shorten",   cmd_shorten))
     app.add_handler(MessageHandler(filters.PHOTO,                   handle_photo))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_search))
