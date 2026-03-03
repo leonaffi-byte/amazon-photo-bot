@@ -176,6 +176,29 @@ CREATE TABLE IF NOT EXISTS israel_shipping_cache (
     note             TEXT    NOT NULL,   -- display note for product card
     checked_at       REAL    NOT NULL    -- Unix timestamp
 );
+
+-- External REST API keys (for the Israel Shipping Verifier public API)
+CREATE TABLE IF NOT EXISTS external_api_keys (
+    key             TEXT    PRIMARY KEY,
+    name            TEXT    NOT NULL,
+    plan            TEXT    NOT NULL DEFAULT 'free',   -- free / basic / pro
+    daily_limit     INTEGER NOT NULL DEFAULT 100,
+    total_requests  INTEGER NOT NULL DEFAULT 0,
+    created_at      REAL    NOT NULL,
+    is_active       INTEGER NOT NULL DEFAULT 1,
+    notes           TEXT    NOT NULL DEFAULT ''
+);
+
+-- Per-request log for the external API (analytics + billing)
+CREATE TABLE IF NOT EXISTS api_request_log (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    api_key          TEXT    NOT NULL,
+    asin             TEXT    NOT NULL,
+    cached           INTEGER NOT NULL DEFAULT 0,
+    ships_to_israel  INTEGER,            -- NULL = unverified
+    is_free_shipping INTEGER,            -- NULL = unverified
+    requested_at     REAL    NOT NULL
+);
 """
 
 _MIGRATIONS = [
@@ -979,5 +1002,125 @@ async def set_israel_cache(
                  checked_at       = excluded.checked_at""",
             (asin, int(bool(ships_to_israel)), int(bool(is_free_shipping)),
              note, _time.time()),
+        )
+        await db.commit()
+
+
+async def delete_israel_cache(asin: str) -> None:
+    """Remove a cached Israel shipping result (force re-check on next call)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM israel_shipping_cache WHERE asin = ?", (asin,))
+        await db.commit()
+
+
+# ── External API key management ────────────────────────────────────────────────
+
+def _key_row_to_dict(row) -> dict:
+    return {
+        "key":            row[0],
+        "name":           row[1],
+        "plan":           row[2],
+        "daily_limit":    row[3],
+        "total_requests": row[4],
+        "created_at":     datetime.fromtimestamp(row[5], tz=timezone.utc).isoformat(),
+        "is_active":      bool(row[6]),
+        "notes":          row[7],
+    }
+
+
+async def create_external_api_key(
+    key: str, name: str, plan: str, daily_limit: int, notes: str = ""
+) -> dict:
+    import time as _time
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """INSERT INTO external_api_keys
+               (key, name, plan, daily_limit, total_requests, created_at, is_active, notes)
+               VALUES (?, ?, ?, ?, 0, ?, 1, ?)""",
+            (key, name, plan, daily_limit, _time.time(), notes),
+        )
+        await db.commit()
+    return await get_external_api_key(key)
+
+
+async def get_external_api_key(key: str) -> Optional[dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT key, name, plan, daily_limit, total_requests, "
+            "created_at, is_active, notes FROM external_api_keys WHERE key = ?",
+            (key,),
+        ) as cur:
+            row = await cur.fetchone()
+    return _key_row_to_dict(row) if row else None
+
+
+async def list_external_api_keys() -> list[dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT key, name, plan, daily_limit, total_requests, "
+            "created_at, is_active, notes FROM external_api_keys ORDER BY created_at DESC"
+        ) as cur:
+            rows = await cur.fetchall()
+    return [_key_row_to_dict(r) for r in rows]
+
+
+async def revoke_external_api_key(key: str) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE external_api_keys SET is_active = 0 WHERE key = ?", (key,)
+        )
+        await db.commit()
+
+
+async def update_external_api_key(
+    key: str,
+    plan: Optional[str] = None,
+    daily_limit: Optional[int] = None,
+    is_active: Optional[bool] = None,
+) -> dict:
+    async with aiosqlite.connect(DB_PATH) as db:
+        if plan is not None:
+            await db.execute(
+                "UPDATE external_api_keys SET plan = ? WHERE key = ?", (plan, key)
+            )
+        if daily_limit is not None:
+            await db.execute(
+                "UPDATE external_api_keys SET daily_limit = ? WHERE key = ?",
+                (daily_limit, key),
+            )
+        if is_active is not None:
+            await db.execute(
+                "UPDATE external_api_keys SET is_active = ? WHERE key = ?",
+                (int(is_active), key),
+            )
+        await db.commit()
+    return await get_external_api_key(key)
+
+
+async def log_api_request(
+    asin: str,
+    cached: bool,
+    ships_to_israel: Optional[bool],
+    is_free_shipping: Optional[bool],
+    api_key: str = "unknown",
+) -> None:
+    import time as _time
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """INSERT INTO api_request_log
+               (api_key, asin, cached, ships_to_israel, is_free_shipping, requested_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (
+                api_key,
+                asin,
+                int(cached),
+                None if ships_to_israel is None else int(ships_to_israel),
+                None if is_free_shipping is None else int(is_free_shipping),
+                _time.time(),
+            ),
+        )
+        await db.execute(
+            "UPDATE external_api_keys SET total_requests = total_requests + 1 WHERE key = ?",
+            (api_key,),
         )
         await db.commit()
