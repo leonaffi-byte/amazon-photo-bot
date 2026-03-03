@@ -96,7 +96,11 @@ async def _build_backend() -> SearchBackend:
             )
         return _make_dataforseo(dataforseo_login, dataforseo_password)
 
-    # auto mode: PA-API → DataForSEO → RapidAPI
+    if mode == "playwright":
+        logger.info("Using Playwright / Amazon Direct Scraper backend")
+        return _make_playwright()
+
+    # auto mode: PA-API → DataForSEO → RapidAPI → Playwright (free fallback)
     if has_paapi:
         logger.info("Auto-selected PA-API backend")
         return _make_paapi(amazon_access, amazon_secret, amazon_tag)
@@ -107,13 +111,9 @@ async def _build_backend() -> SearchBackend:
         logger.info("Auto-selected RapidAPI backend")
         return _make_rapidapi(rapidapi_key)
 
-    raise RuntimeError(
-        "No search backend configured\\.\n\n"
-        "Open /admin → 🔑 API Keys and set:\n"
-        "  *DataForSEO* login \\+ password \\(pay\\-per\\-use, ~\\$0\\.003/search\\)\n"
-        "  or *RapidAPI* key \\(100 free searches/month\\)\n"
-        "  or *Amazon PA\\-API* keys \\(free with Associates account\\)"
-    )
+    # Last resort: Playwright — no API key needed, just Chromium
+    logger.info("No API keys found — falling back to Playwright direct scraper (free)")
+    return _make_playwright()
 
 
 def _make_paapi(access: str, secret: str, tag: str) -> SearchBackend:
@@ -132,6 +132,11 @@ def _make_rapidapi(api_key: str) -> SearchBackend:
 def _make_dataforseo(login: str, password: str) -> SearchBackend:
     from search_backends.dataforseo_backend import DataForSEOBackend
     return DataForSEOBackend(login=login, password=password)
+
+
+def _make_playwright() -> SearchBackend:
+    from search_backends.playwright_backend import PlaywrightBackend
+    return PlaywrightBackend()
 
 
 # ── Public search function ─────────────────────────────────────────────────────

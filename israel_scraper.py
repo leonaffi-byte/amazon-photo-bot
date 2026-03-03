@@ -162,8 +162,11 @@ async def _scrape(asin: str, proxy_url: str) -> IsraelShippingResult:
                 )
 
                 if await _is_captcha_page(page):
-                    logger.warning("CAPTCHA on Amazon homepage for ASIN %s", asin)
-                    return _unverified(asin, "CAPTCHA on homepage")
+                    logger.warning("CAPTCHA on Amazon homepage for ASIN %s — trying solver", asin)
+                    import captcha_solver
+                    solved = await captcha_solver.solve_playwright_captcha(page)
+                    if not solved:
+                        return _unverified(asin, "CAPTCHA on homepage (unsolved)")
 
                 # ── Step 2: Set delivery country to Israel ─────────────────
                 await _set_delivery_israel(page)
@@ -180,8 +183,11 @@ async def _scrape(asin: str, proxy_url: str) -> IsraelShippingResult:
                 )
 
                 if await _is_captcha_page(page):
-                    logger.warning("CAPTCHA on product page for ASIN %s", asin)
-                    return _unverified(asin, "CAPTCHA on product page")
+                    logger.warning("CAPTCHA on product page for ASIN %s — trying solver", asin)
+                    import captcha_solver
+                    solved = await captcha_solver.solve_playwright_captcha(page)
+                    if not solved:
+                        return _unverified(asin, "CAPTCHA on product page (unsolved)")
 
                 # Wait for the delivery block to appear (best-effort)
                 try:
