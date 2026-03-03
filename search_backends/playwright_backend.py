@@ -129,8 +129,10 @@ class PlaywrightBackend(SearchBackend):
         max_results: int = 20,
         page: int = 1,
     ) -> list[AmazonItem]:
-        import key_store
-        proxy_url = await key_store.get("israel_proxy_url")
+        from israel_scraper import _get_proxy_url
+        proxy_url = await _get_proxy_url()
+        # proxy_url may be None — Playwright still works without a proxy,
+        # just without Israel-specific delivery context
 
         try:
             from playwright.async_api import async_playwright, TimeoutError as PWTimeout

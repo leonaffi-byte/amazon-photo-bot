@@ -2,31 +2,31 @@
 israel_scraper.py — Verify Amazon-to-Israel shipping via Playwright + Israeli proxy.
 
 Uses a real headless Chromium browser (playwright + playwright-stealth) routed
-through your Israeli WireGuard exit node, so Amazon sees a genuine Israeli
-browser and returns accurate Israel-specific delivery information.
+through an Israeli residential proxy, so Amazon sees a genuine Israeli browser
+and returns accurate Israel-specific delivery information.
 
-Why Playwright instead of aiohttp
-──────────────────────────────────
-Amazon's bot detection has 4 layers:
-  1. TLS fingerprint  — aiohttp ≠ Chrome  →  blocked
-  2. JS challenges    — no execution      →  blocked
-  3. Behaviour signals — no mouse/timing  →  blocked
-  4. CAPTCHA          — last resort
-Playwright runs real Chromium; playwright-stealth patches canvas/WebGL/etc.
-fingerprints.  Routing through a residential Israeli IP completes the picture.
+Proxy priority (auto-selected, no code changes needed when switching)
+──────────────────────────────────────────────────────────────────────
+1. Decodo residential proxy  (decodo_user + decodo_password in /admin)
+     → Rotating Israeli residential IPs (Partner/HOT/Cellcom)
+     → Best reliability: Amazon never sees the same IP twice
+     → ~$3.50/GB  ·  register at decodo.com
+     → Proxy URL built automatically:
+        http://USER-country-IL:PASS@gate.decodo.com:7000
+
+2. WireGuard / custom proxy  (israel_proxy_url in /admin)
+     → Your own Israeli exit node — single static IP
+     → Free but may eventually get flagged at high volume
+     → Format: socks5://HOST:PORT  or  http://HOST:PORT
+     → One-liner setup:  docker run -d -p 1080:1080 serjs/go-socks5-proxy
 
 Flow (per ASIN, result cached 24 h in DB)
 ──────────────────────────────────────────
-1. Launch Chromium with proxy = your Israeli SOCKS5/HTTP endpoint
+1. Launch Chromium with auto-selected proxy
 2. GET amazon.com — get session cookies, extract anti-CSRF token via JS
 3. POST /gp/delivery-options/ajax/change-address  (countryCode=IL)  in-page
 4. GET /dp/{ASIN} — Amazon now shows Israel-specific delivery info
 5. Parse HTML → ships_to_israel / is_free_shipping / note
-
-Proxy setup (one-liner on your Israeli WireGuard server):
-  docker run -d -p 1080:1080 serjs/go-socks5-proxy
-
-Then:  /admin → 🔑 API Keys → israel_proxy_url = socks5://YOUR_ISRAEL_IP:1080
 """
 from __future__ import annotations
 
@@ -60,11 +60,35 @@ class IsraelShippingResult:
 
 # ── Public API ─────────────────────────────────────────────────────────────────
 
-async def is_configured() -> bool:
-    """Return True if an Israeli proxy URL has been set in the admin panel."""
+async def _get_proxy_url() -> Optional[str]:
+    """
+    Resolve the proxy URL to use for Amazon scraping.
+
+    Priority:
+      1. Decodo residential proxy  — rotating Israeli residential IPs, best reliability
+      2. israel_proxy_url          — WireGuard or any custom proxy (static IP)
+      3. None                      — no proxy configured
+
+    Both the Israel shipping scraper and the Playwright search backend call
+    this function so proxy configuration is managed in one place.
+    """
     import key_store
+
+    user = (await key_store.get("decodo_user")     or "").strip()
+    pw   = (await key_store.get("decodo_password") or "").strip()
+    if user and pw:
+        # Decodo residential proxy with country-level Israel targeting.
+        # Format: http://USER-country-IL:PASS@gate.decodo.com:7000
+        return f"http://{user}-country-IL:{pw}@gate.decodo.com:7000"
+
+    # Fallback: WireGuard or any manually configured proxy URL
     url = await key_store.get("israel_proxy_url")
-    return bool(url and url.strip())
+    return url.strip() if url and url.strip() else None
+
+
+async def is_configured() -> bool:
+    """Return True if any Israeli proxy is configured (Decodo or WireGuard)."""
+    return (await _get_proxy_url()) is not None
 
 
 async def check_shipping(asin: str) -> IsraelShippingResult:
@@ -72,10 +96,9 @@ async def check_shipping(asin: str) -> IsraelShippingResult:
     Return Israel shipping info for an ASIN, using a 24-hour DB cache.
     Never raises — returns an unverified result on any error.
     """
-    import key_store
-    proxy_url = await key_store.get("israel_proxy_url")
+    proxy_url = await _get_proxy_url()
     if not proxy_url:
-        return _unverified(asin, "Proxy not configured")
+        return _unverified(asin, "No proxy configured — add Decodo keys or israel_proxy_url via /admin")
 
     # ── Check DB cache ─────────────────────────────────────────────────────────
     try:

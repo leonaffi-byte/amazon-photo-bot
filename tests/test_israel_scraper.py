@@ -190,20 +190,97 @@ class TestUnverified:
 
 # ── is_configured ──────────────────────────────────────────────────────────────
 
+class TestGetProxyUrl:
+    """Tests for _get_proxy_url() — the proxy resolution logic."""
+
+    @pytest.mark.asyncio
+    async def test_decodo_takes_priority_over_wireguard(self):
+        from israel_scraper import _get_proxy_url
+        async def fake_get(key):
+            return {
+                "decodo_user":     "myuser",
+                "decodo_password": "mypass",
+                "israel_proxy_url": "socks5://wg:1080",
+            }.get(key)
+        with patch("key_store.get", new=fake_get):
+            url = await _get_proxy_url()
+        assert "gate.decodo.com" in url
+        assert "myuser-country-IL" in url
+        assert "mypass" in url
+        assert "socks5://wg:1080" not in url
+
+    @pytest.mark.asyncio
+    async def test_decodo_url_format(self):
+        from israel_scraper import _get_proxy_url
+        async def fake_get(key):
+            return {"decodo_user": "u1", "decodo_password": "p1"}.get(key)
+        with patch("key_store.get", new=fake_get):
+            url = await _get_proxy_url()
+        assert url == "http://u1-country-IL:p1@gate.decodo.com:7000"
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_wireguard_when_no_decodo(self):
+        from israel_scraper import _get_proxy_url
+        async def fake_get(key):
+            return {"israel_proxy_url": "socks5://1.2.3.4:1080"}.get(key)
+        with patch("key_store.get", new=fake_get):
+            url = await _get_proxy_url()
+        assert url == "socks5://1.2.3.4:1080"
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_nothing_configured(self):
+        from israel_scraper import _get_proxy_url
+        with patch("key_store.get", new=AsyncMock(return_value=None)):
+            url = await _get_proxy_url()
+        assert url is None
+
+    @pytest.mark.asyncio
+    async def test_strips_whitespace_from_wireguard_url(self):
+        from israel_scraper import _get_proxy_url
+        async def fake_get(key):
+            return {"israel_proxy_url": "  socks5://1.2.3.4:1080  "}.get(key)
+        with patch("key_store.get", new=fake_get):
+            url = await _get_proxy_url()
+        assert url == "socks5://1.2.3.4:1080"
+
+    @pytest.mark.asyncio
+    async def test_decodo_only_user_no_password_falls_back(self):
+        """If only one Decodo field is set, fall back to WireGuard."""
+        from israel_scraper import _get_proxy_url
+        async def fake_get(key):
+            return {
+                "decodo_user": "u1",
+                # no decodo_password
+                "israel_proxy_url": "socks5://1.2.3.4:1080",
+            }.get(key)
+        with patch("key_store.get", new=fake_get):
+            url = await _get_proxy_url()
+        assert "1.2.3.4" in url   # fell back to WireGuard
+
+
 class TestIsConfigured:
     @pytest.mark.asyncio
-    async def test_not_configured_when_no_key(self):
+    async def test_not_configured_when_nothing_set(self):
         with patch("key_store.get", new=AsyncMock(return_value=None)):
             assert await is_configured() is False
 
     @pytest.mark.asyncio
-    async def test_not_configured_when_empty(self):
+    async def test_not_configured_when_empty_string(self):
         with patch("key_store.get", new=AsyncMock(return_value="  ")):
             assert await is_configured() is False
 
     @pytest.mark.asyncio
-    async def test_configured_when_url_set(self):
-        with patch("key_store.get", new=AsyncMock(return_value="socks5://1.2.3.4:1080")):
+    async def test_configured_via_wireguard_url(self):
+        async def fake_get(key):
+            return {"israel_proxy_url": "socks5://1.2.3.4:1080"}.get(key)
+        with patch("key_store.get", new=fake_get):
+            assert await is_configured() is True
+
+    @pytest.mark.asyncio
+    async def test_configured_via_decodo(self):
+        async def fake_get(key):
+            return {"decodo_user": "u", "decodo_password": "p"}.get(key)
+        with patch("key_store.get", new=fake_get):
             assert await is_configured() is True
 
 
@@ -216,10 +293,27 @@ class TestCheckShippingNoProxy:
             from israel_scraper import check_shipping
             result = await check_shipping("B08XYZ12AB")
         assert result.verified is False
-        assert "not configured" in result.note.lower()
+        assert "proxy" in result.note.lower()   # "No proxy configured" or similar
+
+    @pytest.mark.asyncio
+    async def test_returns_unverified_when_only_one_decodo_field(self):
+        """Partial Decodo config (only user, no password) + no WireGuard → unverified."""
+        async def fake_get(key):
+            return {"decodo_user": "user_only"}.get(key)   # no password, no WG
+        with patch("key_store.get", new=fake_get):
+            from israel_scraper import check_shipping
+            result = await check_shipping("B08XYZ12AB")
+        assert result.verified is False
 
 
 # ── check_shipping: DB cache hit ──────────────────────────────────────────────
+
+async def _wg_only_get(key):
+    """Fake key_store.get that returns a WireGuard proxy for israel_proxy_url only."""
+    return {
+        "israel_proxy_url": "socks5://1.2.3.4:1080",
+    }.get(key)
+
 
 class TestCheckShippingCacheHit:
     @pytest.mark.asyncio
@@ -231,7 +325,7 @@ class TestCheckShippingCacheHit:
             is_free_shipping = True,
             note             = "✅ Verified: ships free to 🇮🇱 Israel",
         )
-        with patch("key_store.get", new=AsyncMock(return_value="socks5://1.2.3.4:1080")):
+        with patch("key_store.get", new=_wg_only_get):
             with patch("database.get_israel_cache", new=AsyncMock(return_value=cached)):
                 from israel_scraper import check_shipping
                 result = await check_shipping("B0CACHED001")
@@ -253,7 +347,7 @@ class TestCheckShippingScrape:
             is_free_shipping = False,
             note             = "🟡 Verified: ships to 🇮🇱 Israel",
         )
-        with patch("key_store.get", new=AsyncMock(return_value="http://proxy:8080")):
+        with patch("key_store.get", new=_wg_only_get):
             with patch("database.get_israel_cache", new=AsyncMock(return_value=None)):
                 with patch("database.set_israel_cache", new=AsyncMock()) as mock_set:
                     with patch("israel_scraper._scrape", new=AsyncMock(return_value=scraped)):
@@ -265,10 +359,33 @@ class TestCheckShippingScrape:
         mock_set.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_scrape_via_decodo(self):
+        """When Decodo keys are set, proxy URL is built correctly."""
+        scraped = IsraelShippingResult(
+            asin="B0DECODO001", verified=True,
+            ships_to_israel=True, is_free_shipping=True,
+            note="✅ Verified",
+        )
+        async def decodo_get(key):
+            return {"decodo_user": "myuser", "decodo_password": "mypass"}.get(key)
+
+        with patch("key_store.get", new=decodo_get):
+            with patch("database.get_israel_cache", new=AsyncMock(return_value=None)):
+                with patch("database.set_israel_cache", new=AsyncMock()):
+                    with patch("israel_scraper._scrape", new=AsyncMock(return_value=scraped)) as mock_scrape:
+                        from israel_scraper import check_shipping
+                        result = await check_shipping("B0DECODO001")
+
+        # Verify Decodo proxy URL was passed to _scrape
+        call_proxy = mock_scrape.call_args[0][1]   # second positional arg
+        assert "gate.decodo.com" in call_proxy
+        assert "myuser-country-IL" in call_proxy
+
+    @pytest.mark.asyncio
     async def test_unverified_result_not_cached(self):
         """Unverified results (e.g. CAPTCHA) should not be stored in cache."""
         unverified = _unverified("B0CAPTCHA1", "CAPTCHA")
-        with patch("key_store.get", new=AsyncMock(return_value="http://proxy:8080")):
+        with patch("key_store.get", new=_wg_only_get):
             with patch("database.get_israel_cache", new=AsyncMock(return_value=None)):
                 with patch("database.set_israel_cache", new=AsyncMock()) as mock_set:
                     with patch("israel_scraper._scrape", new=AsyncMock(return_value=unverified)):
@@ -276,4 +393,4 @@ class TestCheckShippingScrape:
                         result = await check_shipping("B0CAPTCHA1")
 
         assert result.verified is False
-        mock_set.assert_not_called()   # should NOT cache unverified results
+        mock_set.assert_not_called()
