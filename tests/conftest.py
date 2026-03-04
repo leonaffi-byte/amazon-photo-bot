@@ -47,4 +47,12 @@ def tmp_data_dir(tmp_path, monkeypatch):
     import settings_store
     settings_store._cache.clear()
 
+    # Reset provider manager cache so tests don't leak providers across runs
+    from providers import manager as pm
+    monkeypatch.setattr(pm, "_providers", {})
+
+    # Reset amazon_search cached backend so each test gets a fresh backend
+    import amazon_search
+    monkeypatch.setattr(amazon_search, "_backend", None)
+
     yield data
