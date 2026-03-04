@@ -38,4 +38,13 @@ def tmp_data_dir(tmp_path, monkeypatch):
     import asyncio
     monkeypatch.setattr(database, "_lock", asyncio.Lock())
 
+    # Reset persistent connection and caches so each test starts fresh
+    monkeypatch.setattr(database, "_persistent_conn", None)
+    monkeypatch.setattr(database, "_active_tag_cache", None)
+    monkeypatch.setattr(database, "_disabled_models_cache", None)
+
+    # Clear settings_store in-memory cache so tests start fresh
+    import settings_store
+    settings_store._cache.clear()
+
     yield data

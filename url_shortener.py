@@ -126,7 +126,7 @@ async def _try_bitly(long_url: str) -> Optional[str]:
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                "https://api-ssl.bitly.com/v4/shorten",
+                "https://api.bitly.com/v4/shorten",
                 json={"long_url": long_url},
                 headers={
                     "Authorization": f"Bearer {token}",

@@ -131,6 +131,11 @@ def _is_rate_limited(user_id: int) -> bool:
     if len(bucket) >= RATE_MAX_REQUESTS:
         return True
     bucket.append(now)
+    # Periodic cleanup of stale buckets (every 100 calls)
+    if len(_rate_buckets) > 50 and hash(user_id) % 100 == 0:
+        stale = [uid for uid, bkt in _rate_buckets.items() if not bkt]
+        for uid in stale:
+            del _rate_buckets[uid]
     return False
 
 
@@ -363,7 +368,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if data in (CB_FILTER_YES, CB_FILTER_NO):
         if not session.product_info:
             await query.edit_message_text(
-                "⚠️ Session expired — please send a new photo\\.",
+                "⚠️ Session expired\\. Send a new photo or type a product name to start over\\.",
                 parse_mode="MarkdownV2",
             )
             return
@@ -490,6 +495,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         elif session.more_available:
             # Lazy-load: fetch next batch from Amazon
             try:
+                try:
+                    await query.edit_message_caption(
+                        caption="⏳ _Loading more results…_",
+                        parse_mode="MarkdownV2",
+                    )
+                except Exception:
+                    pass
                 session.amazon_page += 1
                 new_items = await search_amazon(
                     session.product_info,
@@ -508,29 +520,25 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 session.more_available = False
                 session.page = max(0, total - 1)
         else:
-            session.page = max(0, total - 1)   # already at end
+            session.page = max(0, total - 1)
+            await query.answer("No more results available.", show_alert=False)
 
         await _render_results(query, context, session)
         return
 
 
-def _spawn_price_check(context, session: UserSession, item, affiliate_tag: str | None,
-                       chat_id: int | None = None) -> None:
-    """
-    Fire-and-forget: fetch price history (CamelCamelCamel → Keepa) in the
-    background and silently update the product card caption when it arrives.
-    """
+def _spawn_background_check(
+    coro,
+    context,
+    session: UserSession,
+    chat_id: int | None = None,
+) -> None:
+    """Fire-and-forget: run a background coroutine that updates the product card."""
     try:
-        msg_id    = session.results_msg_id
-        page_snap = session.page
+        msg_id = session.results_msg_id
         if not chat_id or not msg_id:
             return
-        asyncio.create_task(
-            _verify_price_async(
-                context.bot, chat_id, msg_id,
-                item, session, page_snap, affiliate_tag,
-            )
-        )
+        asyncio.create_task(coro)
     except Exception:
         pass
 
@@ -583,28 +591,6 @@ async def _verify_price_async(
             pass
     except Exception as exc:
         logger.debug("Price history async fetch failed: %s", exc)
-
-
-def _spawn_israel_check(context, session: UserSession, item, affiliate_tag: str | None,
-                        chat_id: int | None = None) -> None:
-    """
-    Fire-and-forget: verify Israel shipping in the background and silently
-    update the product card caption when the result arrives.
-    Does nothing if no Israeli proxy is configured.
-    """
-    try:
-        msg_id    = session.results_msg_id
-        page_snap = session.page
-        if not chat_id or not msg_id:
-            return
-        asyncio.create_task(
-            _verify_israel_async(
-                context.bot, chat_id, msg_id,
-                item, session, page_snap, affiliate_tag,
-            )
-        )
-    except Exception:
-        pass
 
 
 async def _verify_israel_async(
@@ -716,10 +702,16 @@ async def _render_results(query, context, session: UserSession) -> None:
             except Exception:
                 pass
             # Kick off background checks (non-blocking)
-            _spawn_israel_check(context, session, item, affiliate_tag,
-                                chat_id=query.message.chat_id)
-            _spawn_price_check(context, session, item, affiliate_tag,
-                               chat_id=query.message.chat_id)
+            _spawn_background_check(
+                _verify_israel_async(context.bot, query.message.chat_id, session.results_msg_id,
+                                     item, session, session.page, affiliate_tag),
+                context, session, chat_id=query.message.chat_id,
+            )
+            _spawn_background_check(
+                _verify_price_async(context.bot, query.message.chat_id, session.results_msg_id,
+                                    item, session, session.page, affiliate_tag),
+                context, session, chat_id=query.message.chat_id,
+            )
             return
         except Exception as exc:
             logger.error("send_photo failed: %s", exc)
@@ -737,10 +729,16 @@ async def _render_results(query, context, session: UserSession) -> None:
                 reply_markup = keyboard,
             )
             # Kick off background checks (non-blocking)
-            _spawn_israel_check(context, session, item, affiliate_tag,
-                                chat_id=query.message.chat_id)
-            _spawn_price_check(context, session, item, affiliate_tag,
-                               chat_id=query.message.chat_id)
+            _spawn_background_check(
+                _verify_israel_async(context.bot, query.message.chat_id, session.results_msg_id,
+                                     item, session, session.page, affiliate_tag),
+                context, session, chat_id=query.message.chat_id,
+            )
+            _spawn_background_check(
+                _verify_price_async(context.bot, query.message.chat_id, session.results_msg_id,
+                                    item, session, session.page, affiliate_tag),
+                context, session, chat_id=query.message.chat_id,
+            )
             return
         except Exception as exc:
             logger.warning("edit_message_media failed (%s), trying caption-only", exc)
@@ -785,7 +783,7 @@ async def handle_text_search(update: Update, context: ContextTypes.DEFAULT_TYPE)
     _sessions[user_id] = UserSession()
     session = _sessions[user_id]
 
-    msg = await update.message.reply_text("🔍 Processing…")
+    msg = await update.message.reply_text(f"🔍 Searching Amazon for '{text[:60]}'…")
 
     # ── Detect language & translate ───────────────────────────────────────────
     lang = detect_language(text)
@@ -794,6 +792,10 @@ async def handle_text_search(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception as exc:
         logger.warning("translate_and_refine failed: %s", exc)
         english, refined_query = text, text
+        try:
+            await msg.edit_text("⚠️ Translation unavailable, searching with original text…")
+        except Exception:
+            pass
 
     lang_labels = {"he": "🇮🇱 Hebrew", "ru": "🇷🇺 Russian"}
 

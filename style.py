@@ -51,20 +51,6 @@ def fmt_reviews(count: Optional[int]) -> str:
 
 # ── Loading states (send first, then edit through sequence) ───────────────────
 
-LOADING = [
-    "⠋ Analysing your photo…",
-    "⠙ Reading product details…",
-    "⠸ Identifying brand & model…",
-    "⠴ Preparing search query…",
-]
-
-SEARCH_LOADING = [
-    "⠋ Searching Amazon…",
-    "⠙ Fetching product data…",
-    "⠸ Ranking results…",
-    "⠴ Almost done…",
-]
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 # START / WELCOME
@@ -299,7 +285,7 @@ def product_caption(
 
     # Telegram caption hard-limit is 1024 chars
     if len(caption) > 1020:
-        caption = caption[:1020] + "\\.\\.\\."
+        caption = caption[:1010] + "\n_…\\(truncated\\)_"
     return caption
 
 
@@ -362,7 +348,9 @@ def results_page(session, affiliate_tag: Optional[str] = None, is_admin: bool = 
     footer = f"\n{SDIV}\n_" + "   ·   ".join(footer_parts) + "_"
 
     full = header + f"\n\n{SDIV}\n\n".join(cards) + footer
-    return full[:4050] + "\\.\\.\\." if len(full) > 4050 else full
+    if len(full) > 4050:
+        return full[:4040] + "\n_…\\(truncated\\)_"
+    return full
 
 
 # ══════════════════════════════════════════════════════════════════════════════

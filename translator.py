@@ -9,6 +9,7 @@ No extra dependencies required — all SDKs are already in requirements.txt.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from typing import Optional
@@ -58,13 +59,24 @@ async def translate_and_refine(text: str) -> tuple[str, str]:
     lang = detect_language(text)
 
     if lang == "en":
-        refined = await _call_llm(_REFINE_PROMPT + "\n\nProduct description: " + text)
+        try:
+            refined = await asyncio.wait_for(
+                _call_llm(_REFINE_PROMPT + "\n\nProduct description: " + text),
+                timeout=15,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("LLM call timed out during refinement")
+            refined = None
         refined = (refined or text).strip()[:200]
         return text, refined
 
     lang_name = {"he": "Hebrew", "ru": "Russian"}.get(lang, "unknown")
     prompt = _TRANSLATE_PROMPT.format(lang=lang_name, text=text)
-    raw = await _call_llm(prompt)
+    try:
+        raw = await asyncio.wait_for(_call_llm(prompt), timeout=15)
+    except asyncio.TimeoutError:
+        logger.warning("LLM call timed out during translation")
+        raw = None
 
     if not raw:
         return text, text

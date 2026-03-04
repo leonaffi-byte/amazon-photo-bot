@@ -25,7 +25,7 @@ from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
 
-_running = False
+_stop_event: asyncio.Event | None = None
 
 
 def _now_local() -> datetime:
@@ -98,51 +98,69 @@ async def _send_report(period_label: str, hours: int) -> None:
         logger.error("Failed to send %s report: %s", period_label, exc)
 
 
+def _seconds_until_next_fire(report_hour: int) -> float:
+    """Compute seconds from now until the next occurrence of report_hour in local time."""
+    now = _now_local()
+    target = now.replace(hour=report_hour, minute=0, second=0, microsecond=0)
+    if now >= target:
+        target += timedelta(days=1)
+    return (target - now).total_seconds()
+
+
 async def _scheduler_loop() -> None:
-    """Background coroutine — wakes every 30 s and fires reports at the right time."""
+    """Background coroutine — sleeps until next report time, fires, repeats."""
     import config
 
-    last_fired_day: int = -1   # day-of-year we last fired reports
+    # Use ISO date string to track last fired day (handles year boundaries correctly)
+    last_fired_date: str = ""
 
     logger.info("📅 Scheduler started (reports at %02d:00 %s)",
                 config.REPORT_HOUR, config.REPORT_TIMEZONE)
 
-    while _running:
-        await asyncio.sleep(30)
+    while True:
+        # Sleep until the next fire time (instead of polling every 30s)
+        sleep_secs = _seconds_until_next_fire(config.REPORT_HOUR)
+        # Clamp to reasonable bounds (avoid sleeping exactly 0 or negative)
+        sleep_secs = max(10, min(sleep_secs + 5, 86400))
+
+        try:
+            await asyncio.wait_for(_stop_event.wait(), timeout=sleep_secs)
+            # If we get here, stop_event was set — exit
+            break
+        except asyncio.TimeoutError:
+            pass  # Timeout means it's time to check
+
         try:
             now = _now_local()
-            if now.hour != config.REPORT_HOUR or now.minute > 1:
+            if now.hour != config.REPORT_HOUR or now.minute > 2:
                 continue
-            if now.timetuple().tm_yday == last_fired_day:
-                continue   # already fired today
 
-            last_fired_day = now.timetuple().tm_yday
-            logger.info("⏰ Firing scheduled reports for %s", now.strftime("%Y-%m-%d"))
+            today = now.strftime("%Y-%m-%d")
+            if today == last_fired_date:
+                continue
 
-            # Always send daily report
+            last_fired_date = today
+            logger.info("⏰ Firing scheduled reports for %s", today)
+
             await _send_report("DAILY", 24)
 
-            # Sunday (weekday 6) → weekly report
             if now.weekday() == 6:
                 await _send_report("WEEKLY", 7 * 24)
 
-            # 1st of month → monthly report
             if now.day == 1:
                 await _send_report("MONTHLY", 30 * 24)
 
-        except asyncio.CancelledError:
-            break
         except Exception as exc:
             logger.error("Scheduler loop error: %s", exc)
 
 
 def start(loop: asyncio.AbstractEventLoop | None = None) -> asyncio.Task:
     """Start the scheduler as a background asyncio Task."""
-    global _running
-    _running = True
+    global _stop_event
+    _stop_event = asyncio.Event()
     return asyncio.create_task(_scheduler_loop())
 
 
 def stop() -> None:
-    global _running
-    _running = False
+    if _stop_event:
+        _stop_event.set()

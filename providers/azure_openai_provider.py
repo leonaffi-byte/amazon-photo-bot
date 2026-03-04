@@ -65,7 +65,14 @@ class AzureOpenAIProvider(VisionProvider):
         api_version: str = "2024-12-01-preview",
     ):
         self.name        = "azure"
-        self.model_id    = deployment
+        # Normalize model_id for cost aggregation (deployment name → actual model)
+        _dep_lower = deployment.lower()
+        if "gpt-4o-mini" in _dep_lower or "gpt4o-mini" in _dep_lower:
+            self.model_id = "gpt-4o-mini"
+        elif "gpt-4o" in _dep_lower or "gpt4o" in _dep_lower:
+            self.model_id = "gpt-4o"
+        else:
+            self.model_id = deployment  # fallback to raw name
         self._deployment = deployment
         self._client     = openai.AsyncAzureOpenAI(
             api_key=api_key,

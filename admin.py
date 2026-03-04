@@ -41,6 +41,7 @@ import database as db
 import key_store
 import settings_store
 import style as st
+from style import esc as e
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +71,7 @@ CB_TAG_NONE   = f"{P}tag_none"
 # API keys
 CB_KEY_SET    = f"{P}key_set:"    # + key_name
 CB_KEY_DEL    = f"{P}key_del:"    # + key_name
+CB_KEY_DELOK  = f"{P}key_delok:"  # + key_name  (confirmed)
 
 # Admins
 CB_ADM_INV    = f"{P}adm_inv"
@@ -123,11 +125,7 @@ async def guard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
 
 # ── Markdown helper ────────────────────────────────────────────────────────────
 
-def e(text: str) -> str:
-    """Escape MarkdownV2."""
-    for ch in r"\_*[]()~`>#+-=|{}.!":
-        text = text.replace(ch, f"\\{ch}")
-    return text
+# Use style.esc for MarkdownV2 escaping (aliased as e for brevity)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -135,10 +133,13 @@ def e(text: str) -> str:
 # ══════════════════════════════════════════════════════════════════════════════
 
 async def _panel_content() -> tuple[str, InlineKeyboardMarkup]:
-    tags      = await db.get_all_tags()
-    stats     = await db.get_stats()
-    admins    = await db.get_all_admins()
-    all_keys  = await key_store.get_all_keys()
+    import asyncio as _aio
+    tags, stats, admins, all_keys = await _aio.gather(
+        db.get_all_tags(),
+        db.get_stats(),
+        db.get_all_admins(),
+        key_store.get_all_keys(),
+    )
     keys_set  = sum(1 for v in all_keys.values() if v)
     active    = next((t for t in tags if t.is_active), None)
     tag_line  = f"`{e(active.tag)}`" if active else "_none_ ⚠️"
@@ -793,12 +794,24 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         text, kb = await _keys_content()
         await q.edit_message_text(text, parse_mode="MarkdownV2", reply_markup=kb)
 
-    elif data.startswith(CB_KEY_DEL):
+    elif data.startswith(CB_KEY_DEL) and not data.startswith(CB_KEY_DELOK):
         key_name = data[len(CB_KEY_DEL):]
+        label = _KEY_LABELS.get(key_name, (key_name, ""))[0]
+        kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton("✅  Yes, clear key", callback_data=f"{CB_KEY_DELOK}{key_name}"),
+            InlineKeyboardButton("❌  Cancel",         callback_data=CB_KEYS),
+        ]])
+        await q.edit_message_text(
+            f"🗑 Clear *{e(label)}* API key?\n\n_Bot will fall back to \\.env value\\._",
+            parse_mode="MarkdownV2", reply_markup=kb,
+        )
+
+    elif data.startswith(CB_KEY_DELOK):
+        key_name = data[len(CB_KEY_DELOK):]
         await key_store.delete(key_name)
         _reload_backends(key_name)
         text, kb = await _keys_content()
-        await q.edit_message_text("🗑 Key cleared \\(bot now uses \\.env fallback\\)\\.\n\n" + text,
+        await q.edit_message_text("🗑 Key cleared\\.\n\n" + text,
                                   parse_mode="MarkdownV2", reply_markup=kb)
 
     # ── Admins ─────────────────────────────────────────────────────────────────
@@ -815,9 +828,9 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             f"🔗 *ADMIN INVITE LINK*\n{st.DIV}\n\n"
             f"`{e(deep_link)}`\n\n"
             f"{st.SDIV}\n"
-            "▸ Single\\-use  ·  Expires in *30 minutes*\n"
+            "⏰ *Expires in 30 minutes* — single\\-use only\n"
             "▸ Recipient taps link → bot opens → instant admin access\n\n"
-            "_Equivalent to an OAuth invite flow, but Telegram\\-native\\._",
+            "_Send this link to the person you want to invite\\._",
             parse_mode="MarkdownV2",
             reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton("◀  Back to Admins", callback_data=CB_ADMINS)

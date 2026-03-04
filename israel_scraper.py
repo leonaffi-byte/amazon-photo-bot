@@ -471,13 +471,9 @@ def _extract_delivery_section(html: str) -> str:
 
 
 def _is_captcha(html: str) -> bool:
-    html_lower = html.lower()
-    return (
-        "enter the characters you see below"   in html_lower
-        or "api-services-support@amazon.com"   in html_lower
-        or "sorry, we just need to make sure"  in html_lower
-        or "type the characters you see"        in html_lower
-    )
+    """Delegate to centralized CAPTCHA detection in captcha_solver."""
+    from captcha_solver import is_captcha_html
+    return is_captcha_html(html)
 
 
 def _extract_csrf(html: str) -> Optional[str]:

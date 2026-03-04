@@ -6,6 +6,7 @@ services:
     build: .
     container_name: amazon-photo-bot
     restart: unless-stopped
+    stop_grace_period: 30s
     env_file:
       - .env
     environment:
@@ -28,11 +29,12 @@ services:
     build: .
     container_name: amazon-api
     restart: unless-stopped
+    stop_grace_period: 30s
     command: python api_server.py
     env_file:
       - .env
     environment:
-      DATA_DIR: /app/data
+      DATA_DIR: /app/data/api
     ports:
       - "8001:8001"
     volumes:
@@ -49,11 +51,12 @@ services:
     image: amazon-photo-bot          # reuse same image (built above)
     container_name: amazon-test-bot
     restart: unless-stopped
+    stop_grace_period: 30s
     command: python testbot.py        # different entrypoint
     env_file:
       - .env
     environment:
-      DATA_DIR: /app/data
+      DATA_DIR: /app/data/test
     volumes:
       # Share the same data dir → same DB → same API keys
       - ./data:/app/data
