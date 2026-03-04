@@ -27,11 +27,13 @@ Run in Docker:
 from __future__ import annotations
 
 import asyncio
+import hmac
 import logging
 import os
 import secrets
 import time
 from collections import defaultdict, deque
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -45,6 +47,23 @@ from pydantic import BaseModel, Field
 import database as db
 
 logger = logging.getLogger(__name__)
+
+# ── CORS configuration ────────────────────────────────────────────────────────
+_ALLOWED_ORIGINS = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "*").split(",")]
+
+# ── Lifespan ──────────────────────────────────────────────────────────────────
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # startup
+    logging.basicConfig(
+        level  = logging.INFO,
+        format = "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+    await db.init_db()
+    logger.info("Israel Shipping API started")
+    yield
+    # shutdown (nothing to clean up)
 
 # ── App ────────────────────────────────────────────────────────────────────────
 
@@ -63,27 +82,16 @@ app = FastAPI(
     license_info = {"name": "Commercial — not open source"},
     docs_url     = "/docs",
     redoc_url    = "/redoc",
+    lifespan     = lifespan,
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins     = ["*"],
-    allow_credentials = True,
-    allow_methods     = ["*"],
-    allow_headers     = ["*"],
+    allow_origins     = _ALLOWED_ORIGINS,
+    allow_credentials = "*" not in _ALLOWED_ORIGINS,
+    allow_methods     = ["GET", "POST", "DELETE", "PATCH"],
+    allow_headers     = ["X-API-Key", "X-Admin-Secret", "Content-Type"],
 )
-
-
-@app.middleware("http")
-async def correlation_id_middleware(request: Request, call_next):
-    """Assign a correlation ID to every incoming API request."""
-    from correlation import new_correlation_id, get_correlation_id
-    cid = new_correlation_id()
-    logger.info("API request %s %s [cid=%s]", request.method, request.url.path, cid)
-    response = await call_next(request)
-    response.headers["X-Correlation-ID"] = cid
-    return response
-
 
 # ── Auth ───────────────────────────────────────────────────────────────────────
 
@@ -95,7 +103,6 @@ _ADMIN_SECRET      = os.getenv("API_ADMIN_SECRET", "")
 # { api_key: deque of UTC timestamps }
 _windows: dict[str, deque] = defaultdict(lambda: deque())
 _WINDOW  = 86_400   # 24 hours in seconds
-_request_count = 0   # counter for periodic stale-window cleanup
 
 PLAN_LIMITS = {
     "free":  100,
@@ -117,8 +124,8 @@ class ShippingResult(BaseModel):
 class BatchRequest(BaseModel):
     asins: list[str] = Field(
         ...,
-        min_items  = 1,
-        max_items  = 10,
+        min_length = 1,
+        max_length = 10,
         example    = ["B08XYZ12AB", "B09ABC12DE"],
         description = "List of ASINs to check (1–10)",
     )
@@ -152,20 +159,6 @@ class CreateKeyRequest(BaseModel):
     notes:       str  = Field("", description="Optional notes about this key")
 
 
-# ── Startup ────────────────────────────────────────────────────────────────────
-
-@app.on_event("startup")
-async def _startup() -> None:
-    from correlation import CorrelationFilter
-    logging.basicConfig(
-        level  = logging.INFO,
-        format = "%(asctime)s [%(levelname)s] [%(correlation_id)s] %(name)s: %(message)s",
-    )
-    logging.getLogger().addFilter(CorrelationFilter())
-    await db.init_db()
-    logger.info("🚀 Israel Shipping API started")
-
-
 # ── Dependency: validate API key ───────────────────────────────────────────────
 
 async def get_api_key(raw_key: str = Security(_API_KEY_HEADER)) -> dict:
@@ -192,15 +185,6 @@ async def get_api_key(raw_key: str = Security(_API_KEY_HEADER)) -> dict:
         )
 
     # ── Sliding-window rate limit ──────────────────────────────────────────────
-    global _request_count
-    _request_count += 1
-    # Periodically purge stale windows from inactive API keys
-    if _request_count % 1000 == 0:
-        cutoff_clean = time.time() - _WINDOW
-        stale = [k for k, v in _windows.items() if not v or v[-1] < cutoff_clean]
-        for k in stale:
-            del _windows[k]
-
     limit = key_row["daily_limit"]
     win   = _windows[raw_key]
     cutoff = time.time() - _WINDOW
@@ -226,7 +210,7 @@ async def get_admin_key(raw_key: str = Security(_ADMIN_KEY_HEADER)) -> None:
             status_code = status.HTTP_503_SERVICE_UNAVAILABLE,
             detail      = "Admin access not configured (set API_ADMIN_SECRET env var).",
         )
-    if raw_key != _ADMIN_SECRET:
+    if not hmac.compare_digest(raw_key or "", _ADMIN_SECRET):
         raise HTTPException(
             status_code = status.HTTP_401_UNAUTHORIZED,
             detail      = "Invalid admin secret.",
@@ -237,7 +221,7 @@ async def get_admin_key(raw_key: str = Security(_ADMIN_KEY_HEADER)) -> None:
 
 def _validate_asin(asin: str) -> str:
     asin = asin.strip().upper()
-    if len(asin) != 10 or not asin.isalnum():
+    if len(asin) != 10 or not asin.isascii() or not asin.isalnum():
         raise HTTPException(
             status_code = 422,
             detail      = f"Invalid ASIN '{asin}'. Must be exactly 10 alphanumeric characters.",
@@ -517,12 +501,10 @@ async def update_key(
 # ── Entry point ────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    from correlation import CorrelationFilter
     logging.basicConfig(
         level  = logging.INFO,
-        format = "%(asctime)s [%(levelname)s] [%(correlation_id)s] %(name)s: %(message)s",
+        format = "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
-    logging.getLogger().addFilter(CorrelationFilter())
     uvicorn.run(
         "api_server:app",
         host    = "0.0.0.0",

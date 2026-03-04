@@ -54,6 +54,9 @@ _PLACEHOLDER_IMG = "https://placehold.co/600x400/FF9900/FFF.png?text=Amazon"
 # Maximum photo file size we'll process (bytes)
 _MAX_PHOTO_BYTES = 10 * 1024 * 1024  # 10 MB
 
+# Background task references — prevent fire-and-forget tasks from being GC'd
+_background_tasks: set[asyncio.Task] = set()
+
 # Deduplication cache: file_unique_id → (timestamp, winner, all_results)
 _analysis_cache: dict[str, tuple[float, ProviderResult, list[ProviderResult]]] = {}
 _ANALYSIS_CACHE_TTL = 60  # seconds
@@ -197,6 +200,7 @@ def compare_keyboard(results: list[ProviderResult]) -> InlineKeyboardMarkup:
             f"{conf_icon}  {r.provider_name}  ({r.confidence})",
             callback_data=f"{CB_USE_RESULT}{i}",
         )])
+    rows.append([InlineKeyboardButton("✨ Use best result", callback_data=f"{CB_USE_RESULT}0")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -240,7 +244,11 @@ async def results_keyboard(session: UserSession, affiliate_tag: Optional[str]) -
 
     # ── Try differently ────────────────────────────────────────────────────────
     if len(session.all_provider_results) > 1:
-        rows.append([InlineKeyboardButton("🔄  Try differently", callback_data=CB_TRY_DIFFERENTLY)])
+        next_idx = (session.chosen_provider_idx + 1) % len(session.all_provider_results)
+        next_name = session.all_provider_results[next_idx].provider_name
+        current = session.chosen_provider_idx + 1
+        total_providers = len(session.all_provider_results)
+        rows.append([InlineKeyboardButton(f"🔄 Try {next_name} ({current}/{total_providers})", callback_data=CB_TRY_DIFFERENTLY)])
 
     return InlineKeyboardMarkup(rows)
 
@@ -265,10 +273,12 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def cmd_providers(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.effective_user.id
+    is_admin = user_id in config.ADMIN_IDS or await db.is_admin_in_db(user_id)
     try:
         providers = await get_providers()
     except Exception:
-        await update.message.reply_text(style.error_no_providers(), parse_mode="MarkdownV2")
+        await update.message.reply_text(style.error_no_providers(is_admin=is_admin), parse_mode="MarkdownV2")
         return
     try:
         sb = await backend_name()
@@ -304,7 +314,14 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         n_providers = 0
 
     if n_providers == 0:
-        await update.message.reply_text(style.error_no_providers(), parse_mode="MarkdownV2")
+        is_admin = user_id in config.ADMIN_IDS or await db.is_admin_in_db(user_id)
+        await update.message.reply_text(style.error_no_providers(is_admin=is_admin), parse_mode="MarkdownV2")
+        return
+
+    # ── Reject oversized photos before any loading message ──────────────────
+    photo = update.message.photo[-1]
+    if photo.file_size and photo.file_size > _MAX_PHOTO_BYTES:
+        await update.message.reply_text("Photo is too large (max 10 MB). Please send a smaller image.")
         return
 
     # ── Handle optional caption (user hint, possibly in Hebrew/Russian) ────────
@@ -325,11 +342,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         style.loading_vision(n_providers, config.VISION_MODE, context_hint=context_hint),
         parse_mode="MarkdownV2",
     )
-
-    photo = update.message.photo[-1]
-    if photo.file_size and photo.file_size > _MAX_PHOTO_BYTES:
-        await update.message.reply_text("Photo is too large (max 10 MB). Please send a smaller image.")
-        return
     photo_file = await context.bot.get_file(photo.file_id)
     image_bytes = bytes(await photo_file.download_as_bytearray())
 
@@ -348,11 +360,13 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             )
             _analysis_cache[cache_key] = (time.monotonic(), winner, all_results)
         except RuntimeError:
-            await msg.edit_text(style.error_no_providers(), parse_mode="MarkdownV2")
+            is_admin = user_id in config.ADMIN_IDS or await db.is_admin_in_db(user_id)
+            await msg.edit_text(style.error_no_providers(is_admin=is_admin), parse_mode="MarkdownV2")
             return
         except Exception as exc:
             logger.error("Vision analysis failed: %s", exc)
-            await msg.edit_text(style.error_analysis_failed(), parse_mode="MarkdownV2")
+            is_admin = user_id in config.ADMIN_IDS or await db.is_admin_in_db(user_id)
+            await msg.edit_text(style.error_analysis_failed(is_admin=is_admin), parse_mode="MarkdownV2")
             return
 
     session.all_provider_results = all_results
@@ -386,10 +400,21 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     session = get_session(user_id)
     data    = query.data
 
+    # ── Noop page indicator tap — show page info ──────────────────────────────
+    if data == "nav:noop":
+        idx = session.page
+        total = len(session.filtered_items)
+        await query.answer(f"Page {idx + 1} of {total}")
+        return
+
     # ── Provider chosen in compare mode ───────────────────────────────────────
     if data.startswith(CB_USE_RESULT):
-        idx = int(data[len(CB_USE_RESULT):])
-        chosen = session.all_provider_results[idx]
+        try:
+            idx = int(data[len(CB_USE_RESULT):])
+            chosen = session.all_provider_results[idx]
+        except (ValueError, IndexError):
+            await query.answer("Session expired — please send a new photo.", show_alert=True)
+            return
         session.chosen_result       = chosen
         session.chosen_provider_idx = idx
         session.product_info        = chosen.to_product_info()
@@ -460,9 +485,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if data == CB_CHANGE_FILTER:
         session.apply_filter(not session.israel_only)
         if not session.filtered_items:
+            # Show button to toggle back instead of a dead-end message
+            toggle_back = "🌐  Show all" if session.israel_only else "✈️  Free delivery only"
             await query.edit_message_text(
                 "😔 No results with that filter\\. Try the other option\\.",
                 parse_mode="MarkdownV2",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton(toggle_back, callback_data=CB_CHANGE_FILTER)],
+                ]),
             )
             return
         await _render_results(query, context, session)
@@ -539,13 +569,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     )
                 except Exception:
                     pass
-                session.amazon_page += 1
                 new_items = await search_amazon(
                     session.product_info,
                     max_results=config.MAX_RESULTS,
-                    page=session.amazon_page,
+                    page=session.amazon_page + 1,
                 )
                 if new_items:
+                    session.amazon_page += 1
                     session.append_items(new_items)
                     session.more_available = len(new_items) >= config.MAX_RESULTS
                     session.page = next_page
@@ -575,7 +605,9 @@ def _spawn_background_check(
         msg_id = session.results_msg_id
         if not chat_id or not msg_id:
             return
-        asyncio.create_task(coro)
+        task = asyncio.create_task(coro)
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
     except Exception:
         pass
 
@@ -959,6 +991,11 @@ async def cmd_shorten(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await update.message.reply_text(msg, parse_mode="MarkdownV2")
 
 
+async def handle_unsupported(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Reply to non-photo/text messages (video, voice, sticker, etc.)."""
+    await update.message.reply_text(style.not_a_photo(), parse_mode="MarkdownV2")
+
+
 def build_application() -> Application:
     from admin import get_admin_handlers
 
@@ -979,4 +1016,8 @@ def build_application() -> Application:
     app.add_handler(MessageHandler(filters.PHOTO,                   handle_photo))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_search))
+    app.add_handler(MessageHandler(
+        filters.VIDEO | filters.VOICE | filters.Sticker.ALL | filters.VIDEO_NOTE | filters.AUDIO | filters.ANIMATION,
+        handle_unsupported,
+    ))
     return app

@@ -53,12 +53,6 @@ def _h8(model_id: str) -> str:
     return hashlib.md5(model_id.encode()).hexdigest()[:8]
 
 
-def _esc(text: str) -> str:
-    for c in r"\_*[]()~`>#+-=|{}.!":
-        text = text.replace(c, "\\" + c)
-    return text
-
-
 async def _get_or_enabled() -> list[dict]:
     raw = await db.get_setting("openrouter_enabled_models")
     if not raw:
@@ -103,7 +97,7 @@ async def models_content() -> tuple[str, InlineKeyboardMarkup]:
     lines += ["", "*Loaded models:*"]
     for name in providers:
         conf_mark = "⚠️" if name in failed else "✅"
-        lines.append(f"  {conf_mark} `{_esc(name)}`")
+        lines.append(f"  {conf_mark} `{style.esc(name)}`")
 
     if not providers:
         lines.append("  _None — add API keys in 🔑 API Keys_")
@@ -127,7 +121,6 @@ async def models_content() -> tuple[str, InlineKeyboardMarkup]:
 # ── Health panel ──────────────────────────────────────────────────────────────
 
 async def health_content() -> tuple[str, InlineKeyboardMarkup]:
-    import time as _time
     health_rows = await db.get_all_model_health()
 
     lines = [
@@ -138,30 +131,16 @@ async def health_content() -> tuple[str, InlineKeyboardMarkup]:
     if not health_rows:
         lines.append("_No failure data yet\\._")
     else:
-        now = _time.time()
         for r in health_rows:
-            state = r.get("state", "healthy")
-            if state == "disabled":
-                status = "🔴 DISABLED"
-            elif state == "degraded":
-                status = "🟡 degraded"
-            else:
-                status = "🟢 healthy"
-            short = _esc(r["provider_name"].split("/")[-1][:22])
+            status = "🔴 DISABLED" if r["is_disabled"] else (
+                "🟡 unstable" if r["consecutive_failures"] >= 2 else "🟢 ok"
+            )
+            short = style.esc(r["provider_name"].split("/")[-1][:22])
             lines.append(f"  {status} `{short}`")
             if r["consecutive_failures"]:
                 lines.append(f"    Failures: {r['consecutive_failures']}×")
-            # Show auto-recovery time for disabled models
-            disabled_until = r.get("disabled_until")
-            if state == "disabled" and disabled_until:
-                remaining = max(0, disabled_until - now)
-                if remaining > 0:
-                    mins = int(remaining // 60)
-                    lines.append(f"    Retry in: {mins}m")
-                else:
-                    lines.append(f"    _Ready for retry_")
             if r["last_failure_reason"]:
-                lines.append(f"    Last: _{_esc(r['last_failure_reason'][:60])}_")
+                lines.append(f"    Last: _{style.esc(r['last_failure_reason'][:60])}_")
 
     # Re-enable buttons for disabled models
     buttons: list[list[InlineKeyboardButton]] = []
@@ -197,7 +176,7 @@ async def or_page_content(page: int = 0) -> tuple[str, InlineKeyboardMarkup]:
             from providers.openrouter_provider import discover_vision_models
             _or_cache = await discover_vision_models(or_key)
         except Exception as exc:
-            return f"❌ Discovery failed: {_esc(str(exc)[:100])}", InlineKeyboardMarkup([[
+            return f"❌ Discovery failed: {style.esc(str(exc)[:100])}", InlineKeyboardMarkup([[
                 InlineKeyboardButton("🔙 Back", callback_data=CB_MODELS)
             ]])
 
@@ -248,9 +227,9 @@ async def or_page_content(page: int = 0) -> tuple[str, InlineKeyboardMarkup]:
             cross   = f" vs {d_short} \\({sign}\\)"
 
         cost_str = f"\\${m['input_1k']:.4f}/1k"
-        name_str = _esc(m["name"][:35])
+        name_str = style.esc(m["name"][:35])
         lines.append(f"  {mark} *{name_str}*")
-        lines.append(f"     {_esc(m['id'][:40])}  {_esc(cost_str)}{cross}")
+        lines.append(f"     {style.esc(m['id'][:40])}  {style.esc(cost_str)}{cross}")
 
         buttons.append([InlineKeyboardButton(
             f"{'✅ Disable' if enabled else '☐ Enable'}  {m['name'][:30]}",
@@ -312,7 +291,7 @@ async def handle_models_callback(update: Update, context: ContextTypes.DEFAULT_T
         h8 = data[len(CB_OR_TOGGLE):]
         m  = _hash_to_model.get(h8)
         if not m:
-            await query.answer("Expired — please re-open the panel.", show_alert=True)
+            await query.answer("Session lost — please re-open the panel.", show_alert=True)
             return True
 
         enabled  = await _get_or_enabled()
@@ -344,7 +323,7 @@ async def handle_models_callback(update: Update, context: ContextTypes.DEFAULT_T
         h8 = data[len(CB_MODEL_REENABLE):]
         m  = _hash_to_model.get(h8)
         if not m:
-            await query.answer("Expired — please re-open the panel.", show_alert=True)
+            await query.answer("Session lost — please re-open the panel.", show_alert=True)
             return True
         pname = m.get("provider_name", "")
         await db.re_enable_model(pname)

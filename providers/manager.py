@@ -40,6 +40,7 @@ logger = logging.getLogger(__name__)
 
 # Module-level cache — reset to {} by admin.py when a key changes
 _providers: dict[str, VisionProvider] = {}
+_providers_lock = asyncio.Lock()
 
 
 def _model_enabled(env_key: str, default: bool = True) -> bool:
@@ -76,10 +77,10 @@ async def _build_providers() -> dict[str, VisionProvider]:
             import notifications
             _esc_name = pname.replace("-", "\\-").replace(".", "\\.").replace("/", "\\/")
             try:
-                await notifications.admin(
+                asyncio.create_task(notifications.admin(
                     f"\\u2705 `{_esc_name}` recovered and is back online\n"
                     f"State: degraded \\(testing\\)"
-                )
+                ))
             except Exception:
                 pass
     except Exception:
@@ -227,16 +228,18 @@ async def _build_providers() -> dict[str, VisionProvider]:
 
 async def get_providers() -> dict[str, VisionProvider]:
     global _providers
-    if not _providers:
-        _providers = await _build_providers()
+    async with _providers_lock:
+        if not _providers:
+            _providers = await _build_providers()
     return _providers
 
 
 async def cheapest_provider() -> VisionProvider:
     providers = await get_providers()
+    # Estimate for typical call: ~800 input tokens, ~150 output tokens
     return min(
         providers.values(),
-        key=lambda p: p.cost_per_image + p.cost_per_1k_input_tokens * 0.8,
+        key=lambda p: p.cost_per_image + p.cost_per_1k_input_tokens * 0.8 + getattr(p, 'cost_per_1k_output_tokens', 0) * 0.15,
     )
 
 
@@ -300,13 +303,16 @@ async def _handle_progressive_health(
         esc_name = _escape_md2(provider_name)
         esc_err = _escape_md2(error_str[:200])
         cooldown_min = recovery_cooldown // 60
-        await notifications.admin(
-            f"\\u26d4 `{esc_name}` auto\\-disabled\n"
-            f"Reason: model not found\n"
-            f"Error: `{esc_err}`\n"
-            f"Will retry in {cooldown_min} minutes\\.\n\n"
-            f"Re\\-enable via /admin \\u2192 Models"
-        )
+        try:
+            asyncio.create_task(notifications.admin(
+                f"\\u26d4 `{esc_name}` auto\\-disabled\n"
+                f"Reason: model not found\n"
+                f"Error: `{esc_err}`\n"
+                f"Will retry in {cooldown_min} minutes\\.\n\n"
+                f"Re\\-enable via /admin \\u2192 Models"
+            ))
+        except Exception:
+            pass
         logger.warning("[%s] AUTO-DISABLED: model not found", provider_name)
         return
 
@@ -333,13 +339,16 @@ async def _handle_progressive_health(
             esc_name = _escape_md2(provider_name)
             esc_err = _escape_md2(error_str[:200])
             cooldown_min = recovery_cooldown // 60
-            await notifications.admin(
-                f"\\u26d4 `{esc_name}` auto\\-disabled after "
-                f"{failures_in_window} failures in {failure_window // 60} min\\.\n"
-                f"Last error: `{esc_err}`\n"
-                f"Will retry in {cooldown_min} minutes\\.\n\n"
-                f"Re\\-enable via /admin \\u2192 Models"
-            )
+            try:
+                asyncio.create_task(notifications.admin(
+                    f"\\u26d4 `{esc_name}` auto\\-disabled after "
+                    f"{failures_in_window} failures in {failure_window // 60} min\\.\n"
+                    f"Last error: `{esc_err}`\n"
+                    f"Will retry in {cooldown_min} minutes\\.\n\n"
+                    f"Re\\-enable via /admin \\u2192 Models"
+                ))
+            except Exception:
+                pass
 
     elif failures_in_window == 2:
         # Level 2: degraded + admin alert
@@ -354,10 +363,13 @@ async def _handle_progressive_health(
         )
         if prev_notification_level < 2:
             esc_name = _escape_md2(provider_name)
-            await notifications.admin(
-                f"\\ud83d\\udd34 `{esc_name}` had 2 failures in the last "
-                f"{failure_window // 60} min \\u2014 may be experiencing issues"
-            )
+            try:
+                asyncio.create_task(notifications.admin(
+                    f"\\ud83d\\udd34 `{esc_name}` had 2 failures in the last "
+                    f"{failure_window // 60} min \\u2014 may be experiencing issues"
+                ))
+            except Exception:
+                pass
 
     elif failures_in_window == 1:
         # Level 1: degraded + log warning only
@@ -372,10 +384,13 @@ async def _handle_progressive_health(
         )
         if prev_notification_level < 1:
             esc_name = _escape_md2(provider_name)
-            await notifications.admin(
-                f"\\u26a0\\ufe0f `{esc_name}` had 1 failure in the last "
-                f"{failure_window // 60} min"
-            )
+            try:
+                asyncio.create_task(notifications.admin(
+                    f"\\u26a0\\ufe0f `{esc_name}` had 1 failure in the last "
+                    f"{failure_window // 60} min"
+                ))
+            except Exception:
+                pass
 
 
 # -- Core analysis function ---------------------------------------------------
@@ -455,9 +470,9 @@ async def analyse_image(
                         esc_name = _escape_md2(provider.full_name)
                         import notifications
                         try:
-                            await notifications.admin(
+                            asyncio.create_task(notifications.admin(
                                 f"\\u2705 `{esc_name}` recovered and is back online"
-                            )
+                            ))
                         except Exception:
                             pass
                 except Exception as dbe:

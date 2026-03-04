@@ -41,7 +41,6 @@ import database as db
 import key_store
 import settings_store
 import style as st
-from style import esc as e
 
 logger = logging.getLogger(__name__)
 
@@ -50,11 +49,7 @@ logger = logging.getLogger(__name__)
     ST_TAG_NAME, ST_TAG_DESC, ST_TAG_CONFIRM,   # add affiliate tag
     ST_KEY_VALUE,                                # set API key
     ST_SETTING_VALUE,                            # edit a bot setting
-    ST_TAG_IMPORT,                               # import tags CSV file upload
-    ST_RL_USER_ID,                               # rate limit: enter user ID
-    ST_RL_MAX_REQ,                               # rate limit: enter max requests
-    ST_RL_WINDOW,                                # rate limit: enter window seconds
-) = range(9)
+) = range(5)
 
 # ── Callback prefixes ──────────────────────────────────────────────────────────
 P = "adm:"   # all admin callbacks start with this
@@ -71,13 +66,11 @@ CB_TAG_ACT    = f"{P}tag_act:"    # + id
 CB_TAG_DEL    = f"{P}tag_del:"    # + id
 CB_TAG_DELOK  = f"{P}tag_delok:"  # + id
 CB_TAG_NONE   = f"{P}tag_none"
-CB_TAG_DEF    = f"{P}tag_def:"    # + id  — set default tag
-CB_TAG_CLRDEF = f"{P}tag_clrdef"  # clear default tag
 
 # API keys
 CB_KEY_SET    = f"{P}key_set:"    # + key_name
 CB_KEY_DEL    = f"{P}key_del:"    # + key_name
-CB_KEY_DELOK  = f"{P}key_delok:"  # + key_name  (confirmed)
+CB_KEY_DELOK  = f"{P}key_delok:"  # + key_name
 
 # Admins
 CB_ADM_INV    = f"{P}adm_inv"
@@ -100,24 +93,6 @@ CB_SET_EDIT      = f"{P}set_edit:"     # + setting_key
 CB_SET_CHOICE    = f"{P}set_choice:"   # + setting_key + ":" + value
 CB_SET_RESET     = f"{P}set_reset:"    # + setting_key
 CB_SET_FREETEXT  = f"{P}set_freetext:" # + setting_key  → enter free-text mode
-
-# Export
-CB_EXPORT        = f"{P}export"
-CB_EXP_SEARCH    = f"{P}exp_search:"   # + date_range
-CB_EXP_COST      = f"{P}exp_cost:"     # + date_range
-CB_EXP_USER      = f"{P}exp_user:"     # + date_range
-CB_EXP_ALL       = f"{P}exp_all:"      # + date_range
-
-# Circuit breakers
-CB_CIRCUITS       = f"{P}circuits"
-CB_CB_RESET       = f"{P}cb_reset:"     # + circuit name
-CB_CB_RESET_ALL   = f"{P}cb_reset_all"
-
-# Rate limits
-CB_RATELIMIT     = f"{P}ratelimit"
-CB_RL_SET_USER   = f"{P}rl_setuser"   # enter conversation to set user limit
-CB_RL_DEL        = f"{P}rl_del:"      # + user_id — confirm delete
-CB_RL_DELOK      = f"{P}rl_delok:"    # + user_id — actually delete
 
 
 # ── Auth ───────────────────────────────────────────────────────────────────────
@@ -149,7 +124,11 @@ async def guard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
 
 # ── Markdown helper ────────────────────────────────────────────────────────────
 
-# Use style.esc for MarkdownV2 escaping (aliased as e for brevity)
+def e(text: str) -> str:
+    """Escape MarkdownV2."""
+    for ch in r"\_*[]()~`>#+-=|{}.!":
+        text = text.replace(ch, f"\\{ch}")
+    return text
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -157,13 +136,10 @@ async def guard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
 # ══════════════════════════════════════════════════════════════════════════════
 
 async def _panel_content() -> tuple[str, InlineKeyboardMarkup]:
-    import asyncio as _aio
-    tags, stats, admins, all_keys = await _aio.gather(
-        db.get_all_tags(),
-        db.get_stats(),
-        db.get_all_admins(),
-        key_store.get_all_keys(),
-    )
+    tags      = await db.get_all_tags()
+    stats     = await db.get_stats()
+    admins    = await db.get_all_admins()
+    all_keys  = await key_store.get_all_keys()
     keys_set  = sum(1 for v in all_keys.values() if v)
     active    = next((t for t in tags if t.is_active), None)
     tag_line  = f"`{e(active.tag)}`" if active else "_none_ ⚠️"
@@ -201,12 +177,7 @@ async def _panel_content() -> tuple[str, InlineKeyboardMarkup]:
             InlineKeyboardButton("📊  Stats",         callback_data=CB_STATS),
         ],
         [
-            InlineKeyboardButton("🔌  Circuits",    callback_data=CB_CIRCUITS),
-            InlineKeyboardButton("⏱  Rate Limits", callback_data=CB_RATELIMIT),
-        ],
-        [
-            InlineKeyboardButton("👥  Admins",      callback_data=CB_ADMINS),
-            InlineKeyboardButton("📤  Export",      callback_data=CB_EXPORT),
+            InlineKeyboardButton("👥  Admins",  callback_data=CB_ADMINS),
         ],
     ])
     return text, kb
@@ -236,12 +207,7 @@ async def _tags_content() -> tuple[str, InlineKeyboardMarkup]:
     lines = [f"🏷️ *AFFILIATE TAGS*\n{st.DIV}\n"]
     rows  = []
     for t in tags:
-        badges = []
-        if t.is_active:
-            badges.append("✅ *ACTIVE*")
-        if t.is_default:
-            badges.append("⭐ *DEFAULT*")
-        badge = " ".join(badges) if badges else "⬜"
+        badge = "✅ *ACTIVE*" if t.is_active else "⬜"
         lines.append(
             f"{badge}  `{e(t.tag)}`\n"
             f"  _{e(t.description)}_   🔍 {t.search_count} searches\n"
@@ -249,16 +215,12 @@ async def _tags_content() -> tuple[str, InlineKeyboardMarkup]:
         btn_row = []
         if not t.is_active:
             btn_row.append(InlineKeyboardButton(f"✅  Activate {t.tag}", callback_data=f"{CB_TAG_ACT}{t.id}"))
-        if not t.is_default:
-            btn_row.append(InlineKeyboardButton(f"⭐  Default {t.tag}", callback_data=f"{CB_TAG_DEF}{t.id}"))
         btn_row.append(InlineKeyboardButton(f"🗑  Delete {t.tag}", callback_data=f"{CB_TAG_DEL}{t.id}"))
         rows.append(btn_row)
 
     rows += [
         [InlineKeyboardButton("➕  Add Tag",      callback_data=CB_TAG_ADD),
          InlineKeyboardButton("🚫  Disable all",  callback_data=CB_TAG_NONE)],
-        [InlineKeyboardButton("📤  Export CSV",   callback_data="adm:tag_export"),
-         InlineKeyboardButton("📥  Import CSV",   callback_data="adm:tag_import")],
         [InlineKeyboardButton("◀  Back",           callback_data=CB_PANEL)],
     ]
     return "\n".join(lines), InlineKeyboardMarkup(rows)
@@ -280,7 +242,7 @@ async def _tag_add_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     q = update.callback_query
     await q.answer()
     if not await is_admin(q.from_user.id):
-        await q.answer("⛔", show_alert=True)
+        await q.answer("⛔ Admin access only.", show_alert=True)
         return ConversationHandler.END
     context.user_data["tag_flow"] = {}
     await q.edit_message_text(_ADD_TAG_PROMPT, parse_mode="MarkdownV2")
@@ -303,7 +265,9 @@ async def received_tag_name(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     tag = update.message.text.strip()
     if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9\-]{2,48}\-\d{2}$", tag):
         await update.message.reply_text(
-            "⚠️ Invalid format\\. Expected something like `mytag-20`\\.\n\nTry again or /cancel\\.",
+            "⚠️ Invalid format\\. Tags must be 4\\-50 characters, start with a letter/number, "
+            "contain only letters, numbers, and dashes, and end with \\-XX \\(two digits\\)\\.\n\n"
+            "Example: `mytag-20`\n\nTry again or /cancel\\.",
             parse_mode="MarkdownV2",
         )
         return ST_TAG_NAME
@@ -364,129 +328,9 @@ async def tag_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def cancel_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    for k in ("tag_flow", "key_flow", "setting_flow", "rl_flow"):
+    for k in ("tag_flow", "key_flow", "setting_flow"):
         context.user_data.pop(k, None)
     await update.message.reply_text("❌ Cancelled\\.", parse_mode="MarkdownV2")
-    return ConversationHandler.END
-
-
-# ── Export / Import tags ──────────────────────────────────────────────────────
-
-async def cmd_exporttags(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send a CSV file with all affiliate tags to the admin."""
-    if not await guard(update, context):
-        return
-    csv_data = await db.export_tags_csv()
-    if not csv_data.strip() or csv_data.count("\n") <= 1:
-        await update.message.reply_text(
-            "⚠️ No tags to export\\.", parse_mode="MarkdownV2"
-        )
-        return
-    import io
-    buf = io.BytesIO(csv_data.encode("utf-8"))
-    buf.name = "affiliate_tags.csv"
-    await update.message.reply_document(
-        document=buf,
-        caption="📤 Affiliate tags exported.",
-    )
-
-
-async def _tag_export_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle the inline 'Export CSV' button inside the tags panel."""
-    q = update.callback_query
-    await q.answer()
-    if not await is_admin(q.from_user.id):
-        await q.answer("⛔", show_alert=True)
-        return
-    csv_data = await db.export_tags_csv()
-    if not csv_data.strip() or csv_data.count("\n") <= 1:
-        await q.answer("No tags to export.", show_alert=True)
-        return
-    import io
-    buf = io.BytesIO(csv_data.encode("utf-8"))
-    buf.name = "affiliate_tags.csv"
-    await q.message.reply_document(
-        document=buf,
-        caption="📤 Affiliate tags exported.",
-    )
-
-
-async def cmd_importtags(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Prompt the admin to upload a CSV file for bulk tag import."""
-    if not await guard(update, context):
-        return ConversationHandler.END
-    await update.message.reply_text(
-        f"📥 *IMPORT AFFILIATE TAGS*\n{st.DIV}\n\n"
-        "Upload a CSV file with columns:\n"
-        "`tag_name, description, is_active, is_default`\n\n"
-        "Only `tag_name` is required\\. Duplicate tags will be skipped\\.\n\n"
-        "_/cancel to abort_",
-        parse_mode="MarkdownV2",
-    )
-    return ST_TAG_IMPORT
-
-
-async def _tag_import_callback_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle the inline 'Import CSV' button — enters conversation."""
-    q = update.callback_query
-    await q.answer()
-    if not await is_admin(q.from_user.id):
-        await q.answer("⛔", show_alert=True)
-        return ConversationHandler.END
-    await q.edit_message_text(
-        f"📥 *IMPORT AFFILIATE TAGS*\n{st.DIV}\n\n"
-        "Upload a CSV file with columns:\n"
-        "`tag_name, description, is_active, is_default`\n\n"
-        "Only `tag_name` is required\\. Duplicate tags will be skipped\\.\n\n"
-        "_/cancel to abort_",
-        parse_mode="MarkdownV2",
-    )
-    return ST_TAG_IMPORT
-
-
-async def received_import_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Process uploaded CSV file for tag import."""
-    if not await guard(update, context):
-        return ConversationHandler.END
-
-    doc = update.message.document
-    if not doc:
-        await update.message.reply_text(
-            "⚠️ Please upload a CSV file\\.\n_/cancel to abort_",
-            parse_mode="MarkdownV2",
-        )
-        return ST_TAG_IMPORT
-
-    if doc.file_size > 1_000_000:  # 1 MB limit
-        await update.message.reply_text(
-            "⚠️ File too large \\(max 1 MB\\)\\.\n_/cancel to abort_",
-            parse_mode="MarkdownV2",
-        )
-        return ST_TAG_IMPORT
-
-    try:
-        file = await doc.get_file()
-        data = await file.download_as_bytearray()
-        csv_text = data.decode("utf-8")
-    except Exception as exc:
-        logger.error("Failed to download import file: %s", exc)
-        await update.message.reply_text(
-            "⚠️ Failed to read file\\. Ensure it is a valid UTF\\-8 CSV\\.\n_/cancel to abort_",
-            parse_mode="MarkdownV2",
-        )
-        return ST_TAG_IMPORT
-
-    result = await db.import_tags_csv(csv_text, update.effective_user.id)
-
-    text, kb = await _tags_content()
-    await update.message.reply_text(
-        f"📥 *Import complete\\!*\n\n"
-        f"  ✅ Imported: *{result['imported']}*\n"
-        f"  ⏭ Skipped \\(duplicates\\): *{result['skipped']}*\n"
-        f"  ❌ Errors: *{result['errors']}*\n\n" + text,
-        parse_mode="MarkdownV2",
-        reply_markup=kb,
-    )
     return ConversationHandler.END
 
 
@@ -544,7 +388,7 @@ async def _key_set_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     q = update.callback_query
     await q.answer()
     if not await is_admin(q.from_user.id):
-        await q.answer("⛔", show_alert=True)
+        await q.answer("⛔ Admin access only.", show_alert=True)
         return ConversationHandler.END
     key_name = q.data[len(CB_KEY_SET):]
     label, desc = _KEY_LABELS.get(key_name, (key_name, ""))
@@ -579,50 +423,14 @@ async def received_key_value(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("⚠️ Empty value — not saved\\.", parse_mode="MarkdownV2")
         return ST_KEY_VALUE
 
-    # Validate the key before saving
-    import key_validator
-    validating_msg = await update.effective_chat.send_message(
-        f"🔄 Validating *{e(label)}*\\.\\.\\.",
-        parse_mode="MarkdownV2",
-    )
-
-    is_valid, error_msg = await key_validator.validate_key_pair(key_name, value)
-
-    if not is_valid:
-        # Key is invalid — do NOT save, show error
-        try:
-            await validating_msg.delete()
-        except Exception:
-            pass
-        await update.effective_chat.send_message(
-            f"❌ *{e(label)}* validation failed\\!\n\n"
-            f"Error: `{e(error_msg[:300])}`\n\n"
-            f"{st.SDIV}\n"
-            f"Key was *not saved*\\. Please check the value and try again\\.\n\n"
-            f"_/cancel to abort_",
-            parse_mode="MarkdownV2",
-        )
-        return ST_KEY_VALUE
-
-    # Key is valid (or validation was skipped) — save it
     await key_store.set(key_name, value, update.effective_user.id)
 
     # Reload providers / search backend so new key takes effect immediately
     _reload_backends(key_name)
 
-    try:
-        await validating_msg.delete()
-    except Exception:
-        pass
-
-    info_suffix = ""
-    if error_msg:
-        # error_msg contains info (e.g. CapSolver balance) when is_valid=True
-        info_suffix = f"\n_{e(error_msg)}_"
-
     text, kb = await _keys_content()
-    await update.effective_chat.send_message(
-        f"✅ *{e(label)}* validated and saved\\! \\(bot reloaded\\){info_suffix}\n\n" + text,
+    await update.message.reply_text(
+        f"✅ *{e(label)}* saved\\! \\(bot reloaded\\)\n\n" + text,
         parse_mode="MarkdownV2",
         reply_markup=kb,
     )
@@ -758,73 +566,7 @@ async def _shortener_content() -> tuple[str, InlineKeyboardMarkup]:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SECTION 6 — CIRCUIT BREAKERS
-# ══════════════════════════════════════════════════════════════════════════════
-
-async def _circuits_content() -> tuple[str, InlineKeyboardMarkup]:
-    from circuit_breaker import registry as cb_registry
-    import time as _time
-
-    all_stats = cb_registry.get_all_stats()
-    if not all_stats:
-        text = (
-            f"🔌 *CIRCUIT BREAKERS*\n{st.DIV}\n\n"
-            f"_No circuits registered yet\\._\n"
-            f"_Circuits are created when external services are first called\\._"
-        )
-        return text, InlineKeyboardMarkup([
-            [InlineKeyboardButton("◀  Back", callback_data=CB_PANEL)],
-        ])
-
-    state_emoji = {"CLOSED": "🟢", "OPEN": "🔴", "HALF_OPEN": "🟡"}
-
-    lines = [f"🔌 *CIRCUIT BREAKERS*\n{st.DIV}\n"]
-    rows = []
-    for s in all_stats:
-        emoji = state_emoji.get(s["state"], "⚪")
-        name = e(s["name"])
-
-        last_fail = ""
-        if s["last_failure_time"] is not None:
-            ago = _time.monotonic() - s["last_failure_time"]
-            if ago < 60:
-                last_fail = f"{ago:.0f}s ago"
-            elif ago < 3600:
-                last_fail = f"{ago / 60:.0f}m ago"
-            else:
-                last_fail = f"{ago / 3600:.1f}h ago"
-
-        lines.append(
-            f"{emoji} `{name}`\n"
-            f"  State: *{e(s['state'])}*  "
-            f"Failures: {s['failure_count']}/{s['failure_threshold']}  "
-            f"Calls: {s['total_calls']}\n"
-        )
-        if s["last_failure_error"]:
-            err_short = e(s["last_failure_error"][:80])
-            lines.append(f"  Last error \\({e(last_fail)}\\): _{err_short}_\n")
-
-        if s["state"] != "CLOSED":
-            rows.append([InlineKeyboardButton(
-                f"↩️  Reset {s['name']}",
-                callback_data=f"{CB_CB_RESET}{s['name']}",
-            )])
-
-    rows.append([InlineKeyboardButton("↩️  Reset All Open", callback_data=CB_CB_RESET_ALL)])
-    rows.append([InlineKeyboardButton("◀  Back", callback_data=CB_PANEL)])
-    return "\n".join(lines), InlineKeyboardMarkup(rows)
-
-
-async def cmd_circuits(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /circuits command — show circuit breaker status."""
-    if not await guard(update, context):
-        return
-    text, kb = await _circuits_content()
-    await update.message.reply_text(text, parse_mode="MarkdownV2", reply_markup=kb)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# SECTION 7 — BOT SETTINGS
+# SECTION 6 — BOT SETTINGS
 # ══════════════════════════════════════════════════════════════════════════════
 
 async def _settings_content() -> tuple[str, InlineKeyboardMarkup]:
@@ -852,7 +594,7 @@ async def _setting_edit_entry(update: Update, context: ContextTypes.DEFAULT_TYPE
     q = update.callback_query
     await q.answer()
     if not await is_admin(q.from_user.id):
-        await q.answer("⛔", show_alert=True)
+        await q.answer("⛔ Admin access only.", show_alert=True)
         return ConversationHandler.END
 
     key = q.data[len(CB_SET_EDIT):]
@@ -965,7 +707,7 @@ async def _setting_freetext_entry(update: Update, context: ContextTypes.DEFAULT_
     q = update.callback_query
     await q.answer()
     if not await is_admin(q.from_user.id):
-        await q.answer("⛔", show_alert=True)
+        await q.answer("⛔ Admin access only.", show_alert=True)
         return ConversationHandler.END
 
     key  = q.data[len(CB_SET_FREETEXT):]
@@ -987,333 +729,6 @@ async def _setting_freetext_entry(update: Update, context: ContextTypes.DEFAULT_
         parse_mode="MarkdownV2",
     )
     return ST_SETTING_VALUE
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# SECTION 8 — PER-USER RATE LIMITS
-# ══════════════════════════════════════════════════════════════════════════════
-
-async def _ratelimit_content() -> tuple[str, InlineKeyboardMarkup]:
-    """Build the rate-limit admin panel page."""
-    import config as _cfg
-    custom_limits = await db.list_user_rate_limits()
-
-    default_req    = _cfg.DEFAULT_RATE_LIMIT
-    default_window = _cfg.DEFAULT_RATE_WINDOW
-
-    lines = [
-        f"⏱ *RATE LIMITS*\n{st.DIV}\n",
-        f"_Per\\-user request throttling\\._\n",
-        f"{st.SDIV}\n",
-        f"*Default:* `{default_req}` requests / `{default_window}` seconds\n",
-        f"_Change defaults in ⚙️ Settings_\n",
-    ]
-
-    if custom_limits:
-        lines.append(f"\n{st.SDIV}\n*Custom overrides:*\n")
-        for rl in custom_limits:
-            lines.append(
-                f"  ▸ User `{rl.user_id}`:  "
-                f"`{rl.max_requests}` req / `{rl.window_seconds}`s"
-            )
-    else:
-        lines.append(f"\n{st.SDIV}\n_No custom overrides\\. All users use the default\\._")
-
-    rows = []
-    for rl in custom_limits:
-        rows.append([InlineKeyboardButton(
-            f"🗑  Remove {rl.user_id}",
-            callback_data=f"{CB_RL_DEL}{rl.user_id}",
-        )])
-    rows += [
-        [InlineKeyboardButton("➕  Set User Limit", callback_data=CB_RL_SET_USER)],
-        [InlineKeyboardButton("◀  Back",            callback_data=CB_PANEL)],
-    ]
-    return "\n".join(lines), InlineKeyboardMarkup(rows)
-
-
-async def cmd_ratelimit(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Entry via /ratelimit command."""
-    if not await guard(update, context):
-        return
-    text, kb = await _ratelimit_content()
-    await update.message.reply_text(text, parse_mode="MarkdownV2", reply_markup=kb)
-
-
-# ── Set user rate limit conversation ──────────────────────────────────────────
-
-async def _rl_set_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Entry via callback button — prompt for user ID."""
-    q = update.callback_query
-    await q.answer()
-    if not await is_admin(q.from_user.id):
-        await q.answer("⛔", show_alert=True)
-        return ConversationHandler.END
-    context.user_data["rl_flow"] = {}
-    await q.edit_message_text(
-        f"⏱ *SET USER RATE LIMIT*\n{st.DIV}\n\n"
-        f"*Step 1 / 3* — Enter the Telegram user ID:\n\n"
-        f"`123456789`\n\n"
-        f"{st.SDIV}\n"
-        f"_/cancel to abort_",
-        parse_mode="MarkdownV2",
-    )
-    return ST_RL_USER_ID
-
-
-async def received_rl_user_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    if not await guard(update, context):
-        return ConversationHandler.END
-    text = update.message.text.strip()
-    if not text.isdigit():
-        await update.message.reply_text(
-            "⚠️ Invalid\\. Enter a numeric Telegram user ID\\.\n_/cancel to abort_",
-            parse_mode="MarkdownV2",
-        )
-        return ST_RL_USER_ID
-    context.user_data["rl_flow"]["user_id"] = int(text)
-    await update.message.reply_text(
-        f"✅ User ID: `{e(text)}`\n\n"
-        f"*Step 2 / 3* — Max requests per window:\n"
-        f"_e\\.g\\. `10`_\n\n_/cancel to abort_",
-        parse_mode="MarkdownV2",
-    )
-    return ST_RL_MAX_REQ
-
-
-async def received_rl_max_req(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    if not await guard(update, context):
-        return ConversationHandler.END
-    text = update.message.text.strip()
-    if not text.isdigit() or int(text) < 1:
-        await update.message.reply_text(
-            "⚠️ Enter a positive integer\\.\n_/cancel to abort_",
-            parse_mode="MarkdownV2",
-        )
-        return ST_RL_MAX_REQ
-    context.user_data["rl_flow"]["max_requests"] = int(text)
-    await update.message.reply_text(
-        f"✅ Max requests: `{e(text)}`\n\n"
-        f"*Step 3 / 3* — Window size in seconds:\n"
-        f"_e\\.g\\. `60` \\= 1 minute, `3600` \\= 1 hour_\n\n_/cancel to abort_",
-        parse_mode="MarkdownV2",
-    )
-    return ST_RL_WINDOW
-
-
-async def received_rl_window(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    if not await guard(update, context):
-        return ConversationHandler.END
-    text = update.message.text.strip()
-    if not text.isdigit() or int(text) < 1:
-        await update.message.reply_text(
-            "⚠️ Enter a positive integer \\(seconds\\)\\.\n_/cancel to abort_",
-            parse_mode="MarkdownV2",
-        )
-        return ST_RL_WINDOW
-
-    flow = context.user_data.get("rl_flow", {})
-    user_id      = flow.get("user_id", 0)
-    max_requests = flow.get("max_requests", 5)
-    window_secs  = int(text)
-
-    await db.set_user_rate_limit(
-        user_id=user_id,
-        max_requests=max_requests,
-        window_seconds=window_secs,
-        updated_by=update.effective_user.id,
-    )
-
-    # Invalidate the in-memory cache in bot.py so the new limit takes effect
-    try:
-        from bot import invalidate_rate_limit_cache
-        invalidate_rate_limit_cache(user_id)
-    except Exception:
-        pass
-
-    text_msg, kb = await _ratelimit_content()
-    await update.message.reply_text(
-        f"✅ Rate limit set for user `{user_id}`: "
-        f"`{max_requests}` req / `{window_secs}`s\\!\n\n" + text_msg,
-        parse_mode="MarkdownV2",
-        reply_markup=kb,
-    )
-    context.user_data.pop("rl_flow", None)
-    return ConversationHandler.END
-
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# SECTION 8 — ANALYTICS EXPORT
-# ══════════════════════════════════════════════════════════════════════════════
-
-import io
-import json
-from datetime import datetime, timedelta, timezone
-
-# Date-range constants used in callback data
-_DATE_RANGES = {
-    "7d":  "Last 7 days",
-    "30d": "Last 30 days",
-    "all": "All time",
-}
-
-
-def _date_range_to_iso(range_key: str) -> tuple[str | None, str | None]:
-    """Convert a range key like '7d' to (start_date, end_date) ISO strings."""
-    if range_key == "7d":
-        start = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
-        return start, None
-    if range_key == "30d":
-        start = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
-        return start, None
-    return None, None   # all time
-
-
-async def _export_content() -> tuple[str, InlineKeyboardMarkup]:
-    """Show the export panel with type options, each with date-range sub-buttons."""
-    text = (
-        f"📤 *EXPORT ANALYTICS*\n{st.DIV}\n\n"
-        "Export search stats, cost breakdowns, and user activity\n"
-        "as CSV or JSON files\\.\n\n"
-        f"{st.SDIV}\n"
-        "*Search Logs* \u2014 every search event \\(CSV\\)\n"
-        "*API Costs* \u2014 per\\-request AI cost tracking \\(CSV\\)\n"
-        "*User Activity* \u2014 aggregated per\\-user stats \\(CSV\\)\n"
-        "*All Data* \u2014 everything combined \\(JSON\\)\n\n"
-        "_Select an export and time range:_"
-    )
-
-    rows = [
-        # Search Logs row with date ranges
-        [InlineKeyboardButton(f"🔍 Logs 7d",  callback_data=f"{CB_EXP_SEARCH}7d"),
-         InlineKeyboardButton(f"🔍 Logs 30d", callback_data=f"{CB_EXP_SEARCH}30d"),
-         InlineKeyboardButton(f"🔍 Logs All", callback_data=f"{CB_EXP_SEARCH}all")],
-        # API Costs row with date ranges
-        [InlineKeyboardButton(f"💰 Costs 7d",  callback_data=f"{CB_EXP_COST}7d"),
-         InlineKeyboardButton(f"💰 Costs 30d", callback_data=f"{CB_EXP_COST}30d"),
-         InlineKeyboardButton(f"💰 Costs All", callback_data=f"{CB_EXP_COST}all")],
-        # User Activity row with date ranges
-        [InlineKeyboardButton(f"👤 Users 7d",  callback_data=f"{CB_EXP_USER}7d"),
-         InlineKeyboardButton(f"👤 Users 30d", callback_data=f"{CB_EXP_USER}30d"),
-         InlineKeyboardButton(f"👤 Users All", callback_data=f"{CB_EXP_USER}all")],
-        # All Data (JSON) row with date ranges
-        [InlineKeyboardButton(f"📦 All 7d",  callback_data=f"{CB_EXP_ALL}7d"),
-         InlineKeyboardButton(f"📦 All 30d", callback_data=f"{CB_EXP_ALL}30d"),
-         InlineKeyboardButton(f"📦 All",     callback_data=f"{CB_EXP_ALL}all")],
-        # Back button
-        [InlineKeyboardButton("◀  Back", callback_data=CB_PANEL)],
-    ]
-    return text, InlineKeyboardMarkup(rows)
-
-
-async def cmd_export(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /export command — show export panel."""
-    if not await guard(update, context):
-        return
-    text, kb = await _export_content()
-    await update.message.reply_text(text, parse_mode="MarkdownV2", reply_markup=kb)
-
-
-async def _send_export_file(
-    query,
-    context: ContextTypes.DEFAULT_TYPE,
-    data: str | bytes,
-    filename: str,
-    caption: str,
-) -> None:
-    """Send export data as a Telegram document."""
-    if isinstance(data, str):
-        data = data.encode("utf-8")
-    buf = io.BytesIO(data)
-    buf.name = filename
-    await context.bot.send_document(
-        chat_id=query.message.chat_id,
-        document=buf,
-        caption=caption,
-    )
-
-
-async def _handle_export_callback(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-    data: str,
-) -> bool:
-    """
-    Handle export-related callback data.
-    Returns True if the callback was handled, False otherwise.
-    """
-    q = update.callback_query
-
-    if data == CB_EXPORT:
-        text, kb = await _export_content()
-        await q.edit_message_text(text, parse_mode="MarkdownV2", reply_markup=kb)
-        return True
-
-    if data.startswith(CB_EXP_SEARCH):
-        rk = data[len(CB_EXP_SEARCH):]
-        start, end = _date_range_to_iso(rk)
-        label = _DATE_RANGES.get(rk, rk)
-        # Check JSON first to detect empty data (CSV always has headers)
-        check = await db.export_search_logs(fmt="json", start_date=start, end_date=end)
-        if not check:
-            await q.answer("No search log data found.", show_alert=True)
-            return True
-        result = await db.export_search_logs(fmt="csv", start_date=start, end_date=end)
-        filename = f"search_logs_{rk}_{datetime.now(timezone.utc).strftime('%Y%m%d')}.csv"
-        await _send_export_file(q, context, result, filename, f"Search Logs — {label}")
-        await q.answer("Export sent!")
-        return True
-
-    if data.startswith(CB_EXP_COST):
-        rk = data[len(CB_EXP_COST):]
-        start, end = _date_range_to_iso(rk)
-        label = _DATE_RANGES.get(rk, rk)
-        check = await db.export_api_costs(fmt="json", start_date=start, end_date=end)
-        if not check:
-            await q.answer("No API cost data found.", show_alert=True)
-            return True
-        result = await db.export_api_costs(fmt="csv", start_date=start, end_date=end)
-        filename = f"api_costs_{rk}_{datetime.now(timezone.utc).strftime('%Y%m%d')}.csv"
-        await _send_export_file(q, context, result, filename, f"API Costs — {label}")
-        await q.answer("Export sent!")
-        return True
-
-    if data.startswith(CB_EXP_USER):
-        rk = data[len(CB_EXP_USER):]
-        start, end = _date_range_to_iso(rk)
-        label = _DATE_RANGES.get(rk, rk)
-        check = await db.export_user_activity(fmt="json", start_date=start, end_date=end)
-        if not check:
-            await q.answer("No user activity data found.", show_alert=True)
-            return True
-        result = await db.export_user_activity(fmt="csv", start_date=start, end_date=end)
-        filename = f"user_activity_{rk}_{datetime.now(timezone.utc).strftime('%Y%m%d')}.csv"
-        await _send_export_file(q, context, result, filename, f"User Activity — {label}")
-        await q.answer("Export sent!")
-        return True
-
-    if data.startswith(CB_EXP_ALL):
-        rk = data[len(CB_EXP_ALL):]
-        start, end = _date_range_to_iso(rk)
-        label = _DATE_RANGES.get(rk, rk)
-        search_logs = await db.export_search_logs(fmt="json", start_date=start, end_date=end)
-        api_costs = await db.export_api_costs(fmt="json", start_date=start, end_date=end)
-        user_activity = await db.export_user_activity(fmt="json", start_date=start, end_date=end)
-        combined = {
-            "exported_at": datetime.now(timezone.utc).isoformat(),
-            "date_range": label,
-            "search_logs": search_logs,
-            "api_costs": api_costs,
-            "user_activity": user_activity,
-        }
-        json_str = json.dumps(combined, indent=2, ensure_ascii=False, default=str)
-        filename = f"analytics_export_{rk}_{datetime.now(timezone.utc).strftime('%Y%m%d')}.json"
-        await _send_export_file(q, context, json_str, filename, f"Full Analytics Export — {label}")
-        await q.answer("Export sent!")
-        return True
-
-    return False
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1376,22 +791,6 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await q.edit_message_text("🗑 Deleted\\.\n\n" + text,
                                   parse_mode="MarkdownV2", reply_markup=kb)
 
-    elif data.startswith(CB_TAG_DEF):
-        tag_id = int(data[len(CB_TAG_DEF):])
-        await db.set_default_tag(tag_id)
-        text, kb = await _tags_content()
-        await q.edit_message_text("⭐ Default tag set\\!\n\n" + text,
-                                  parse_mode="MarkdownV2", reply_markup=kb)
-
-    elif data == CB_TAG_CLRDEF:
-        await db.clear_default_tag()
-        text, kb = await _tags_content()
-        await q.edit_message_text("⭐ Default tag cleared\\.\n\n" + text,
-                                  parse_mode="MarkdownV2", reply_markup=kb)
-
-    elif data == "adm:tag_export":
-        await _tag_export_callback(update, context)
-
     # ── API keys ───────────────────────────────────────────────────────────────
     elif data == CB_KEYS:
         text, kb = await _keys_content()
@@ -1399,14 +798,17 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     elif data.startswith(CB_KEY_DEL) and not data.startswith(CB_KEY_DELOK):
         key_name = data[len(CB_KEY_DEL):]
-        label = _KEY_LABELS.get(key_name, (key_name, ""))[0]
-        kb = InlineKeyboardMarkup([[
-            InlineKeyboardButton("✅  Yes, clear key", callback_data=f"{CB_KEY_DELOK}{key_name}"),
-            InlineKeyboardButton("❌  Cancel",         callback_data=CB_KEYS),
-        ]])
         await q.edit_message_text(
-            f"🗑 Clear *{e(label)}* API key?\n\n_Bot will fall back to \\.env value\\._",
-            parse_mode="MarkdownV2", reply_markup=kb,
+            f"⚠️ *Clear `{e(key_name)}`?*\n\n"
+            "The bot will fall back to the \\.env value \\(if any\\)\\.\n"
+            "You can re\\-add the key later via the admin panel\\.",
+            parse_mode="MarkdownV2",
+            reply_markup=InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("🗑 Clear key", callback_data=f"{CB_KEY_DELOK}{key_name}"),
+                    InlineKeyboardButton("◀ Cancel", callback_data=CB_KEYS),
+                ],
+            ]),
         )
 
     elif data.startswith(CB_KEY_DELOK):
@@ -1414,7 +816,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await key_store.delete(key_name)
         _reload_backends(key_name)
         text, kb = await _keys_content()
-        await q.edit_message_text("🗑 Key cleared\\.\n\n" + text,
+        await q.edit_message_text("🗑 Key cleared \\(bot now uses \\.env fallback\\)\\.\n\n" + text,
                                   parse_mode="MarkdownV2", reply_markup=kb)
 
     # ── Admins ─────────────────────────────────────────────────────────────────
@@ -1431,9 +833,9 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             f"🔗 *ADMIN INVITE LINK*\n{st.DIV}\n\n"
             f"`{e(deep_link)}`\n\n"
             f"{st.SDIV}\n"
-            "⏰ *Expires in 30 minutes* — single\\-use only\n"
+            "▸ Single\\-use  ·  Expires in *30 minutes*\n"
             "▸ Recipient taps link → bot opens → instant admin access\n\n"
-            "_Send this link to the person you want to invite\\._",
+            "_Equivalent to an OAuth invite flow, but Telegram\\-native\\._",
             parse_mode="MarkdownV2",
             reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton("◀  Back to Admins", callback_data=CB_ADMINS)
@@ -1532,248 +934,6 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         text, kb = await _shortener_content()
         await q.edit_message_text("🗑 Deleted\\.\n\n" + text, parse_mode="MarkdownV2", reply_markup=kb)
 
-    # ── Circuit Breakers ──────────────────────────────────────────────────────
-    elif data == CB_CIRCUITS:
-        text, kb = await _circuits_content()
-        await q.edit_message_text(text, parse_mode="MarkdownV2", reply_markup=kb)
-
-    elif data == CB_CB_RESET_ALL:
-        from circuit_breaker import registry as cb_registry
-        count = cb_registry.reset_all()
-        text, kb = await _circuits_content()
-        await q.edit_message_text(
-            f"↩️ Reset *{count}* circuit\\(s\\)\\.\n\n" + text,
-            parse_mode="MarkdownV2", reply_markup=kb,
-        )
-
-    elif data.startswith(CB_CB_RESET):
-        from circuit_breaker import registry as cb_registry
-        name = data[len(CB_CB_RESET):]
-        found = cb_registry.reset(name)
-        text, kb = await _circuits_content()
-        if found:
-            await q.edit_message_text(
-                f"↩️ Circuit `{e(name)}` reset to CLOSED\\.\n\n" + text,
-                parse_mode="MarkdownV2", reply_markup=kb,
-            )
-        else:
-            await q.edit_message_text(
-                f"⚠️ Circuit `{e(name)}` not found\\.\n\n" + text,
-                parse_mode="MarkdownV2", reply_markup=kb,
-            )
-
-    # ── Export ────────────────────────────────────────────────────────────────────────
-    elif data == CB_EXPORT or data.startswith(f"{P}exp_"):
-        await _handle_export_callback(update, context, data)
-
-    # ── Rate Limits ───────────────────────────────────────────────────────────
-    elif data == CB_RATELIMIT:
-        text, kb = await _ratelimit_content()
-        await q.edit_message_text(text, parse_mode="MarkdownV2", reply_markup=kb)
-
-    elif data.startswith(CB_RL_DEL) and not data.startswith(CB_RL_DELOK):
-        target_id = int(data[len(CB_RL_DEL):])
-        kb = InlineKeyboardMarkup([[
-            InlineKeyboardButton("✅  Remove", callback_data=f"{CB_RL_DELOK}{target_id}"),
-            InlineKeyboardButton("❌  Cancel", callback_data=CB_RATELIMIT),
-        ]])
-        await q.edit_message_text(
-            f"🗑 Remove custom rate limit for user `{target_id}`?\n\n"
-            f"_They will revert to the default limit\\._",
-            parse_mode="MarkdownV2", reply_markup=kb,
-        )
-
-    elif data.startswith(CB_RL_DELOK):
-        target_id = int(data[len(CB_RL_DELOK):])
-        await db.remove_user_rate_limit(target_id)
-        try:
-            from bot import invalidate_rate_limit_cache
-            invalidate_rate_limit_cache(target_id)
-        except Exception:
-            pass
-        text, kb = await _ratelimit_content()
-        await q.edit_message_text(
-            f"✅ Custom limit removed for user `{target_id}`\\.\n\n" + text,
-            parse_mode="MarkdownV2", reply_markup=kb,
-        )
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# SECTION 7 — DATABASE BACKUPS
-# ══════════════════════════════════════════════════════════════════════════════
-
-async def cmd_backup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    /backup — trigger an immediate manual backup and send the file to the admin.
-    """
-    if not await guard(update, context):
-        return
-
-    await update.message.reply_text(
-        f"💾 *Starting backup\\.\\.\\.*\n{st.SDIV}\n_This may take a moment\\._",
-        parse_mode="MarkdownV2",
-    )
-
-    try:
-        from db_backup import backup_database
-        path = await backup_database()
-
-        import os
-        size = os.path.getsize(path)
-        size_str = f"{size / 1024:.1f} KB" if size < 1_048_576 else f"{size / 1_048_576:.1f} MB"
-
-        await update.message.reply_document(
-            document=open(path, "rb"),
-            filename=os.path.basename(path),
-            caption=(
-                f"Backup complete\\.\n"
-                f"Size: `{e(size_str)}`"
-            ),
-            parse_mode="MarkdownV2",
-        )
-    except Exception as exc:
-        logger.error("Manual backup failed: %s", exc, exc_info=True)
-        await update.message.reply_text(
-            f"Backup failed: `{e(str(exc)[:200])}`",
-            parse_mode="MarkdownV2",
-        )
-
-
-async def cmd_backups(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    /backups — list available backups with sizes and dates.
-    """
-    if not await guard(update, context):
-        return
-
-    try:
-        from db_backup import list_backups
-        backups = await list_backups()
-
-        if not backups:
-            await update.message.reply_text(
-                f"💾 *BACKUPS*\n{st.DIV}\n\n_No backups found\\._\n\nUse /backup to create one\\.",
-                parse_mode="MarkdownV2",
-            )
-            return
-
-        lines = [f"💾 *BACKUPS*\n{st.DIV}\n"]
-        for b in backups[:20]:   # show at most 20
-            size = b["size"]
-            size_str = f"{size / 1024:.1f} KB" if size < 1_048_576 else f"{size / 1_048_576:.1f} MB"
-            # Parse ISO date for display
-            try:
-                from datetime import datetime
-                dt = datetime.fromisoformat(b["date"])
-                date_str = dt.strftime("%Y-%m-%d %H:%M UTC")
-            except Exception:
-                date_str = b["date"][:19]
-            lines.append(f"▸ `{e(b['filename'])}`\n  {e(size_str)}  ·  {e(date_str)}\n")
-
-        import config as _cfg
-        lines.append(f"{st.SDIV}")
-        lines.append(f"_Retention: {_cfg.BACKUP_KEEP_DAYS} days  ·  Auto: {'on' if _cfg.BACKUP_ENABLED else 'off'}  ·  Hour: {_cfg.BACKUP_HOUR:02d}:00_")
-
-        await update.message.reply_text(
-            "\n".join(lines),
-            parse_mode="MarkdownV2",
-        )
-    except Exception as exc:
-        logger.error("List backups failed: %s", exc, exc_info=True)
-        await update.message.reply_text(
-            f"Failed to list backups: `{e(str(exc)[:200])}`",
-            parse_mode="MarkdownV2",
-        )
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# SECTION 7 — /health COMMAND (progressive model health overview)
-# ══════════════════════════════════════════════════════════════════════════════
-
-async def cmd_health(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show current health status of all providers/models with progressive state."""
-    if not await guard(update, context):
-        return
-
-    import time as _time
-    health_rows = await db.get_all_model_health()
-
-    if not health_rows:
-        await update.message.reply_text(
-            f"\\U0001f3e5 *MODEL HEALTH*\n{st.DIV}\n\n_No models tracked yet\\._",
-            parse_mode="MarkdownV2",
-        )
-        return
-
-    lines = [
-        f"\\U0001f3e5 *MODEL HEALTH*",
-        f"{st.DIV}",
-        "",
-    ]
-
-    now = _time.time()
-
-    for r in health_rows:
-        state = r.get("state", "healthy")
-        name = e(r["provider_name"])
-
-        if state == "disabled":
-            status_icon = "\\U0001f534"   # red circle
-            status_text = "DISABLED"
-        elif state == "degraded":
-            status_icon = "\\U0001f7e1"   # yellow circle
-            status_text = "DEGRADED"
-        else:
-            status_icon = "\\U0001f7e2"   # green circle
-            status_text = "HEALTHY"
-
-        lines.append(f"  {status_icon} `{name}`  *{e(status_text)}*")
-
-        # Failure count within window
-        import config as _cfg
-        fail_ts = r.get("failure_timestamps", [])
-        cutoff = now - _cfg.HEALTH_FAILURE_WINDOW
-        recent_failures = sum(1 for ts in fail_ts if ts >= cutoff)
-        if recent_failures:
-            window_min = _cfg.HEALTH_FAILURE_WINDOW // 60
-            lines.append(f"    Failures \\(last {window_min}m\\): *{recent_failures}*")
-
-        if r["total_failures"]:
-            lines.append(f"    Total failures: {r['total_failures']}")
-
-        if r["consecutive_failures"]:
-            lines.append(f"    Consecutive: {r['consecutive_failures']}")
-
-        # Auto-recovery time
-        disabled_until = r.get("disabled_until")
-        if state == "disabled" and disabled_until:
-            remaining = max(0, disabled_until - now)
-            if remaining > 0:
-                mins = int(remaining // 60)
-                secs = int(remaining % 60)
-                lines.append(f"    Auto\\-retry in: *{mins}m {secs}s*")
-            else:
-                lines.append(f"    _Ready for auto\\-recovery_")
-
-        if r["last_failure_reason"]:
-            reason = e(r["last_failure_reason"][:80])
-            lines.append(f"    Last error: _{reason}_")
-
-        lines.append("")
-
-    # Config summary
-    import config as _cfg
-    lines.append(f"{st.SDIV}")
-    lines.append(f"\\u2699\\ufe0f *Config*")
-    lines.append(f"  Failure window: {_cfg.HEALTH_FAILURE_WINDOW // 60}m")
-    lines.append(f"  Disable threshold: {_cfg.HEALTH_DISABLE_THRESHOLD} failures")
-    lines.append(f"  Recovery cooldown: {_cfg.HEALTH_RECOVERY_COOLDOWN // 60}m")
-
-    await update.message.reply_text(
-        "\n".join(lines),
-        parse_mode="MarkdownV2",
-    )
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 # INVITE REDEMPTION  (/start invite_<code>)
@@ -1814,68 +974,6 @@ async def handle_start_invite(update: Update, context: ContextTypes.DEFAULT_TYPE
         parse_mode="MarkdownV2",
     )
     logger.info("New admin added via invite: %s (%d)", user.full_name, user.id)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# VALIDATE KEYS COMMAND
-# ══════════════════════════════════════════════════════════════════════════════
-
-async def cmd_validatekeys(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    /validatekeys — validate all stored API keys and report status.
-    Makes a lightweight health-check call for each configured key.
-    """
-    if not await guard(update, context):
-        return
-
-    msg = await update.message.reply_text(
-        f"🔄 *Validating all API keys\\.\\.\\.*\n{st.DIV}\n\n"
-        "_This may take a moment\\._",
-        parse_mode="MarkdownV2",
-    )
-
-    import key_validator
-    results = await key_validator.validate_all_stored_keys()
-
-    if not results:
-        await msg.edit_text(
-            f"🔑 *KEY VALIDATION*\n{st.DIV}\n\n"
-            "_No API keys are currently set\\._\n\n"
-            "Use /admin → 🔑 API Keys to add keys\\.",
-            parse_mode="MarkdownV2",
-        )
-        return
-
-    lines = [f"🔑 *KEY VALIDATION RESULTS*\n{st.DIV}\n"]
-    valid_count = 0
-    invalid_count = 0
-    skipped_count = 0
-
-    for key_name, (is_valid, info) in sorted(results.items()):
-        label_info = _KEY_LABELS.get(key_name)
-        label = label_info[0] if label_info else key_name
-
-        if "skipped" in info.lower() if info else False:
-            skipped_count += 1
-            lines.append(f"⏭  *{e(label)}*: _skipped_")
-        elif is_valid:
-            valid_count += 1
-            detail = f"  _{e(info)}_" if info else ""
-            lines.append(f"✅  *{e(label)}*: valid{detail}")
-        else:
-            invalid_count += 1
-            lines.append(f"❌  *{e(label)}*: `{e(info[:150])}`")
-
-    lines.append(f"\n{st.SDIV}")
-    lines.append(
-        f"✅ Valid: *{valid_count}*  ❌ Invalid: *{invalid_count}*  "
-        f"⏭ Skipped: *{skipped_count}*"
-    )
-
-    await msg.edit_text(
-        "\n".join(lines),
-        parse_mode="MarkdownV2",
-    )
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1929,52 +1027,11 @@ def get_admin_handlers():
         per_message=False,
     )
 
-    # Conversation: import affiliate tags from CSV file
-    import_conv = ConversationHandler(
-        entry_points=[
-            CommandHandler("importtags", cmd_importtags),
-            CallbackQueryHandler(_tag_import_callback_entry, pattern=r"^adm:tag_import$"),
-        ],
-        states={
-            ST_TAG_IMPORT: [
-                MessageHandler(filters.Document.ALL, received_import_file),
-            ],
-        },
-        fallbacks=[CommandHandler("cancel", cancel_flow)],
-        allow_reentry=True,
-        per_message=False,
-    )
-
-    # Conversation: set per-user rate limit
-    ratelimit_conv = ConversationHandler(
-        entry_points=[
-            CallbackQueryHandler(_rl_set_entry, pattern=f"^{CB_RL_SET_USER}$"),
-        ],
-        states={
-            ST_RL_USER_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_rl_user_id)],
-            ST_RL_MAX_REQ: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_rl_max_req)],
-            ST_RL_WINDOW:  [MessageHandler(filters.TEXT & ~filters.COMMAND, received_rl_window)],
-        },
-        fallbacks=[CommandHandler("cancel", cancel_flow)],
-        allow_reentry=True,
-        per_message=False,
-    )
-
     return [
         CommandHandler("admin", cmd_admin),
-        CommandHandler("export", cmd_export),
-        CommandHandler("ratelimit", cmd_ratelimit),
-        CommandHandler("backup", cmd_backup),
-        CommandHandler("backups", cmd_backups),
-        CommandHandler("circuits", cmd_circuits),
-        CommandHandler("validatekeys", cmd_validatekeys),
-        CommandHandler("health", cmd_health),
-        CommandHandler("exporttags", cmd_exporttags),
         tag_conv,
         key_conv,
         setting_conv,
-        import_conv,
-        ratelimit_conv,
         # All other adm:* callbacks not handled by conversations
         CallbackQueryHandler(
             admin_callback,

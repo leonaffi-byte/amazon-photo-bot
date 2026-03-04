@@ -5,9 +5,8 @@ Runs as an aiohttp web server in the same asyncio event loop as the Telegram bot
 Handles redirect requests and logs every click to SQLite for analytics.
 
 Endpoints:
-  GET /{code}        → 301 redirect to the long URL (logs click)
+  GET /{code}        → 302 redirect to the long URL (logs click)
   GET /health        → plain-text health check (for uptime monitors / nginx)
-  GET /metrics       → Prometheus text-format metrics (if METRICS_ENABLED=true)
   GET /stats/{code}  → JSON click stats for a code (admin use)
 
 Setup:
@@ -30,14 +29,18 @@ Nginx minimal config:
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
+import os
 from typing import Optional
 
 from aiohttp import web
 
 import config
 import database as db
-from metrics import registry as _metrics_registry
+
+_STATS_SECRET = os.getenv("SHORTENER_STATS_SECRET", "")
 
 logger = logging.getLogger(__name__)
 
@@ -46,14 +49,17 @@ logger = logging.getLogger(__name__)
 
 async def handle_redirect(request: web.Request) -> web.Response:
     """
-    Main handler: look up the code, log the click, issue a 301 redirect.
-    Uses 301 (permanent) so browsers cache it — reduces server load for
-    repeat visitors to the same link.
+    Main handler: look up the code, log the click, issue a 302 redirect.
+    Uses 302 (temporary) which works better in Telegram's in-app browser.
     """
     code = request.match_info["code"]
 
     # Strip any file extension someone might have appended (e.g. .html)
-    code = code.split(".")[0]
+    code = code.split(".")[0][:16]
+
+    # Validate code before hitting the database
+    if not code or not code.isalnum():
+        raise web.HTTPNotFound(text="Link not found.")
 
     long_url = await db.get_long_url_by_code(code)
     if not long_url:
@@ -62,12 +68,19 @@ async def handle_redirect(request: web.Request) -> web.Response:
             content_type="text/plain",
         )
 
-    # Log click (fast SQLite write — await to ensure delivery and prevent unbounded tasks)
-    await db.log_click(
-        code=code,
-        user_agent=request.headers.get("User-Agent", ""),
-        referrer=request.headers.get("Referer", ""),
-        ip=request.headers.get("X-Real-IP") or request.remote or "",
+    # Hash IP address before storage for privacy
+    raw_ip = request.headers.get("X-Real-IP") or request.remote or ""
+    ip_hash = hashlib.sha256(raw_ip.encode()).hexdigest()[:16] if raw_ip else ""
+
+    # Log click asynchronously (don't await — let redirect happen immediately)
+    import asyncio
+    asyncio.create_task(
+        db.log_click(
+            code=code,
+            user_agent=request.headers.get("User-Agent", ""),
+            referrer=request.headers.get("Referer", ""),
+            ip=ip_hash,
+        )
     )
 
     # 302 (temporary) works better than 301 in Telegram's in-app browser
@@ -84,7 +97,11 @@ async def handle_health(request: web.Request) -> web.Response:
 
 
 async def handle_stats(request: web.Request) -> web.Response:
-    """Return JSON click stats for a specific code."""
+    """Return JSON click stats for a specific code. Protected by X-Stats-Secret header."""
+    if _STATS_SECRET:
+        provided = request.headers.get("X-Stats-Secret", "")
+        if not hmac.compare_digest(provided, _STATS_SECRET):
+            raise web.HTTPForbidden(text="Forbidden")
     code  = request.match_info["code"]
     stats = await db.get_link_stats(code)
     if not stats:
@@ -92,23 +109,21 @@ async def handle_stats(request: web.Request) -> web.Response:
     return web.json_response(stats)
 
 
-async def handle_metrics(request: web.Request) -> web.Response:
-    """Prometheus-compatible metrics endpoint."""
-    if not config.METRICS_ENABLED:
-        raise web.HTTPNotFound(text="Metrics disabled.")
-    body = _metrics_registry.format_prometheus()
-    return web.Response(
-        text=body,
-        content_type="text/plain; version=0.0.4; charset=utf-8",
-    )
+# ── Middleware ─────────────────────────────────────────────────────────────────
+
+@web.middleware
+async def security_headers(request: web.Request, handler) -> web.Response:
+    response = await handler(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    return response
 
 
 # ── App factory ────────────────────────────────────────────────────────────────
 
 def build_web_app() -> web.Application:
-    app = web.Application()
+    app = web.Application(middlewares=[security_headers])
     app.router.add_get("/health",        handle_health)
-    app.router.add_get("/metrics",       handle_metrics)
     app.router.add_get("/stats/{code}",  handle_stats)
     app.router.add_get("/{code}",        handle_redirect)
     return app

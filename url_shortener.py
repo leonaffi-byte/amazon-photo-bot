@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 import secrets
 import string
-from typing import Optional
+from urllib.parse import urlparse
 
 import aiohttp
 
@@ -37,13 +37,26 @@ _ALPHABET = string.ascii_letters + string.digits   # a-z A-Z 0-9  (62 chars)
 _CODE_LEN = 7   # 62^7 = 3.5 trillion combinations
 
 
+def _is_safe_url(url: str) -> bool:
+    """Return True if the URL has a valid http(s) scheme and a netloc."""
+    try:
+        p = urlparse(url)
+        return p.scheme in ("http", "https") and bool(p.netloc)
+    except Exception:
+        return False
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
-async def shorten(long_url: str, label: str = "", user_id: Optional[int] = None) -> str:
+async def shorten(long_url: str, label: str = "", user_id: int | None = None) -> str:
     """
     Shorten a URL using the best available backend.
     Returns the short URL, or the original if all shorteners fail.
     """
+    if not _is_safe_url(long_url):
+        logger.warning("Invalid URL passed to shorten: %r", long_url[:100])
+        return long_url
+
     short = (
         await _try_custom(long_url, label, user_id)
         or await _try_bitly(long_url)
@@ -55,7 +68,7 @@ async def shorten(long_url: str, label: str = "", user_id: Optional[int] = None)
 async def shorten_many(
     urls: list[str],
     label: str = "",
-    user_id: Optional[int] = None,
+    user_id: int | None = None,
 ) -> dict[str, str]:
     """
     Shorten multiple URLs concurrently.
@@ -77,8 +90,8 @@ async def shorten_many(
 async def _try_custom(
     long_url: str,
     label: str = "",
-    user_id: Optional[int] = None,
-) -> Optional[str]:
+    user_id: int | None = None,
+) -> str | None:
     """
     Use the self-hosted shortener if SHORTENER_BASE_URL is configured.
     Reuses existing code if this long_url has already been shortened.
@@ -114,7 +127,7 @@ async def _generate_unique_code() -> str:
 
 # ── Backend: bit.ly ───────────────────────────────────────────────────────────
 
-async def _try_bitly(long_url: str) -> Optional[str]:
+async def _try_bitly(long_url: str) -> str | None:
     # Check external cache first
     cached = await db.get_short_url(long_url)
     if cached and "bit.ly" in cached:
@@ -126,7 +139,7 @@ async def _try_bitly(long_url: str) -> Optional[str]:
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                "https://api.bitly.com/v4/shorten",
+                "https://api-ssl.bitly.com/v4/shorten",
                 json={"long_url": long_url},
                 headers={
                     "Authorization": f"Bearer {token}",
@@ -148,7 +161,7 @@ async def _try_bitly(long_url: str) -> Optional[str]:
 
 # ── Backend: TinyURL ──────────────────────────────────────────────────────────
 
-async def _try_tinyurl(long_url: str) -> Optional[str]:
+async def _try_tinyurl(long_url: str) -> str | None:
     # Check external cache
     cached = await db.get_short_url(long_url)
     if cached:
@@ -177,4 +190,4 @@ def active_backend_name() -> str:
     """Return a human-readable name of the highest-priority active backend."""
     if config.SHORTENER_ENABLED and config.SHORTENER_BASE_URL:
         return f"Custom ({config.SHORTENER_BASE_URL})"
-    return "TinyURL (free)"   # bit.ly check is async, skip here
+    return "TinyURL / Bitly"

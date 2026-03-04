@@ -19,7 +19,9 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 # ── Telegram ──────────────────────────────────────────────────────────────────
-TELEGRAM_BOT_TOKEN: str = os.environ["TELEGRAM_BOT_TOKEN"]
+TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
+if not TELEGRAM_BOT_TOKEN:
+    logger.critical("TELEGRAM_BOT_TOKEN is not set. Copy .env.example to .env and fill it in.")
 
 # Comma-separated Telegram user IDs that have admin access, e.g. "123456789,987654321"
 # Get your ID by messaging @userinfobot on Telegram

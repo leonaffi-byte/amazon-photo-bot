@@ -11,24 +11,14 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
-import time as _time
-
-_cache: dict[str, tuple[float, Any]] = {}
-_CACHE_TTL = 30  # seconds
-
-_db = None
-
 
 def _get_db():
-    global _db
-    if _db is None:
-        import database as db
-        _db = db
-    return _db
+    import database as db
+    return db
 
 
 # ── Setting definitions ────────────────────────────────────────────────────────
@@ -119,22 +109,6 @@ SETTINGS_META: dict[str, dict] = {
         "desc": "Port for the self-hosted shortener server",
         "choices": [],
     },
-    "default_rate_limit": {
-        "env": "DEFAULT_RATE_LIMIT",
-        "default": "5",
-        "type": "int",
-        "label": "⏱ Rate Limit (requests)",
-        "desc": "Max requests per user per window (default for all users)",
-        "choices": [],
-    },
-    "default_rate_window": {
-        "env": "DEFAULT_RATE_WINDOW",
-        "default": "60",
-        "type": "int",
-        "label": "⏱ Rate Window (seconds)",
-        "desc": "Time window for rate limiting in seconds",
-        "choices": [],
-    },
 }
 
 
@@ -148,53 +122,22 @@ def _cast(raw: str, typ: str) -> Any:
     return raw.strip()
 
 
-def _validate(key: str, raw: str, meta: dict) -> None:
-    """Raise ValueError if raw value is out of range for known settings."""
-    typ = meta.get("type", "str")
-    if typ == "int":
-        val = int(raw.strip())
-        ranges = {
-            "results_per_page": (1, 20),
-            "max_results": (5, 50),
-            "shortener_port": (1, 65535),
-        }
-        if key in ranges:
-            lo, hi = ranges[key]
-            if not (lo <= val <= hi):
-                raise ValueError(f"Must be between {lo} and {hi}")
-    if typ == "str" and key in ("amazon_marketplace", "shortener_base_url"):
-        val = raw.strip()
-        if val and key == "shortener_base_url" and not val.startswith("http"):
-            raise ValueError("URL must start with http:// or https://")
-        if val and key == "amazon_marketplace" and not val.startswith("www."):
-            raise ValueError("Marketplace should start with www. (e.g. www.amazon.com)")
-
-
 async def get(key: str) -> Any:
     """Return the current value for a setting, DB first then env/default."""
     meta = SETTINGS_META.get(key)
     if meta is None:
         raise KeyError(f"Unknown setting: {key}")
 
-    # Check in-memory cache
-    cached = _cache.get(key)
-    if cached and (_time.monotonic() - cached[0]) < _CACHE_TTL:
-        return cached[1]
-
     try:
         raw = await _get_db().get_setting(key)
         if raw is not None:
-            value = _cast(raw, meta["type"])
-            _cache[key] = (_time.monotonic(), value)
-            return value
+            return _cast(raw, meta["type"])
     except Exception as exc:
         logger.warning("settings_store: DB lookup failed for %s: %s", key, exc)
 
     env_val = os.getenv(meta["env"], "").strip()
     raw = env_val if env_val else meta["default"]
-    value = _cast(raw, meta["type"])
-    _cache[key] = (_time.monotonic(), value)
-    return value
+    return _cast(raw, meta["type"])
 
 
 async def get_raw(key: str) -> str:
@@ -204,8 +147,8 @@ async def get_raw(key: str) -> str:
         raw = await _get_db().get_setting(key)
         if raw is not None:
             return raw
-    except Exception as exc:
-        logger.warning("settings_store: DB lookup failed for %s: %s", key, exc)
+    except Exception:
+        pass
     env_val = os.getenv(meta["env"], "").strip()
     return env_val if env_val else meta["default"]
 
@@ -218,9 +161,7 @@ async def set(key: str, value: str, admin_id: int) -> None:
 
     # Validate
     _cast(value, meta["type"])  # raises ValueError/TypeError on bad input
-    _validate(key, value, meta)
     await _get_db().set_setting(key, value, admin_id)
-    _cache.pop(key, None)
     _apply_to_config(key, value, meta["type"])
 
 
@@ -230,7 +171,6 @@ async def delete(key: str) -> None:
     if meta is None:
         raise KeyError(f"Unknown setting: {key}")
     await _get_db().delete_setting(key)
-    _cache.pop(key, None)
     # Revert config to env/default
     env_val = os.getenv(meta["env"], "").strip()
     raw = env_val if env_val else meta["default"]
@@ -252,7 +192,9 @@ def _apply_to_config(key: str, raw: str, typ: str) -> None:
     attr = key.upper()
     if hasattr(cfg, attr):
         setattr(cfg, attr, value)
-        logger.info("settings_store: config.%s = %r (live)", attr, value)
+        logger.debug("Applied DB setting %s = %r", attr, value)
+    else:
+        logger.warning("Setting %r has no matching config attribute %r — skipping", key, attr)
     # Special case: reload backends when search_backend or marketplace changes
     if key in ("search_backend", "amazon_marketplace"):
         try:

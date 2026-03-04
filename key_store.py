@@ -24,23 +24,16 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# Lazy import to avoid circular dependency at module load time
-_db = None
-
 
 def _get_db():
-    global _db
-    if _db is None:
-        import database as db
-        _db = db
-    return _db
+    import database as db
+    return db
 
 
-async def get(key_name: str) -> Optional[str]:
+async def get(key_name: str) -> str | None:
     """
     Return the value for key_name, checking DB first then env.
     Returns None if not set anywhere.
@@ -66,12 +59,13 @@ async def delete(key_name: str) -> None:
     await _get_db().delete_api_key(key_name)
 
 
-async def get_all_keys() -> dict[str, Optional[str]]:
+async def get_all_keys() -> dict[str, str | None]:
     """Return all known keys with their current values (masked for display)."""
     names = [
         "openai_api_key",
         "anthropic_api_key",
         "google_api_key",
+        "groq_api_key",
         "rapidapi_key",
         "amazon_access_key",
         "amazon_secret_key",
@@ -84,7 +78,7 @@ async def get_all_keys() -> dict[str, Optional[str]]:
     return result
 
 
-def mask(value: Optional[str]) -> str:
+def mask(value: str | None) -> str:
     """Return a masked version safe to show in Telegram."""
     if not value:
         return "❌ not set"

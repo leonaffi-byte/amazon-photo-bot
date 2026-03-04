@@ -29,7 +29,6 @@ Pricing: same per-token rate as direct OpenAI, billed to your Azure subscription
 """
 from __future__ import annotations
 
-import asyncio
 import base64
 import logging
 import time
@@ -40,6 +39,7 @@ import openai
 from providers.base import (
     SYSTEM_PROMPT, build_user_prompt,
     ProviderResult, VisionProvider, parse_json_response,
+    detect_media_type, sanitize_query, _extract_features,
 )
 
 logger = logging.getLogger(__name__)
@@ -65,14 +65,7 @@ class AzureOpenAIProvider(VisionProvider):
         api_version: str = "2024-12-01-preview",
     ):
         self.name        = "azure"
-        # Normalize model_id for cost aggregation (deployment name → actual model)
-        _dep_lower = deployment.lower()
-        if "gpt-4o-mini" in _dep_lower or "gpt4o-mini" in _dep_lower:
-            self.model_id = "gpt-4o-mini"
-        elif "gpt-4o" in _dep_lower or "gpt4o" in _dep_lower:
-            self.model_id = "gpt-4o"
-        else:
-            self.model_id = deployment  # fallback to raw name
+        self.model_id    = deployment
         self._deployment = deployment
         self._client     = openai.AsyncAzureOpenAI(
             api_key=api_key,
@@ -103,37 +96,30 @@ class AzureOpenAIProvider(VisionProvider):
     ) -> ProviderResult:
         b64 = base64.b64encode(image_bytes).decode()
 
-        media_type = "image/jpeg"
-        if image_bytes[:8] == b"\x89PNG\r\n\x1a\n":
-            media_type = "image/png"
-        elif image_bytes[:4] == b"RIFF":
-            media_type = "image/webp"
+        media_type = detect_media_type(image_bytes)
 
         t0 = time.monotonic()
 
-        response = await asyncio.wait_for(
-            self._client.chat.completions.create(
-                model=self._deployment,   # Azure uses deployment name, not model name
-                max_tokens=512,
-                temperature=0,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url":    f"data:{media_type};base64,{b64}",
-                                    "detail": "high",
-                                },
+        response = await self._client.chat.completions.create(
+            model=self._deployment,   # Azure uses deployment name, not model name
+            max_tokens=768,
+            temperature=0,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url":    f"data:{media_type};base64,{b64}",
+                                "detail": "high",
                             },
-                            {"type": "text", "text": build_user_prompt(context_hint)},
-                        ],
-                    },
-                ],
-            ),
-            timeout=60,
+                        },
+                        {"type": "text", "text": build_user_prompt(context_hint)},
+                    ],
+                },
+            ],
         )
 
         latency_ms    = int((time.monotonic() - t0) * 1000)
@@ -151,10 +137,10 @@ class AzureOpenAIProvider(VisionProvider):
             product_name        = data.get("product_name", "Unknown"),
             brand               = data.get("brand"),
             category            = data.get("category", "All"),
-            key_features        = data.get("key_features", []),
-            amazon_search_query = data.get("amazon_search_query", ""),
-            alternative_query   = data.get("alternative_query",
-                                           data.get("amazon_search_query", "")),
+            key_features        = _extract_features(data),
+            amazon_search_query = sanitize_query(data.get("amazon_search_query", "")),
+            alternative_query   = sanitize_query(data.get("alternative_query",
+                                           data.get("amazon_search_query", ""))),
             confidence          = data.get("confidence", "medium"),
             notes               = data.get("notes", ""),
             latency_ms          = latency_ms,

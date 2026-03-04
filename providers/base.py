@@ -5,12 +5,45 @@ from __future__ import annotations
 
 import json
 import logging
+import re as _re
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+
+# ── Shared utilities ──────────────────────────────────────────────────────────
+
+def detect_media_type(image_bytes: bytes) -> str:
+    """Detect image MIME type from magic bytes."""
+    if image_bytes[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if image_bytes[:4] == b"GIF8":
+        return "image/gif"
+    if image_bytes[:4] == b"RIFF" and len(image_bytes) > 12 and image_bytes[8:12] == b"WEBP":
+        return "image/webp"
+    if len(image_bytes) >= 3 and image_bytes[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    return "image/jpeg"  # safe default
+
+
+def sanitize_query(q: str, max_len: int = 100) -> str:
+    """Strip markdown artifacts and cap length for search queries."""
+    q = _re.sub(r"[`*_~\[\]()#]", "", q).strip()
+    q = " ".join(q.split())
+    return q[:max_len]
+
+
+def _extract_features(data: dict) -> list[str]:
+    """Type-coerce key_features from model response to a clean list of strings."""
+    features = data.get("key_features", [])
+    if isinstance(features, list):
+        return [str(f) for f in features if f][:5]
+    if isinstance(features, str):
+        return [f.strip() for f in features.split(",") if f.strip()][:5]
+    return []
 
 # ── Prompt (shared across all providers) ──────────────────────────────────────
 
@@ -79,14 +112,13 @@ class ProviderResult:
     quality_score: float = field(init=False)
 
     def __post_init__(self) -> None:
-        # Score = confidence weight × completeness
         conf_weight = {"high": 1.0, "medium": 0.6, "low": 0.2}.get(self.confidence, 0.3)
-        completeness = (
-            (1 if self.product_name else 0)
-            + (1 if self.brand else 0)
-            + (0.5 * min(len(self.key_features), 5) / 5)
-            + (1 if len(self.amazon_search_query) > 5 else 0)
-        )
+        name_score = 1.0 if (self.product_name and self.product_name not in ("Unknown", "Unknown Product", "")) else 0.0
+        brand_score = 1.0 if (self.brand and len(self.brand) > 1) else 0.0
+        features_score = 0.5 * min(len(self.key_features), 5) / 5
+        q_len = len(self.amazon_search_query)
+        query_score = min(q_len / 40.0, 1.0) if q_len > 5 else 0.0
+        completeness = name_score + brand_score + features_score + query_score
         self.quality_score = conf_weight * completeness
 
     @property
@@ -116,15 +148,27 @@ def parse_json_response(raw: str, provider_name: str) -> dict:
     Raises ValueError on parse failure.
     """
     text = raw.strip()
-    # Strip ```json ... ``` or ``` ... ``` fences if present
-    if text.startswith("```"):
-        lines = text.split("\n")
-        text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+    # Try 1: Direct parse
     try:
         return json.loads(text)
-    except json.JSONDecodeError as exc:
-        logger.error("[%s] Non-JSON response: %s", provider_name, raw[:300])
-        raise ValueError(f"[{provider_name}] JSON parse error: {exc}") from exc
+    except json.JSONDecodeError:
+        pass
+    # Try 2: Extract from markdown fence
+    fence_match = _re.search(r"```(?:json)?\s*\n?([\s\S]+?)\n?```", text)
+    if fence_match:
+        try:
+            return json.loads(fence_match.group(1).strip())
+        except json.JSONDecodeError:
+            pass
+    # Try 3: Find first {...} block
+    brace_match = _re.search(r"\{[\s\S]+\}", text)
+    if brace_match:
+        try:
+            return json.loads(brace_match.group(0))
+        except json.JSONDecodeError:
+            pass
+    logger.error("[%s] Non-JSON response: %s", provider_name, raw[:300])
+    raise ValueError(f"[{provider_name}] JSON parse error: could not extract valid JSON")
 
 
 # ── Abstract base ──────────────────────────────────────────────────────────────

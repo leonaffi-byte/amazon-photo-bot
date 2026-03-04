@@ -33,18 +33,21 @@ _DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 DB_PATH = str(_DATA_DIR / "bot_data.db")
 _lock = asyncio.Lock()          # serialise schema migrations
+_conn_lock = asyncio.Lock()     # serialise persistent connection creation
 
 _persistent_conn: aiosqlite.Connection | None = None
 
 
 @asynccontextmanager
 async def _get_conn():
-    """Return a persistent DB connection (reused across calls)."""
+    """Yield the persistent DB connection, creating it on first use under a lock."""
     global _persistent_conn
-    if _persistent_conn is None:
-        _persistent_conn = await aiosqlite.connect(DB_PATH)
-        _persistent_conn.row_factory = aiosqlite.Row
-        await _persistent_conn.execute("PRAGMA journal_mode=WAL")
+    async with _conn_lock:
+        if _persistent_conn is None:
+            _persistent_conn = await aiosqlite.connect(DB_PATH)
+            _persistent_conn.row_factory = aiosqlite.Row
+            await _persistent_conn.execute("PRAGMA journal_mode=WAL")
+            await _persistent_conn.execute("PRAGMA busy_timeout=5000")
     yield _persistent_conn
 
 
@@ -291,6 +294,14 @@ async def init_db() -> None:
                     pass   # already applied
             await db.commit()
     logger.info("Database initialised at %s", DB_PATH)
+
+
+async def close_db() -> None:
+    """Close the persistent database connection (call at shutdown)."""
+    global _persistent_conn
+    if _persistent_conn is not None:
+        await _persistent_conn.close()
+        _persistent_conn = None
 
 
 # ── Affiliate tag operations ───────────────────────────────────────────────────

@@ -47,6 +47,13 @@ from bot import (
 from image_analyzer import ProductInfo
 from providers.base import ProviderResult
 from search_backends.base import AmazonItem
+import database as db
+import pytest_asyncio
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def init_db(tmp_data_dir):
+    await db.init_db()
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

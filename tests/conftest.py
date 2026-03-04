@@ -34,25 +34,10 @@ def tmp_data_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(database, "DB_PATH", str(data / "bot_data.db"))
     monkeypatch.setattr(database, "_DATA_DIR", data)
 
-    # Also reset the internal lock so tests don't share state
+    # Also reset the internal locks and persistent connection so tests don't share state
     import asyncio
     monkeypatch.setattr(database, "_lock", asyncio.Lock())
-
-    # Reset persistent connection and caches so each test starts fresh
+    monkeypatch.setattr(database, "_conn_lock", asyncio.Lock())
     monkeypatch.setattr(database, "_persistent_conn", None)
-    monkeypatch.setattr(database, "_active_tag_cache", None)
-    monkeypatch.setattr(database, "_disabled_models_cache", None)
-
-    # Clear settings_store in-memory cache so tests start fresh
-    import settings_store
-    settings_store._cache.clear()
-
-    # Reset provider manager cache so tests don't leak providers across runs
-    from providers import manager as pm
-    monkeypatch.setattr(pm, "_providers", {})
-
-    # Reset amazon_search cached backend so each test gets a fresh backend
-    import amazon_search
-    monkeypatch.setattr(amazon_search, "_backend", None)
 
     yield data

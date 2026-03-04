@@ -10,7 +10,6 @@ Pricing (as of early 2025):
 """
 from __future__ import annotations
 
-import asyncio
 import base64
 import time
 import logging
@@ -21,6 +20,7 @@ from typing import Optional
 from providers.base import (
     SYSTEM_PROMPT, USER_PROMPT, build_user_prompt,
     ProviderResult, VisionProvider, parse_json_response,
+    detect_media_type, sanitize_query, _extract_features,
 )
 
 logger = logging.getLogger(__name__)
@@ -52,29 +52,26 @@ class OpenAIProvider(VisionProvider):
         b64 = base64.b64encode(image_bytes).decode()
         t0 = time.monotonic()
 
-        response = await asyncio.wait_for(
-            self._client.chat.completions.create(
-                model=self.model_id,
-                max_tokens=512,
-                temperature=0,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/jpeg;base64,{b64}",
-                                    "detail": "high",
-                                },
+        response = await self._client.chat.completions.create(
+            model=self.model_id,
+            max_tokens=768,
+            temperature=0,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{b64}",
+                                "detail": "high",
                             },
-                            {"type": "text", "text": build_user_prompt(context_hint)},
-                        ],
-                    },
-                ],
-            ),
-            timeout=60,
+                        },
+                        {"type": "text", "text": build_user_prompt(context_hint)},
+                    ],
+                },
+            ],
         )
 
         latency_ms = int((time.monotonic() - t0) * 1000)
@@ -92,9 +89,9 @@ class OpenAIProvider(VisionProvider):
             product_name=data.get("product_name", "Unknown"),
             brand=data.get("brand"),
             category=data.get("category", "All"),
-            key_features=data.get("key_features", []),
-            amazon_search_query=data.get("amazon_search_query", ""),
-            alternative_query=data.get("alternative_query", data.get("amazon_search_query", "")),
+            key_features=_extract_features(data),
+            amazon_search_query=sanitize_query(data.get("amazon_search_query", "")),
+            alternative_query=sanitize_query(data.get("alternative_query", data.get("amazon_search_query", ""))),
             confidence=data.get("confidence", "medium"),
             notes=data.get("notes", ""),
             latency_ms=latency_ms,
