@@ -181,3 +181,7 @@ See `.env.example` for all options. Key categories:
   - `amazon-api` — FastAPI REST API (port 8001)
   - `test-bot` — test bot variant
 - Logs: JSON file driver with size rotation (5-10 MB, 2-3 files)
+
+## Known Issues & Improvements
+
+See [`IMPROVEMENTS.md`](IMPROVEMENTS.md) for a comprehensive, prioritized list of 80 improvement suggestions across security, reliability, performance, UX, code quality, and testing — generated from a full codebase audit.
