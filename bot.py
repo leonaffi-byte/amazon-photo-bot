@@ -341,11 +341,15 @@ async def results_keyboard(session: UserSession, affiliate_tag: Optional[str], u
 
     # ── Try differently ────────────────────────────────────────────────────────
     if len(session.all_provider_results) > 1:
-        next_idx = (session.chosen_provider_idx + 1) % len(session.all_provider_results)
-        next_name = session.all_provider_results[next_idx].provider_name
         current = session.chosen_provider_idx + 1
         total_providers = len(session.all_provider_results)
-        rows.append([InlineKeyboardButton(f"🔄 Try {next_name} ({current}/{total_providers})", callback_data=CB_TRY_DIFFERENTLY)])
+        if session.is_admin:
+            next_idx = (session.chosen_provider_idx + 1) % len(session.all_provider_results)
+            next_name = session.all_provider_results[next_idx].provider_name
+            label = f"🔄 Try {next_name} ({current}/{total_providers})"
+        else:
+            label = f"🔄 Try different identification ({current}/{total_providers})"
+        rows.append([InlineKeyboardButton(label, callback_data=CB_TRY_DIFFERENTLY)])
 
     # ── Similar products (DFS Labs) ────────────────────────────────────────────
     if item and item.asin:
@@ -476,9 +480,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     session.all_provider_results = all_results
     session.chosen_provider_idx  = 0
 
+    is_admin = user_id in config.ADMIN_IDS or await db.is_admin_in_db(user_id)
+    session.is_admin = is_admin
+
     if config.VISION_MODE == "compare" and len(all_results) > 1:
         await msg.edit_text(
-            style.compare_card(all_results, show_cost=config.SHOW_COST_INFO),
+            style.compare_card(all_results, show_cost=config.SHOW_COST_INFO, is_admin=is_admin),
             parse_mode="MarkdownV2",
             reply_markup=compare_keyboard(all_results),
         )
@@ -488,7 +495,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     session.product_info  = winner.to_product_info()
 
     await msg.edit_text(
-        style.identification_card(winner, show_cost=config.SHOW_COST_INFO),
+        style.identification_card(winner, show_cost=config.SHOW_COST_INFO, is_admin=is_admin),
         parse_mode="MarkdownV2",
         reply_markup=filter_keyboard(),
     )
@@ -573,8 +580,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         session.chosen_result       = chosen
         session.chosen_provider_idx = idx
         session.product_info        = chosen.to_product_info()
+        is_admin = session.is_admin if session.is_admin is not None else (
+            user_id in config.ADMIN_IDS or await db.is_admin_in_db(user_id)
+        )
         await query.edit_message_text(
-            style.identification_card(chosen, show_cost=config.SHOW_COST_INFO),
+            style.identification_card(chosen, show_cost=config.SHOW_COST_INFO, is_admin=is_admin),
             parse_mode="MarkdownV2",
             reply_markup=filter_keyboard(),
         )

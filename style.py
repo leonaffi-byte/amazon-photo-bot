@@ -171,45 +171,49 @@ def loading_search(product_name: str, filter_label: str) -> str:
 # IDENTIFICATION RESULT
 # ══════════════════════════════════════════════════════════════════════════════
 
-def identification_card(result, show_cost: bool = True) -> str:
+def identification_card(result, show_cost: bool = True, is_admin: bool = False) -> str:
     conf_icon = CONF.get(result.confidence, "⚪")
     features  = "\n".join(f"  ▸ {esc(f)}" for f in result.key_features) or "  ▸ _none detected_"
-    cost_line = (
-        f"\n💸 `{esc(result.cost_str)}`  ⚡ `{result.latency_ms}ms`"
-        if show_cost else ""
-    )
+
+    # Provider/cost info — admin only
+    admin_line = ""
+    if is_admin:
+        admin_line = f"\n_🤖 {esc(result.provider_name)}"
+        if show_cost:
+            admin_line += f"  💸 {esc(result.cost_str)}  ⚡ {result.latency_ms}ms"
+        admin_line += "_"
+
     return (
-        f"✨ *PRODUCT IDENTIFIED*\n"
-        f"{DIV}\n\n"
-        f"🏷️ *{esc(result.product_name)}*\n"
-        f"🏢 {esc(result.brand or 'Unknown brand')}\n"
-        f"📦 {esc(result.category)}\n\n"
-        f"{conf_icon} *Confidence:* {result.confidence}   "
-        f"🤖 {esc(result.provider_name)}{cost_line}\n\n"
-        f"✦ *Key Features*\n{features}\n\n"
-        f"{SDIV}\n"
+        f"✨ *{esc(result.product_name)}*\n\n"
+        f"🏢 {esc(result.brand or 'Unknown brand')}  ·  📦 {esc(result.category)}\n"
+        f"{conf_icon} Confidence: *{result.confidence}*\n\n"
+        f"*Key Features*\n{features}\n\n"
         f"🔎 `{esc(result.amazon_search_query)}`\n"
-        f"{DIV}\n\n"
-        f"✈️ *Limit to free delivery to 🇮🇱 Israel?*\n"
+        f"{SDIV}\n"
+        f"✈️ *Free delivery to 🇮🇱 Israel?*\n"
         f"_FBA items ship free when cart ≥ \\${config.FREE_DELIVERY_THRESHOLD:.0f}_"
+        f"{admin_line}"
     )
 
 
-def compare_card(results: list, show_cost: bool = True) -> str:
+def compare_card(results: list, show_cost: bool = True, is_admin: bool = False) -> str:
     lines = [
         f"🔬 *PROVIDER COMPARISON*\n{DIV}\n"
     ]
     for i, r in enumerate(results, 1):
         conf_icon = CONF.get(r.confidence, "⚪")
-        cost_note = f"  💸 `{esc(r.cost_str)}` ⚡ `{r.latency_ms}ms`" if show_cost else ""
+        cost_note = ""
+        if is_admin and show_cost:
+            cost_note = f"  💸 `{esc(r.cost_str)}` ⚡ `{r.latency_ms}ms`"
         feats = " ·  ".join(esc(f) for f in r.key_features[:2])
+        provider_label = esc(r.provider_name) if is_admin else f"Option {i}"
         lines.append(
-            f"*{i}\\. {esc(r.provider_name)}*\n"
+            f"*{i}\\. {provider_label}*\n"
             f"   {conf_icon} {r.confidence}   🏷️ _{esc(r.product_name)}_\n"
             f"   🔎 `{esc(r.amazon_search_query)}`\n"
             f"   {feats}{cost_note}\n"
         )
-    lines.append(f"{DIV}\n_Tap a provider to use its result:_")
+    lines.append(f"{DIV}\n_Tap an option to use its result:_")
     return "\n".join(lines)
 
 
@@ -218,23 +222,22 @@ def compare_card(results: list, show_cost: bool = True) -> str:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def product_card(item, index: int) -> str:
-    """Format a single Amazon product as a rich card."""
+    """Format a single Amazon product as a compact card."""
     title = esc(item.title[:100])
 
-    price = f"💰 *{esc(f'${item.price_usd:.2f}')}*" if item.price_usd else "💰 _Price not listed_"
+    price = f"*{esc(f'${item.price_usd:.2f}')}*" if item.price_usd else "_Price not listed_"
 
     if item.rating and item.review_count:
         stars = star_bar(item.rating)
-        rating_line = f"⭐ `{item.rating}` {esc(stars)}  _{esc(fmt_reviews(item.review_count))} reviews_"
+        rating_line = f"{esc(stars)} {item.rating} \\({esc(fmt_reviews(item.review_count))}\\)"
     elif item.rating:
-        rating_line = f"⭐ `{item.rating}` {esc(star_bar(item.rating))}"
+        rating_line = f"{esc(star_bar(item.rating))} {item.rating}"
     else:
-        rating_line = "⭐ _No ratings yet_"
+        rating_line = "_No ratings_"
 
     return (
-        f"*{index}\\.*  {title}\n"
-        f"{price}   {rating_line}\n"
-        f"{esc(item.delivery_badge)}\n"
+        f"*{index}\\.* {title}\n"
+        f"💰 {price}  ⭐ {rating_line}\n"
         f"{esc(item.israel_delivery_note)}"
     )
 
@@ -251,24 +254,24 @@ def product_caption(
 ) -> str:
     """
     Single-product caption for the photo carousel (max 1024 chars).
-    Shows position counter, price, rating, Israel delivery signal,
-    and optional historical price data from CamelCamelCamel / Keepa.
+    Clean, scannable layout: title → price+rating → shipping → price history.
     Admin users see the AI provider + affiliate tag in a footer line.
     """
     title = esc(item.title[:100])
 
-    price = f"💰 *{esc(f'${item.price_usd:.2f}')}*" if item.price_usd else "💰 _Price not listed_"
+    # Price
+    price = f"*{esc(f'${item.price_usd:.2f}')}*" if item.price_usd else "_Price not listed_"
 
+    # Rating — compact single line
     if item.rating and item.review_count:
         stars  = star_bar(item.rating)
-        rating = f"⭐ `{item.rating}` {esc(stars)}  _{esc(fmt_reviews(item.review_count))} reviews_"
+        rating = f"{esc(stars)} {item.rating} \\({esc(fmt_reviews(item.review_count))}\\)"
     elif item.rating:
-        rating = f"⭐ `{item.rating}` {esc(star_bar(item.rating))}"
+        rating = f"{esc(star_bar(item.rating))} {item.rating}"
     else:
-        rating = "⭐ _No ratings yet_"
+        rating = "_No ratings_"
 
-    delivery = esc(item.delivery_badge)
-
+    # Israel shipping — single line combining badge + Israel info
     # Use verified result when available, otherwise heuristic
     if israel_verified and israel_verified.verified:
         israel = esc(israel_verified.note)
@@ -278,28 +281,25 @@ def product_caption(
     # Price history line (e.g. "📊 ATL $24.99 · 90d avg $38.50 · ✅ Below avg")
     price_line = _price_history_line(price_history)
 
-    # Position counter e.g. "3 of 18"
-    counter  = f"_{index} of {total}_" if total > 1 else ""
+    # Position counter e.g. "1/20"
+    counter  = f"*{index}*/{total}" if total > 1 else ""
 
     admin_line = ""
     if is_admin and provider_name:
-        tag_note   = f"  🏷️ `{esc(affiliate_tag)}`" if affiliate_tag else ""
-        admin_line = f"\n{SDIV}\n🤖 _{esc(provider_name)}{tag_note}_"
+        tag_note   = f" · `{esc(affiliate_tag)}`" if affiliate_tag else ""
+        admin_line = f"\n\n_🤖 {esc(provider_name)}{tag_note}_"
 
     caption = (
-        f"{counter}\n"
-        f"*{title}*\n"
-        f"{SDIV}\n"
-        f"{price}   {rating}\n"
-        f"{delivery}\n"
+        f"*{title}*\n\n"
+        f"💰 {price}  ⭐ {rating}\n"
         f"{israel}"
-        f"{price_line}"
+        f"{price_line}\n\n"
+        f"{counter}"
         f"{admin_line}"
     )
 
     # Telegram caption hard-limit is 1024 chars
     if len(caption) > 1020:
-        # Cut at last newline to avoid breaking MarkdownV2 escapes
         caption = caption[:1010]
         last_nl = caption.rfind("\n")
         if last_nl > 800:
@@ -351,8 +351,7 @@ def results_page(session, affiliate_tag: Optional[str] = None, is_admin: bool = 
 
     header = (
         f"🛍️ *{esc(session.product_info.product_name)}*\n"
-        f"{DIV}\n"
-        f"{filter_badge}   📄 {p}/{t}{admin_info}\n"
+        f"{filter_badge}  ·  📄 {p}/{t}{admin_info}\n"
         f"{SDIV}\n"
     )
 
@@ -361,10 +360,10 @@ def results_page(session, affiliate_tag: Optional[str] = None, is_admin: bool = 
         global_idx = (session.page * config.RESULTS_PER_PAGE) + i + 1
         cards.append(product_card(item, global_idx))
 
-    footer_parts = [f"🔍 {n} results"]
+    footer_parts = [f"{n} results"]
     if not session.israel_only and n_eligible < n_all and n_all > 0:
-        footer_parts.append(f"✈️ {n_eligible} with free Israel delivery")
-    footer = f"\n{SDIV}\n_" + "   ·   ".join(footer_parts) + "_"
+        footer_parts.append(f"✈️ {n_eligible} ship to Israel")
+    footer = f"\n{SDIV}\n_" + "  ·  ".join(footer_parts) + "_"
 
     full = header + f"\n\n{SDIV}\n\n".join(cards) + footer
     return full[:4050] + "\\.\\.\\." if len(full) > 4050 else full

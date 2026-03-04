@@ -72,6 +72,22 @@ _UA = (
     "Chrome/122.0.0.0 Safari/537.36"
 )
 
+
+def _build_proxy_cfg(proxy_url: str) -> dict:
+    """Convert a proxy URL to Playwright's proxy config dict.
+
+    Playwright needs username/password split out from the server URL.
+    e.g. http://USER:PASS@host:port → server=http://host:port, username=USER, password=PASS
+    """
+    import urllib.parse as _up
+    p = _up.urlparse(proxy_url)
+    cfg: dict = {"server": f"{p.scheme}://{p.hostname}:{p.port}"}
+    if p.username:
+        cfg["username"] = _up.unquote(p.username)
+    if p.password:
+        cfg["password"] = _up.unquote(p.password)
+    return cfg
+
 # ── Result type ────────────────────────────────────────────────────────────────
 
 @dataclass
@@ -215,7 +231,7 @@ async def _scrape(asin: str, proxy_url: str) -> IsraelShippingResult:
         async with async_playwright() as pw:
             browser = await pw.chromium.launch(
                 headless = True,
-                proxy    = {"server": proxy_url},
+                proxy    = _build_proxy_cfg(proxy_url),
                 args     = [
                     "--no-sandbox",
                     "--disable-setuid-sandbox",
