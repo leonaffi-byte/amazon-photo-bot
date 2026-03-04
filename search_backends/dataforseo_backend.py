@@ -204,18 +204,26 @@ class DataForSEOBackend(SearchBackend):
 
             is_amazon_fulfilled = is_shipped_by_amazon or is_sold_by_amazon
 
+            free_delivery_likely = (
+                "free delivery" in delivery_text
+                or "free shipping" in delivery_text
+                or is_amazon_fulfilled
+                or is_prime
+            )
+
             return AmazonItem(
-                asin               = asin,
-                title              = title,
-                image_url          = image_url,
-                price_usd          = price_usd,
-                currency           = "USD",
-                rating             = rating,
-                review_count       = review_count,
-                is_amazon_fulfilled= is_amazon_fulfilled,
-                is_sold_by_amazon  = is_sold_by_amazon,
-                is_prime           = is_prime,
-                availability       = "In Stock",
+                asin                = asin,
+                title               = title,
+                image_url           = image_url,
+                price_usd           = price_usd,
+                currency            = "USD",
+                rating              = rating,
+                review_count        = review_count,
+                is_amazon_fulfilled = is_amazon_fulfilled,
+                is_sold_by_amazon   = is_sold_by_amazon,
+                is_prime            = is_prime,
+                availability        = "In Stock",
+                free_delivery_likely= free_delivery_likely,
             )
         except Exception as exc:
             logger.warning("DataForSEO item parse error for %s: %s", raw.get("data_asin", "?"), exc)

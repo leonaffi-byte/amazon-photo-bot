@@ -405,17 +405,22 @@ async def _is_captcha_page(page) -> bool:
 
 # ── HTML parsing (pure functions — unchanged from aiohttp version) ──────────────
 
-# Phrases that mean "this item will NOT ship to Israel"
+# Phrases that definitively mean this item will NOT ship to Israel.
+# IMPORTANT: must be specific enough not to fire for out-of-stock / country-
+# restricted (non-Israel) items.  Generic "not available" is intentionally
+# excluded because it fires for any OOS product regardless of country.
 _NO_SHIP_PHRASES = [
     "this item cannot be shipped to your selected delivery location",
     "this item does not ship to",
     "does not ship to israel",
     "cannot be delivered to israel",
-    "this item is not available",
-    "currently unavailable",
     "item not available in this country",
     "not available for your location",
     "we don't ship to israel",
+    # country-in-page signals (Amazon displays the chosen country in delivery block)
+    "this item is not available in",
+    "doesn't ship to israel",
+    "not available to ship to israel",
 ]
 
 # Phrases that confirm free shipping applies

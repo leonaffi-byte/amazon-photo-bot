@@ -36,6 +36,7 @@ from providers.manager import analyse_image, get_providers
 from amazon_search import AmazonItem, search_amazon, backend_name
 from translator import detect_language, translate_and_refine
 from metrics import REQUESTS_TOTAL
+from dataforseo_labs import DataForSEOLabs
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,11 @@ CB_NEXT            = "nav:next"
 CB_CHANGE_FILTER   = "nav:change"
 CB_USE_RESULT      = "use:"           # + index
 CB_TRY_DIFFERENTLY = "nav:try"        # re-search using next provider result
+CB_SIMILAR         = "dfs:similar:"   # + asin  — show competitor products
+CB_RELATED         = "dfs:related:"   # + keyword — run search for related term
+
+# Cached DFS Labs client (None when creds absent)
+_dfs_labs_client: "DataForSEOLabs | None" = None
 
 # Placeholder image when a product has no photo URL
 _PLACEHOLDER_IMG = "https://placehold.co/600x400/FF9900/FFF.png?text=Amazon"
@@ -60,6 +66,20 @@ _background_tasks: set[asyncio.Task] = set()
 # Deduplication cache: file_unique_id → (timestamp, winner, all_results)
 _analysis_cache: dict[str, tuple[float, ProviderResult, list[ProviderResult]]] = {}
 _ANALYSIS_CACHE_TTL = 60  # seconds
+
+
+async def _get_dfs_labs() -> "DataForSEOLabs | None":
+    """Return a cached DataForSEOLabs client, or None if creds not configured."""
+    global _dfs_labs_client
+    if _dfs_labs_client is not None:
+        return _dfs_labs_client
+    from settings_store import key_store
+    login    = await key_store.get("dataforseo_login")
+    password = await key_store.get("dataforseo_password")
+    if login and password:
+        _dfs_labs_client = DataForSEOLabs(login, password)
+        return _dfs_labs_client
+    return None
 
 
 # ── Session ────────────────────────────────────────────────────────────────────
@@ -91,6 +111,11 @@ class UserSession:
     # Cached admin flag — resolved once per session
     is_admin: Optional[bool] = None
 
+    # Per-ASIN Israel shipping verification results (populated by background checks).
+    # True = confirmed ships to Israel, False = confirmed does NOT ship.
+    # Items verified as False are hidden from the israel_only filter.
+    _israel_verified: dict = field(default_factory=dict)  # asin -> bool
+
     @property
     def total_items(self) -> int:
         return max(1, len(self.filtered_items))
@@ -106,17 +131,47 @@ class UserSession:
         item = self.current_item()
         return [item] if item else []
 
+    def _israel_eligible(self, item: AmazonItem) -> bool:
+        """
+        True when an item should appear in the Israel-only filter.
+
+        Priority:
+          1. Playwright-verified FALSE  → always exclude (confirmed non-shipper)
+          2. Playwright-verified TRUE   → always include (confirmed shipper)
+          3. No verification yet        → use heuristic (qualifies_for_israel_free_delivery)
+             which now includes free_delivery_likely so far more items pass.
+        """
+        verified = self._israel_verified.get(item.asin)
+        if verified is False:
+            return False
+        if verified is True:
+            return True
+        return item.qualifies_for_israel_free_delivery
+
     def apply_filter(self, israel_only: bool) -> None:
         self.israel_only = israel_only
         self.page = 0
-        eligible = [i for i in self.all_items if i.qualifies_for_israel_free_delivery]
-        self.filtered_items = eligible if (israel_only and eligible) else list(self.all_items)
+        if israel_only:
+            eligible = [i for i in self.all_items if self._israel_eligible(i)]
+            # If heuristic yields nothing, show everything rather than an empty list
+            self.filtered_items = eligible if eligible else list(self.all_items)
+        else:
+            self.filtered_items = list(self.all_items)
 
     def append_items(self, new_items: list[AmazonItem]) -> None:
         """Add more Amazon results without resetting the page position."""
         self.all_items.extend(new_items)
-        eligible = [i for i in self.all_items if i.qualifies_for_israel_free_delivery]
-        self.filtered_items = eligible if (self.israel_only and eligible) else list(self.all_items)
+        if self.israel_only:
+            eligible = [i for i in self.all_items if self._israel_eligible(i)]
+            self.filtered_items = eligible if eligible else list(self.all_items)
+        else:
+            self.filtered_items = list(self.all_items)
+
+    def record_israel_result(self, asin: str, ships: bool) -> None:
+        """Called by background Israel check; re-applies active filter."""
+        self._israel_verified[asin] = ships
+        # Re-apply current filter so confirmed non-shippers disappear from results
+        self.apply_filter(self.israel_only)
 
 
 _sessions: dict[int, UserSession] = {}
@@ -249,6 +304,13 @@ async def results_keyboard(session: UserSession, affiliate_tag: Optional[str]) -
         current = session.chosen_provider_idx + 1
         total_providers = len(session.all_provider_results)
         rows.append([InlineKeyboardButton(f"🔄 Try {next_name} ({current}/{total_providers})", callback_data=CB_TRY_DIFFERENTLY)])
+
+    # ── Similar products (DFS Labs) ────────────────────────────────────────────
+    if item and item.asin:
+        rows.append([InlineKeyboardButton(
+            "🔍  Similar products",
+            callback_data=f"{CB_SIMILAR}{item.asin}",
+        )])
 
     return InlineKeyboardMarkup(rows)
 
@@ -405,6 +467,57 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         idx = session.page
         total = len(session.filtered_items)
         await query.answer(f"Page {idx + 1} of {total}")
+
+    # ── DFS Labs: Similar products ─────────────────────────────────────────────
+    if data.startswith(CB_SIMILAR):
+        asin = data[len(CB_SIMILAR):]
+        await _handle_similar(query, context, session, asin)
+        return
+
+    # ── DFS Labs: Related keyword search ──────────────────────────────────────
+    if data.startswith(CB_RELATED):
+        keyword = data[len(CB_RELATED):]
+        # Build a minimal ProductInfo so search_amazon can run
+        if not session.product_info:
+            from image_analyzer import ProductInfo as _PI
+            session.product_info = _PI(product_name=keyword)
+        else:
+            session.product_info.product_name = keyword
+
+        session.all_items      = []
+        session.amazon_page    = 1
+        session.more_available = False
+        session.page           = 0
+        session.results_msg_id = None
+
+        try:
+            await query.edit_message_text(
+                style.loading_search(keyword, "all items"),
+                parse_mode="MarkdownV2",
+            )
+        except Exception:
+            pass
+
+        try:
+            items = await search_amazon(session.product_info, max_results=config.MAX_RESULTS)
+        except Exception as exc:
+            logger.error("Related keyword search failed: %s", exc)
+            await query.edit_message_text(
+                "❌ Search failed\\. Please try again\\.", parse_mode="MarkdownV2"
+            )
+            return
+
+        session.all_items = items
+        session.more_available = len(items) >= config.MAX_RESULTS
+        session.apply_filter(session.israel_only)
+
+        if not session.filtered_items:
+            await query.edit_message_text(
+                style.error_no_results(), parse_mode="MarkdownV2"
+            )
+            return
+
+        await _render_results(query, context, session)
         return
 
     # ── Provider chosen in compare mode ───────────────────────────────────────
@@ -479,6 +592,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
 
         await _render_results(query, context, session)
+
+        # Spawn related-keyword suggestions (non-blocking, needs chat_id)
+        if session.product_info and session.product_info.product_name:
+            _spawn_related_keywords(
+                context,
+                chat_id = query.message.chat_id,
+                keyword = session.product_info.product_name,
+            )
         return
 
     # ── Toggle filter ─────────────────────────────────────────────────────────
@@ -691,6 +812,10 @@ async def _verify_israel_async(
         # Store on session so price-history update can include it
         session._last_israel_result = result
 
+        # Update per-ASIN verification dict (re-applies filter — removes confirmed non-shippers)
+        if result.ships_to_israel is not None:
+            session.record_israel_result(item.asin, result.ships_to_israel)
+
         # Include any already-loaded price history if available
         ph = getattr(session, "_last_price_history", None)
 
@@ -719,6 +844,126 @@ async def _verify_israel_async(
         pass
     except Exception as exc:
         logger.debug("Israel async verify failed: %s", exc)
+
+
+def _spawn_related_keywords(
+    context, chat_id: int, keyword: str
+) -> None:
+    """
+    Fire-and-forget: fetch DFS Labs related keywords and send them as a
+    separate inline-button message so the user can tap to re-search.
+    Silently does nothing when DFS Labs creds are absent.
+    """
+    asyncio.create_task(_send_related_keywords(context.bot, chat_id, keyword))
+
+
+async def _send_related_keywords(bot, chat_id: int, keyword: str) -> None:
+    try:
+        labs = await _get_dfs_labs()
+        if not labs:
+            return
+        related = await labs.related_keywords(keyword, limit=6)
+        if not related:
+            return
+        # Build buttons (max 3 per row)
+        buttons = [
+            InlineKeyboardButton(
+                r.label(),
+                callback_data=f"{CB_RELATED}{r.keyword[:40]}",
+            )
+            for r in related
+        ]
+        rows = [buttons[i:i+2] for i in range(0, len(buttons), 2)]
+        await bot.send_message(
+            chat_id     = chat_id,
+            text        = "🔍 *Related Amazon searches:*",
+            parse_mode  = "MarkdownV2",
+            reply_markup= InlineKeyboardMarkup(rows),
+        )
+    except Exception as exc:
+        logger.debug("Related keywords fetch failed: %s", exc)
+
+
+async def _handle_similar(query, context, session: UserSession, asin: str) -> None:
+    """
+    Load competitor products from DFS Labs Product Competitors,
+    enrich them via Ranked Keywords, and display as new product results.
+    """
+    try:
+        await query.answer("🔍 Finding similar products…")
+    except Exception:
+        pass
+
+    labs = await _get_dfs_labs()
+    if not labs:
+        await query.answer("DataForSEO not configured.", show_alert=True)
+        return
+
+    try:
+        await query.edit_message_caption(
+            caption    = "🔍 *Finding similar products\\.\\.\\.*",
+            parse_mode = "MarkdownV2",
+        )
+    except Exception:
+        pass
+
+    try:
+        competitor_asins = await labs.get_competitors(asin, limit=20)
+        if not competitor_asins:
+            await query.edit_message_caption(
+                caption    = "😔 No similar products found\\.",
+                parse_mode = "MarkdownV2",
+            )
+            return
+
+        enriched = await labs.enrich_many(competitor_asins[:12], concurrency=4)
+        if not enriched:
+            await query.edit_message_caption(
+                caption    = "😔 Could not load product details\\.",
+                parse_mode = "MarkdownV2",
+            )
+            return
+
+        # Convert DFSProduct → AmazonItem
+        new_items: list[AmazonItem] = []
+        for comp_asin, prod in enriched.items():
+            new_items.append(AmazonItem(
+                asin         = comp_asin,
+                title        = prod.title or comp_asin,
+                price        = prod.price,
+                currency     = prod.currency or "USD",
+                image_url    = prod.image_url or "",
+                rating       = prod.rating,
+                free_delivery= None,
+                is_prime     = None,
+            ))
+
+        # Load into session as new results
+        session.all_items      = new_items
+        session.amazon_page    = 1
+        session.more_available = False
+        session.page           = 0
+        session.results_msg_id = None   # force fresh photo send
+        session.apply_filter(session.israel_only)
+
+        if not session.filtered_items:
+            await query.edit_message_caption(
+                caption    = style.error_no_results(),
+                parse_mode = "MarkdownV2",
+            )
+            return
+
+        await _render_results(query, context, session)
+
+    except Exception as exc:
+        logger.error("Similar products failed: %s", exc)
+        try:
+            await query.edit_message_caption(
+                caption    = "❌ Failed to load similar products\\.",
+                parse_mode = "MarkdownV2",
+            )
+        except Exception:
+            pass
 
 
 async def _render_results(query, context, session: UserSession) -> None:

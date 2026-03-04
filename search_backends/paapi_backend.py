@@ -249,10 +249,11 @@ class PaapiBackend(SearchBackend):
                 asin=asin, title=title, image_url=image_url,
                 price_usd=price_usd, currency=currency,
                 rating=rating, review_count=review_count,
-                is_amazon_fulfilled=is_amazon_fulfilled,
-                is_sold_by_amazon=is_sold_by_amazon,
-                is_prime=is_prime,
-                availability=availability,
+                is_amazon_fulfilled =is_amazon_fulfilled,
+                is_sold_by_amazon   =is_sold_by_amazon,
+                is_prime            =is_prime,
+                availability        =availability,
+                free_delivery_likely=(is_prime or is_amazon_fulfilled or is_sold_by_amazon),
             )
         except Exception as exc:
             logger.warning("Failed to parse PA-API item %s: %s", raw.get("ASIN", "?"), exc)

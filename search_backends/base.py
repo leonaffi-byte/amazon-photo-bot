@@ -26,6 +26,9 @@ class AmazonItem:
     is_sold_by_amazon: bool         # True = sold directly by Amazon Retail (highest confidence)
     is_prime: bool                  # Prime-eligible (strong FBA proxy when FBA flag unavailable)
     availability: str
+    # True when delivery text shows "FREE delivery" — broader proxy used for Israel
+    # filter when explicit FBA/Prime signals are absent (common with RapidAPI search).
+    free_delivery_likely: bool = False
 
     # Computed at post-init
     score: float = field(init=False)
@@ -69,7 +72,16 @@ class AmazonItem:
             delivery, completely unrelated to whether the item ships to Israel.
           • Price-only signals — a cheap 3P item still doesn't ship to Israel.
         """
-        return self.is_sold_by_amazon or self.is_amazon_fulfilled or self.is_prime
+        # free_delivery_likely: ANY item showing "FREE delivery" in search.
+        # Includes some 3P domestic-only items, but catches the many FBA items
+        # that RapidAPI returns without the "shipped by Amazon" phrase.
+        # Israel verification (Playwright) overrides this heuristic when available.
+        return (
+            self.is_sold_by_amazon
+            or self.is_amazon_fulfilled
+            or self.is_prime
+            or self.free_delivery_likely
+        )
 
     @property
     def delivery_badge(self) -> str:

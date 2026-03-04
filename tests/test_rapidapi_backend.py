@@ -92,12 +92,14 @@ class TestParseProduct:
         assert item.qualifies_for_israel_free_delivery is True
 
     def test_3p_delivery_text_does_not_set_fba_flag(self, backend):
-        """3P items have 'FREE delivery Mon' but no 'shipped by Amazon' — not FBA."""
+        """3P items with 'FREE delivery' — not explicitly FBA but free_delivery_likely=True.
+        The filter now includes these since many FBA items also lack 'shipped by Amazon' text."""
         raw = self._full_raw(is_prime=False, delivery=self._3P_DELIVERY)
         item = backend._parse_product(raw)
         assert item is not None
-        assert not item.is_amazon_fulfilled
-        assert not item.qualifies_for_israel_free_delivery
+        assert not item.is_amazon_fulfilled        # no 'shipped by Amazon' → not flagged FBA
+        assert item.free_delivery_likely is True   # but shows FREE delivery
+        assert item.qualifies_for_israel_free_delivery is True  # included in filter
 
     def test_missing_asin_returns_none(self, backend):
         raw = self._full_raw()
@@ -110,16 +112,21 @@ class TestParseProduct:
         item = backend._parse_product(raw)
         assert item is not None
         assert not item.is_prime
-        # If no free delivery text or amazon seller detected:
         assert not item.is_amazon_fulfilled
+        assert item.free_delivery_likely is False          # no free delivery text
+        assert item.qualifies_for_israel_free_delivery is False  # excluded from filter
 
-    def test_generic_free_delivery_without_shipped_by_amazon_is_3p(self, backend):
-        # "FREE delivery tomorrow" alone — no "shipped by Amazon" phrase — is 3P domestic.
+    def test_generic_free_delivery_without_shipped_by_amazon(self, backend):
+        # "FREE delivery tomorrow" — no "shipped by Amazon" — not explicitly FBA,
+        # but free_delivery_likely=True so it passes the israel filter.
+        # This is intentionally inclusive: many real FBA items lack "shipped by Amazon"
+        # in RapidAPI search results. Playwright verification handles the false positives.
         raw = self._full_raw(is_prime=False, delivery="FREE delivery tomorrow")
         item = backend._parse_product(raw)
         assert item is not None
-        assert not item.is_amazon_fulfilled   # no "shipped by Amazon" → not FBA
-        assert not item.qualifies_for_israel_free_delivery
+        assert not item.is_amazon_fulfilled        # no "shipped by Amazon" → not explicitly FBA
+        assert item.free_delivery_likely is True   # but shows FREE delivery
+        assert item.qualifies_for_israel_free_delivery is True  # included in filter
 
     def test_sold_by_amazon_flag(self, backend):
         raw = self._full_raw(is_prime=False, delivery="")
