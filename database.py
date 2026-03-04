@@ -216,6 +216,12 @@ CREATE TABLE IF NOT EXISTS api_request_log (
 _MIGRATIONS = [
     # Add search_type column to search_logs (distinguishes photo vs text searches)
     "ALTER TABLE search_logs ADD COLUMN search_type TEXT NOT NULL DEFAULT 'photo'",
+    # C3: Add missing indexes for admin report queries
+    "CREATE INDEX IF NOT EXISTS idx_search_logs_user_id ON search_logs (user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_search_logs_searched_at ON search_logs (searched_at)",
+    "CREATE INDEX IF NOT EXISTS idx_search_logs_tag_used ON search_logs (tag_used)",
+    "CREATE INDEX IF NOT EXISTS idx_api_request_log_api_key ON api_request_log (api_key)",
+    "CREATE INDEX IF NOT EXISTS idx_api_cost_log_user_id ON api_cost_log (user_id)",
 ]
 
 
@@ -284,6 +290,7 @@ async def add_tag(
     """
     now = datetime.now(timezone.utc).isoformat()
     async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("BEGIN IMMEDIATE")
         # Check for duplicate
         async with db.execute("SELECT id FROM affiliate_tags WHERE tag = ?", (tag,)) as cur:
             if await cur.fetchone():
@@ -322,6 +329,7 @@ async def remove_tag(tag_id: int) -> bool:
 async def set_active_tag(tag_id: int) -> bool:
     """Deactivate all tags, then activate the one with tag_id. Returns True on success."""
     async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("BEGIN IMMEDIATE")
         await db.execute("UPDATE affiliate_tags SET is_active = 0")
         cursor = await db.execute(
             "UPDATE affiliate_tags SET is_active = 1 WHERE id = ?", (tag_id,)

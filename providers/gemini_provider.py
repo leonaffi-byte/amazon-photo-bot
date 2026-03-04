@@ -13,6 +13,7 @@ Pricing (as of early 2025):
 """
 from __future__ import annotations
 
+import asyncio
 import time
 import logging
 
@@ -80,13 +81,16 @@ class GeminiProvider(VisionProvider):
 
         t0 = time.monotonic()
 
-        response = await self._client.aio.models.generate_content(
-            model=self.model_id,
-            contents=[
-                genai_types.Part.from_bytes(data=image_bytes, mime_type=mime),
-                build_user_prompt(context_hint),
-            ],
-            config=gen_config,
+        response = await asyncio.wait_for(
+            self._client.aio.models.generate_content(
+                model=self.model_id,
+                contents=[
+                    genai_types.Part.from_bytes(data=image_bytes, mime_type=mime),
+                    build_user_prompt(context_hint),
+                ],
+                config=gen_config,
+            ),
+            timeout=60,
         )
 
         latency_ms = int((time.monotonic() - t0) * 1000)

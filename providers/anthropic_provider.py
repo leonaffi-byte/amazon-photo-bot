@@ -14,6 +14,7 @@ Why Claude is a useful second opinion:
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import time
 import logging
@@ -64,26 +65,29 @@ class AnthropicProvider(VisionProvider):
         elif image_bytes[:4] == b"RIFF":
             media_type = "image/webp"
 
-        message = await self._client.messages.create(
-            model=self.model_id,
-            max_tokens=512,
-            system=SYSTEM_PROMPT,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": media_type,
-                                "data": b64,
+        message = await asyncio.wait_for(
+            self._client.messages.create(
+                model=self.model_id,
+                max_tokens=512,
+                system=SYSTEM_PROMPT,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": media_type,
+                                    "data": b64,
+                                },
                             },
-                        },
-                        {"type": "text", "text": build_user_prompt(context_hint)},
-                    ],
-                }
-            ],
+                            {"type": "text", "text": build_user_prompt(context_hint)},
+                        ],
+                    }
+                ],
+            ),
+            timeout=60,
         )
 
         latency_ms = int((time.monotonic() - t0) * 1000)

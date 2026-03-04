@@ -10,10 +10,13 @@ settings_store.py writes directly to the module attributes below when a
 setting is changed in the admin panel, so all code reading config.X always
 gets the latest value without restarting.
 """
+import logging
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 # ── Telegram ──────────────────────────────────────────────────────────────────
 TELEGRAM_BOT_TOKEN: str = os.environ["TELEGRAM_BOT_TOKEN"]
@@ -102,6 +105,6 @@ async def apply_db_settings() -> None:
                 if db_raw is not None:
                     settings_store._apply_to_config(key, db_raw, meta["type"])
             except Exception:
-                pass
+                logger.warning("Failed to apply DB setting '%s'", key, exc_info=True)
     except Exception:
-        pass
+        logger.error("Failed to load DB settings module", exc_info=True)

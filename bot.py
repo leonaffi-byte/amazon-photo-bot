@@ -7,6 +7,7 @@ Session state is kept in-memory per user_id.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
@@ -47,6 +48,9 @@ CB_TRY_DIFFERENTLY = "nav:try"        # re-search using next provider result
 
 # Placeholder image when a product has no photo URL
 _PLACEHOLDER_IMG = "https://placehold.co/600x400/FF9900/FFF.png?text=Amazon"
+
+# Maximum photo file size we'll process (bytes)
+_MAX_PHOTO_BYTES = 10 * 1024 * 1024  # 10 MB
 
 
 # ── Session ────────────────────────────────────────────────────────────────────
@@ -280,7 +284,10 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         parse_mode="MarkdownV2",
     )
 
-    photo      = update.message.photo[-1]
+    photo = update.message.photo[-1]
+    if photo.file_size and photo.file_size > _MAX_PHOTO_BYTES:
+        await update.message.reply_text("Photo is too large (max 10 MB). Please send a smaller image.")
+        return
     photo_file = await context.bot.get_file(photo.file_id)
     image_bytes = bytes(await photo_file.download_as_bytearray())
 

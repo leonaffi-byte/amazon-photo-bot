@@ -23,4 +23,8 @@ COPY . .
 ENV DATA_DIR=/app/data
 RUN mkdir -p /app/data
 
+# Run as non-root user for security
+RUN useradd -m -s /bin/bash botuser && chown -R botuser:botuser /app/data
+USER botuser
+
 CMD ["python", "main.py"]

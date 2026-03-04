@@ -128,6 +128,10 @@ async def run() -> None:
         logger.info("Shutting down…")
         sched.stop()
         sched_task.cancel()
+        try:
+            await sched_task
+        except asyncio.CancelledError:
+            pass
         await ptb_app.updater.stop()
         await ptb_app.stop()
 
