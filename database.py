@@ -4,6 +4,7 @@ database.py — async SQLite persistence via aiosqlite.
 Tables:
   affiliate_tags   — admin-managed affiliate/associate codes
   search_logs      — one row per Amazon search, tracks which tag was active
+  users            — user language preferences and platform tracking
 
 The DB file is created automatically on first run.
 """
@@ -256,6 +257,14 @@ CREATE TABLE IF NOT EXISTS user_rate_limits (
     updated_by     INTEGER NOT NULL,
     updated_at     TEXT    NOT NULL
 );
+
+-- User language preferences and platform tracking
+CREATE TABLE IF NOT EXISTS users (
+    user_key    TEXT PRIMARY KEY,   -- "platform:native_user_id"
+    platform    TEXT,
+    lang        TEXT,
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 _MIGRATIONS = [
@@ -277,6 +286,10 @@ _MIGRATIONS = [
     "ALTER TABLE affiliate_tags ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0",
     # F8: Correlation ID column for end-to-end request tracing
     "ALTER TABLE search_logs ADD COLUMN correlation_id TEXT NOT NULL DEFAULT ''",
+    # Task 4: User language preferences and platform tracking
+    "ALTER TABLE users ADD COLUMN platform TEXT",
+    "ALTER TABLE users ADD COLUMN lang TEXT",
+    "ALTER TABLE users ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
 ]
 
 
@@ -1821,3 +1834,45 @@ async def list_user_rate_limits() -> list[UserRateLimit]:
         )
         for r in rows
     ]
+
+
+# ── User language / platform tracking ─────────────────────────────────────────
+
+async def get_user_lang(user_key: str) -> str | None:
+    """Get user's preferred language. user_key is 'platform:user_id'."""
+    async with _get_conn() as db:
+        async with db.execute(
+            "SELECT lang FROM users WHERE user_key = ?", (user_key,)
+        ) as cursor:
+            row = await cursor.fetchone()
+    return row[0] if row else None
+
+
+async def set_user_lang(user_key: str, lang: str, platform: str | None = None) -> None:
+    """Set user's preferred language. Creates user if not exists."""
+    async with _get_conn() as db:
+        if platform:
+            await db.execute(
+                """INSERT INTO users (user_key, lang, platform)
+                   VALUES (?, ?, ?)
+                   ON CONFLICT(user_key) DO UPDATE SET lang = ?, platform = ?""",
+                (user_key, lang, platform, lang, platform),
+            )
+        else:
+            await db.execute(
+                """INSERT INTO users (user_key, lang)
+                   VALUES (?, ?)
+                   ON CONFLICT(user_key) DO UPDATE SET lang = ?""",
+                (user_key, lang, lang),
+            )
+        await db.commit()
+
+
+async def ensure_user(user_key: str, platform: str | None = None) -> None:
+    """Ensure user exists in the users table."""
+    async with _get_conn() as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO users (user_key, platform) VALUES (?, ?)",
+            (user_key, platform),
+        )
+        await db.commit()
