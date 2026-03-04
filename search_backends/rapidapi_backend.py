@@ -74,13 +74,15 @@ class RapidAPIBackend(SearchBackend):
             "sort_by": "RELEVANCE",
         }
 
-        raw_products = await self._fetch(params)
-
-        # Retry once on empty — RapidAPI sometimes silently rate-limits burst calls
-        if not raw_products:
-            logger.warning("RapidAPI returned 0 for '%s' — retrying in 1.5s", query)
-            await asyncio.sleep(1.5)
+        # Retry with exponential backoff — RapidAPI sometimes silently rate-limits
+        raw_products: list = []
+        for attempt in range(3):
             raw_products = await self._fetch(params)
+            if raw_products:
+                break
+            delay = 1.5 * (2 ** attempt)  # 1.5s, 3s, 6s
+            logger.warning("RapidAPI returned 0 for '%s' — retry %d in %.1fs", query, attempt + 1, delay)
+            await asyncio.sleep(delay)
 
         logger.info("RapidAPI returned %d products for query '%s'", len(raw_products), query)
 

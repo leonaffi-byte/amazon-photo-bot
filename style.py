@@ -35,7 +35,7 @@ STARS = {5: "★★★★★", 4: "★★★★☆", 3: "★★★☆☆", 2: "�
 def star_bar(rating: Optional[float]) -> str:
     if rating is None:
         return "☆☆☆☆☆"
-    r = round(rating)
+    r = int(rating)  # floor instead of round to avoid 4.5 → 5 stars
     return STARS.get(max(0, min(5, r)), "☆☆☆☆☆")
 
 
@@ -191,7 +191,7 @@ def identification_card(result, show_cost: bool = True) -> str:
         f"🔎 `{esc(result.amazon_search_query)}`\n"
         f"{DIV}\n\n"
         f"✈️ *Limit to free delivery to 🇮🇱 Israel?*\n"
-        f"_FBA items ship free when cart ≥ \\$49_"
+        f"_FBA items ship free when cart ≥ \\${config.FREE_DELIVERY_THRESHOLD:.0f}_"
     )
 
 
@@ -299,7 +299,12 @@ def product_caption(
 
     # Telegram caption hard-limit is 1024 chars
     if len(caption) > 1020:
-        caption = caption[:1020] + "\\.\\.\\."
+        # Cut at last newline to avoid breaking MarkdownV2 escapes
+        caption = caption[:1010]
+        last_nl = caption.rfind("\n")
+        if last_nl > 800:
+            caption = caption[:last_nl]
+        caption += "\n_…\\(truncated\\)_"
     return caption
 
 
@@ -388,15 +393,24 @@ def providers_info(providers: dict, vision_mode: str, search_backend_name: str) 
 # ERROR MESSAGES
 # ══════════════════════════════════════════════════════════════════════════════
 
-def error_no_providers() -> str:
-    return (
-        f"⚠️ *No AI Providers Configured*\n"
+def error_no_providers(is_admin: bool = False) -> str:
+    base = (
+        f"⚠️ *Service Temporarily Unavailable*\n"
         f"{DIV}\n\n"
-        f"An admin needs to add at least one vision API key\\.\n\n"
-        f"▸ /admin → 🔑 *API Keys*\n"
-        f"▸ Add OpenAI, Anthropic, or Google key\n\n"
-        f"_Free keys available at openai\\.com, anthropic\\.com, aistudio\\.google\\.com_"
     )
+    if is_admin:
+        base += (
+            "No AI vision providers are configured\\.\n\n"
+            "▸ /admin → 🔑 *API Keys*\n"
+            "▸ Add OpenAI, Anthropic, or Google key\n\n"
+            "_Free keys available at openai\\.com, anthropic\\.com, aistudio\\.google\\.com_"
+        )
+    else:
+        base += (
+            "The bot is temporarily unable to process photos\\.\n\n"
+            "_Please try again later or contact the bot administrator\\._"
+        )
+    return base
 
 
 def error_no_backend() -> str:
@@ -421,15 +435,27 @@ def error_no_results() -> str:
     )
 
 
-def error_analysis_failed() -> str:
-    return (
+def error_analysis_failed(is_admin: bool = False) -> str:
+    base = (
         f"❌ *Analysis Failed*\n"
         f"{DIV}\n\n"
-        f"Couldn't identify this product\\. Try:\n"
-        f"▸ Better lighting\n"
-        f"▸ Less angle / closer shot\n"
-        f"▸ Include the product label\n"
     )
+    if is_admin:
+        base += (
+            "Couldn't identify this product\\. Try:\n"
+            "▸ Better lighting\n"
+            "▸ Less angle / closer shot\n"
+            "▸ Include the product label\n\n"
+            "_Check /admin → 🏥 Model Health for provider errors\\._"
+        )
+    else:
+        base += (
+            "Couldn't identify this product\\. Try:\n"
+            "▸ Better lighting\n"
+            "▸ Less angle / closer shot\n"
+            "▸ Include the product label\n"
+        )
+    return base
 
 
 def not_a_photo() -> str:
@@ -442,9 +468,15 @@ def not_a_photo() -> str:
 
 
 def error_rate_limited(max_requests: int, window_secs: int) -> str:
+    if window_secs >= 3600:
+        window_str = f"{window_secs // 3600} hour{'s' if window_secs >= 7200 else ''}"
+    elif window_secs >= 60:
+        window_str = f"{window_secs // 60} minute{'s' if window_secs >= 120 else ''}"
+    else:
+        window_str = f"{window_secs} second{'s' if window_secs != 1 else ''}"
     return (
-        f"⏱ *Slow Down\\!*\n"
+        f"⏱ *Please wait*\n"
         f"{SDIV}\n"
-        f"You can analyse up to *{max_requests} photos* every *{window_secs} seconds*\\.\n\n"
-        f"_Please wait a moment before sending another photo\\._"
+        f"You can make up to *{max_requests} requests* every *{esc(window_str)}*\\.\n\n"
+        f"_Please wait before sending another request\\._"
     )

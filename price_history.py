@@ -50,7 +50,7 @@ class PriceHistory:
         if not self.current:
             return ""
         if self.low_all_time and self.current <= self.low_all_time * 1.03:
-            return "🔥 All\\-time low"
+            return "🔥 All-time low"
         if self.avg_90d and self.current <= self.avg_90d * 0.85:
             return "💸 Great deal"
         if self.avg_90d and self.current <= self.avg_90d * 0.95:

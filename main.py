@@ -95,8 +95,7 @@ async def run() -> None:
         try:
             loop.add_signal_handler(sig, _stop)
         except (NotImplementedError, RuntimeError):
-            # Windows doesn't support add_signal_handler for all signals
-            pass
+            logger.warning("Signal handler for %s not supported on this platform", sig.name)
 
     async with ptb_app:
         await ptb_app.initialize()
@@ -128,6 +127,12 @@ async def run() -> None:
         logger.info("Shutting down…")
         sched.stop()
         sched_task.cancel()
+        try:
+            await asyncio.wait_for(sched_task, timeout=5.0)
+        except asyncio.CancelledError:
+            pass
+        except asyncio.TimeoutError:
+            logger.warning("Scheduler task did not finish within 5s timeout.")
         await ptb_app.updater.stop()
         await ptb_app.stop()
 
@@ -135,6 +140,8 @@ async def run() -> None:
         await web_runner.cleanup()
         logger.info("Shortener server stopped.")
 
+    from database import close_db
+    await close_db()
     logger.info("Goodbye.")
 
 

@@ -4,17 +4,17 @@ Groq vision provider — Llama vision models via Groq's OpenAI-compatible API.
 Groq offers extremely fast inference (LPU hardware).
 Get a free API key at console.groq.com
 
-Supported vision models (as of early 2026):
-  llama-3.2-11b-vision-preview  — fast, cheap, good for most products
-  llama-3.2-90b-vision-preview  — higher quality, slower
+Supported vision models (as of March 2026):
+  meta-llama/llama-4-scout-17b-16e-instruct — fast, cheap, primary model
+  meta-llama/llama-3.2-90b-vision-preview   — higher quality, slower
 
-Pricing: Groq charges per token but rates are very low.
-  llama-3.2-11b: ~$0.18 / 1M input tokens
-  llama-3.2-90b: ~$0.79 / 1M input tokens
-  Vision images: ~$0.00009 per image (approx 500 tokens)
+Pricing (per 1k tokens / per image):
+  llama-4-scout:  $0.00011 input, $0.00034 output, $0.00006/image
+  llama-3.2-90b:  $0.00079 input, $0.00079 output, $0.00040/image
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import time
 import logging
@@ -79,23 +79,26 @@ class GroqProvider(VisionProvider):
 
         t0 = time.monotonic()
 
-        response = await self._client.chat.completions.create(
-            model=self.model_id,
-            max_tokens=512,
-            temperature=0,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type":      "image_url",
-                            "image_url": {"url": f"data:{media_type};base64,{b64}"},
-                        },
-                        {"type": "text", "text": build_user_prompt(context_hint)},
-                    ],
-                },
-            ],
+        response = await asyncio.wait_for(
+            self._client.chat.completions.create(
+                model=self.model_id,
+                max_tokens=512,
+                temperature=0,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type":      "image_url",
+                                "image_url": {"url": f"data:{media_type};base64,{b64}"},
+                            },
+                            {"type": "text", "text": build_user_prompt(context_hint)},
+                        ],
+                    },
+                ],
+            ),
+            timeout=60,
         )
 
         latency_ms    = int((time.monotonic() - t0) * 1000)

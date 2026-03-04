@@ -173,3 +173,17 @@ async def solve_playwright_captcha(page) -> bool:
     except Exception as exc:
         logger.warning("CAPTCHA solving failed: %s", exc)
         return False
+
+
+def is_captcha_html(html: str) -> bool:
+    """
+    Check whether raw HTML contains an Amazon CAPTCHA challenge.
+    Centralised check — used by israel_scraper and playwright_backend.
+    """
+    html_lower = html.lower()
+    return (
+        "enter the characters you see below"  in html_lower
+        or "api-services-support@amazon.com"  in html_lower
+        or "sorry, we just need to make sure" in html_lower
+        or "type the characters you see"       in html_lower
+    )

@@ -10,8 +10,13 @@ The DB file is created automatically on first run.
 from __future__ import annotations
 
 import asyncio
+import csv
+import io
+import json
 import logging
 import os
+import time as _time
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -28,6 +33,30 @@ _DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 DB_PATH = str(_DATA_DIR / "bot_data.db")
 _lock = asyncio.Lock()          # serialise schema migrations
+_conn_lock = asyncio.Lock()     # serialise persistent connection creation
+
+_persistent_conn: aiosqlite.Connection | None = None
+
+
+@asynccontextmanager
+async def _get_conn():
+    """Yield the persistent DB connection, creating it on first use under a lock."""
+    global _persistent_conn
+    async with _conn_lock:
+        if _persistent_conn is None:
+            _persistent_conn = await aiosqlite.connect(DB_PATH)
+            _persistent_conn.row_factory = aiosqlite.Row
+            await _persistent_conn.execute("PRAGMA journal_mode=WAL")
+            await _persistent_conn.execute("PRAGMA busy_timeout=5000")
+    yield _persistent_conn
+
+
+# ── In-memory caches ─────────────────────────────────────────────────────────
+_active_tag_cache: tuple[float, str | None] | None = None  # (timestamp, tag_string)
+_ACTIVE_TAG_TTL = 60  # seconds
+
+_disabled_models_cache: tuple[float, set[str]] | None = None
+_DISABLED_MODELS_TTL = 30  # seconds
 
 
 # ── Data models ───────────────────────────────────────────────────────────────
@@ -42,6 +71,7 @@ class AffiliateTag:
     added_at: datetime
     is_active: bool
     search_count: int = 0       # how many searches used this tag
+    is_default: bool = False    # default tag for new users / fallback
 
 
 @dataclass
@@ -71,14 +101,15 @@ CREATE TABLE IF NOT EXISTS affiliate_tags (
 );
 
 CREATE TABLE IF NOT EXISTS search_logs (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id      INTEGER NOT NULL,
-    product_name TEXT    NOT NULL DEFAULT '',
-    tag_used     TEXT    NOT NULL DEFAULT 'none',
-    provider_used TEXT   NOT NULL DEFAULT 'unknown',
-    result_count INTEGER NOT NULL DEFAULT 0,
-    israel_filter INTEGER NOT NULL DEFAULT 0,
-    searched_at  TEXT    NOT NULL
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id        INTEGER NOT NULL,
+    product_name   TEXT    NOT NULL DEFAULT '',
+    tag_used       TEXT    NOT NULL DEFAULT 'none',
+    provider_used  TEXT    NOT NULL DEFAULT 'unknown',
+    result_count   INTEGER NOT NULL DEFAULT 0,
+    israel_filter  INTEGER NOT NULL DEFAULT 0,
+    searched_at    TEXT    NOT NULL,
+    correlation_id TEXT    NOT NULL DEFAULT ''
 );
 
 -- API keys set via Telegram admin panel (override .env values)
@@ -157,7 +188,7 @@ CREATE TABLE IF NOT EXISTS api_cost_log (
 );
 CREATE INDEX IF NOT EXISTS idx_cost_log_ts ON api_cost_log (ts);
 
--- Model health: track consecutive failures and auto-disable
+-- Model health: track failures with progressive degradation
 CREATE TABLE IF NOT EXISTS model_health (
     provider_name        TEXT PRIMARY KEY,
     consecutive_failures INTEGER NOT NULL DEFAULT 0,
@@ -165,7 +196,12 @@ CREATE TABLE IF NOT EXISTS model_health (
     is_disabled          INTEGER NOT NULL DEFAULT 0,
     disabled_at          TEXT,
     last_failure_ts      TEXT,
-    last_failure_reason  TEXT    NOT NULL DEFAULT ''
+    last_failure_reason  TEXT    NOT NULL DEFAULT '',
+    state                TEXT    NOT NULL DEFAULT 'healthy',
+    disabled_until       REAL,
+    last_notification_level INTEGER NOT NULL DEFAULT 0,
+    failure_timestamps   TEXT    NOT NULL DEFAULT '[]',
+    success_timestamps   TEXT    NOT NULL DEFAULT '[]'
 );
 
 -- Israel shipping verification cache (24-hour TTL, checked via WireGuard proxy)
@@ -211,18 +247,43 @@ CREATE TABLE IF NOT EXISTS api_request_log (
     is_free_shipping INTEGER,            -- NULL = unverified
     requested_at     REAL    NOT NULL
 );
+
+-- Per-user rate limit overrides (admins can set custom limits per user)
+CREATE TABLE IF NOT EXISTS user_rate_limits (
+    user_id        INTEGER PRIMARY KEY,
+    max_requests   INTEGER NOT NULL,
+    window_seconds INTEGER NOT NULL,
+    updated_by     INTEGER NOT NULL,
+    updated_at     TEXT    NOT NULL
+);
 """
 
 _MIGRATIONS = [
     # Add search_type column to search_logs (distinguishes photo vs text searches)
     "ALTER TABLE search_logs ADD COLUMN search_type TEXT NOT NULL DEFAULT 'photo'",
+    # C3: Add missing indexes for admin report queries
+    "CREATE INDEX IF NOT EXISTS idx_search_logs_user_id ON search_logs (user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_search_logs_searched_at ON search_logs (searched_at)",
+    "CREATE INDEX IF NOT EXISTS idx_search_logs_tag_used ON search_logs (tag_used)",
+    "CREATE INDEX IF NOT EXISTS idx_api_request_log_api_key ON api_request_log (api_key)",
+    "CREATE INDEX IF NOT EXISTS idx_api_cost_log_user_id ON api_cost_log (user_id)",
+    # F9: Progressive health degradation columns
+    "ALTER TABLE model_health ADD COLUMN state TEXT NOT NULL DEFAULT 'healthy'",
+    "ALTER TABLE model_health ADD COLUMN disabled_until REAL",
+    "ALTER TABLE model_health ADD COLUMN last_notification_level INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE model_health ADD COLUMN failure_timestamps TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE model_health ADD COLUMN success_timestamps TEXT NOT NULL DEFAULT '[]'",
+    # Add is_default column to affiliate_tags (bulk tag management — F3)
+    "ALTER TABLE affiliate_tags ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0",
+    # F8: Correlation ID column for end-to-end request tracing
+    "ALTER TABLE search_logs ADD COLUMN correlation_id TEXT NOT NULL DEFAULT ''",
 ]
 
 
 async def init_db() -> None:
     """Create tables if they don't exist. Safe to call multiple times."""
     async with _lock:
-        async with aiosqlite.connect(DB_PATH) as db:
+        async with _get_conn() as db:
             await db.executescript(_SCHEMA)
             # Run additive migrations (ALTER TABLE ADD COLUMN, etc.)
             # Each is wrapped in try/except because SQLite raises if column exists.
@@ -235,22 +296,50 @@ async def init_db() -> None:
     logger.info("Database initialised at %s", DB_PATH)
 
 
+async def close_db() -> None:
+    """Close the persistent database connection (call at shutdown)."""
+    global _persistent_conn
+    if _persistent_conn is not None:
+        await _persistent_conn.close()
+        _persistent_conn = None
+
+
 # ── Affiliate tag operations ───────────────────────────────────────────────────
 
 async def get_active_tag() -> Optional[str]:
-    """Return the currently active affiliate tag string, or None if none set."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    """
+    Return the currently active affiliate tag string.
+
+    Falls back to the default tag if no tag is explicitly active,
+    so new users / sessions always get a tag when one is configured.
+    Returns None only if neither an active nor a default tag exists.
+    """
+    global _active_tag_cache
+    if _active_tag_cache and (_time.monotonic() - _active_tag_cache[0]) < _ACTIVE_TAG_TTL:
+        return _active_tag_cache[1]
+    async with _get_conn() as db:
         async with db.execute(
             "SELECT tag FROM affiliate_tags WHERE is_active = 1 LIMIT 1"
         ) as cursor:
             row = await cursor.fetchone()
-            return row[0] if row else None
+            if row:
+                tag_value = row[0]
+                _active_tag_cache = (_time.monotonic(), tag_value)
+                return tag_value
+
+        # Fall back to the default tag
+        async with db.execute(
+            "SELECT tag FROM affiliate_tags WHERE is_default = 1 LIMIT 1"
+        ) as cursor:
+            row = await cursor.fetchone()
+            tag_value = row[0] if row else None
+    _active_tag_cache = (_time.monotonic(), tag_value)
+    return tag_value
 
 
 async def get_all_tags() -> list[AffiliateTag]:
     """Return all affiliate tags ordered by is_active DESC, added_at DESC."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
+    async with _get_conn() as db:
         async with db.execute(
             "SELECT * FROM affiliate_tags ORDER BY is_active DESC, added_at DESC"
         ) as cursor:
@@ -265,6 +354,7 @@ async def get_all_tags() -> list[AffiliateTag]:
             added_at=datetime.fromisoformat(r["added_at"]),
             is_active=bool(r["is_active"]),
             search_count=r["search_count"],
+            is_default=bool(r["is_default"]) if "is_default" in r.keys() else False,
         )
         for r in rows
     ]
@@ -282,8 +372,11 @@ async def add_tag(
     If make_active=True, deactivate all others first.
     Raises ValueError if tag already exists.
     """
+    global _active_tag_cache
+    _active_tag_cache = None
     now = datetime.now(timezone.utc).isoformat()
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _get_conn() as db:
+        await db.execute("BEGIN IMMEDIATE")
         # Check for duplicate
         async with db.execute("SELECT id FROM affiliate_tags WHERE tag = ?", (tag,)) as cur:
             if await cur.fetchone():
@@ -308,12 +401,15 @@ async def add_tag(
         added_by_id=r[3], added_by_name=r[4],
         added_at=datetime.fromisoformat(r[5]),
         is_active=bool(r[6]), search_count=r[7],
+        is_default=bool(r[8]) if len(r) > 8 else False,
     )
 
 
 async def remove_tag(tag_id: int) -> bool:
     """Delete a tag by id. Returns True if a row was deleted."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    global _active_tag_cache
+    _active_tag_cache = None
+    async with _get_conn() as db:
         cursor = await db.execute("DELETE FROM affiliate_tags WHERE id = ?", (tag_id,))
         await db.commit()
         return cursor.rowcount > 0
@@ -321,7 +417,10 @@ async def remove_tag(tag_id: int) -> bool:
 
 async def set_active_tag(tag_id: int) -> bool:
     """Deactivate all tags, then activate the one with tag_id. Returns True on success."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    global _active_tag_cache
+    _active_tag_cache = None
+    async with _get_conn() as db:
+        await db.execute("BEGIN IMMEDIATE")
         await db.execute("UPDATE affiliate_tags SET is_active = 0")
         cursor = await db.execute(
             "UPDATE affiliate_tags SET is_active = 1 WHERE id = ?", (tag_id,)
@@ -332,18 +431,127 @@ async def set_active_tag(tag_id: int) -> bool:
 
 async def deactivate_all_tags() -> None:
     """Remove active status from every tag (run bot with no affiliate tag)."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    global _active_tag_cache
+    _active_tag_cache = None
+    async with _get_conn() as db:
         await db.execute("UPDATE affiliate_tags SET is_active = 0")
         await db.commit()
 
 
 async def increment_tag_search_count(tag: str) -> None:
     """Bump search_count for the given tag string."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _get_conn() as db:
         await db.execute(
             "UPDATE affiliate_tags SET search_count = search_count + 1 WHERE tag = ?", (tag,)
         )
         await db.commit()
+
+
+async def get_default_tag() -> str | None:
+    """Return the tag string marked as default, or None if none is set."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT tag FROM affiliate_tags WHERE is_default = 1 LIMIT 1"
+        ) as cursor:
+            row = await cursor.fetchone()
+            return row[0] if row else None
+
+
+async def set_default_tag(tag_id: int) -> bool:
+    """Mark one tag as the default (unsets all others). Returns True on success."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("UPDATE affiliate_tags SET is_default = 0")
+        cursor = await db.execute(
+            "UPDATE affiliate_tags SET is_default = 1 WHERE id = ?", (tag_id,)
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
+async def clear_default_tag() -> None:
+    """Remove the default flag from all tags."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("UPDATE affiliate_tags SET is_default = 0")
+        await db.commit()
+
+
+async def export_tags_csv() -> str:
+    """Export all affiliate tags as a CSV string."""
+    tags = await get_all_tags()
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["tag_name", "description", "is_active", "is_default"])
+    for t in tags:
+        writer.writerow([
+            t.tag,
+            t.description,
+            "1" if t.is_active else "0",
+            "1" if t.is_default else "0",
+        ])
+    return output.getvalue()
+
+
+async def import_tags_csv(csv_data: str, imported_by: int) -> dict[str, int]:
+    """
+    Bulk import affiliate tags from CSV data.
+
+    Expected columns: tag_name, description, is_active, is_default
+    (description, is_active, is_default are optional with sensible defaults).
+
+    Returns {"imported": N, "skipped": N, "errors": N}.
+    """
+    reader = csv.DictReader(io.StringIO(csv_data))
+    imported = 0
+    skipped = 0
+    errors = 0
+    now = datetime.now(timezone.utc).isoformat()
+
+    async with aiosqlite.connect(DB_PATH) as conn:
+        for row in reader:
+            tag_name = (row.get("tag_name") or "").strip()
+            if not tag_name:
+                errors += 1
+                continue
+
+            description = (row.get("description") or "").strip()
+            is_active = (row.get("is_active") or "0").strip() == "1"
+            is_default = (row.get("is_default") or "0").strip() == "1"
+
+            # Check for duplicates
+            async with conn.execute(
+                "SELECT id FROM affiliate_tags WHERE tag = ?", (tag_name,)
+            ) as cur:
+                if await cur.fetchone():
+                    skipped += 1
+                    continue
+
+            try:
+                # If this tag should be active, deactivate others first
+                if is_active:
+                    await conn.execute("UPDATE affiliate_tags SET is_active = 0")
+                # If this tag should be default, clear others first
+                if is_default:
+                    await conn.execute("UPDATE affiliate_tags SET is_default = 0")
+
+                await conn.execute(
+                    """INSERT INTO affiliate_tags
+                       (tag, description, added_by_id, added_by_name, added_at,
+                        is_active, is_default)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (tag_name, description, imported_by, "CSV Import", now,
+                     1 if is_active else 0, 1 if is_default else 0),
+                )
+                imported += 1
+            except Exception:
+                errors += 1
+
+        await conn.commit()
+
+    logger.info(
+        "CSV tag import: %d imported, %d skipped, %d errors (by user %d)",
+        imported, skipped, errors, imported_by,
+    )
+    return {"imported": imported, "skipped": skipped, "errors": errors}
 
 
 # ── Search log operations ─────────────────────────────────────────────────────
@@ -356,23 +564,24 @@ async def log_search(
     result_count: int,
     israel_filter: bool,
     search_type: str = "photo",
+    correlation_id: str = "",
 ) -> None:
     """Record a search event."""
     now = datetime.now(timezone.utc).isoformat()
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _get_conn() as db:
         await db.execute(
             """INSERT INTO search_logs
-               (user_id, product_name, tag_used, provider_used, result_count, israel_filter, searched_at, search_type)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+               (user_id, product_name, tag_used, provider_used, result_count, israel_filter, searched_at, search_type, correlation_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (user_id, product_name, tag_used, provider_used, result_count,
-             1 if israel_filter else 0, now, search_type),
+             1 if israel_filter else 0, now, search_type, correlation_id),
         )
         await db.commit()
 
 
 async def get_stats() -> dict:
     """Return summary stats for the admin panel."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _get_conn() as db:
         async with db.execute("SELECT COUNT(*) FROM search_logs") as cur:
             total_searches = (await cur.fetchone())[0]
 
@@ -410,7 +619,7 @@ async def get_stats() -> dict:
 
 async def get_api_key(key_name: str) -> Optional[str]:
     """Return DB-stored value for key_name, or None if not set."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _get_conn() as db:
         async with db.execute(
             "SELECT key_value FROM api_keys WHERE key_name = ?", (key_name,)
         ) as cur:
@@ -421,7 +630,7 @@ async def get_api_key(key_name: str) -> Optional[str]:
 async def set_api_key(key_name: str, key_value: str, admin_id: int) -> None:
     """Insert or replace an API key in the DB."""
     now = datetime.now(timezone.utc).isoformat()
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _get_conn() as db:
         await db.execute(
             """INSERT INTO api_keys (key_name, key_value, updated_by, updated_at)
                VALUES (?, ?, ?, ?)
@@ -436,14 +645,14 @@ async def set_api_key(key_name: str, key_value: str, admin_id: int) -> None:
 
 async def delete_api_key(key_name: str) -> None:
     """Remove a key from DB (bot falls back to .env value)."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _get_conn() as db:
         await db.execute("DELETE FROM api_keys WHERE key_name = ?", (key_name,))
         await db.commit()
 
 
 async def get_all_api_keys() -> dict[str, str]:
     """Return all DB-stored API keys as {key_name: key_value}."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _get_conn() as db:
         async with db.execute("SELECT key_name, key_value FROM api_keys") as cur:
             rows = await cur.fetchall()
     return {r[0]: r[1] for r in rows}
@@ -466,7 +675,7 @@ async def seed_admins(user_ids: set[int]) -> None:
     Called once at startup — safe to call multiple times (ignores existing rows).
     """
     now = datetime.now(timezone.utc).isoformat()
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _get_conn() as db:
         for uid in user_ids:
             await db.execute(
                 """INSERT OR IGNORE INTO admins (user_id, username, full_name, added_by, added_at)
@@ -477,7 +686,7 @@ async def seed_admins(user_ids: set[int]) -> None:
 
 
 async def get_all_admins() -> list[Admin]:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _get_conn() as db:
         async with db.execute(
             "SELECT user_id, username, full_name, added_by, added_at FROM admins ORDER BY added_at"
         ) as cur:
@@ -492,7 +701,7 @@ async def get_all_admins() -> list[Admin]:
 
 
 async def is_admin_in_db(user_id: int) -> bool:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _get_conn() as db:
         async with db.execute(
             "SELECT 1 FROM admins WHERE user_id = ?", (user_id,)
         ) as cur:
@@ -501,7 +710,7 @@ async def is_admin_in_db(user_id: int) -> bool:
 
 async def add_admin(user_id: int, username: str, full_name: str, added_by: int) -> None:
     now = datetime.now(timezone.utc).isoformat()
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _get_conn() as db:
         await db.execute(
             """INSERT OR IGNORE INTO admins (user_id, username, full_name, added_by, added_at)
                VALUES (?, ?, ?, ?, ?)""",
@@ -511,7 +720,7 @@ async def add_admin(user_id: int, username: str, full_name: str, added_by: int) 
 
 
 async def remove_admin(user_id: int) -> bool:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _get_conn() as db:
         cur = await db.execute("DELETE FROM admins WHERE user_id = ?", (user_id,))
         await db.commit()
         return cur.rowcount > 0
@@ -524,7 +733,7 @@ async def create_invite(created_by: int, label: str, ttl_minutes: int = 30) -> s
     import secrets
     code = secrets.token_urlsafe(16)
     expires = (datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes)).isoformat()
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _get_conn() as db:
         await db.execute(
             """INSERT INTO admin_invites (code, created_by, label, expires_at)
                VALUES (?, ?, ?, ?)""",
@@ -540,7 +749,7 @@ async def use_invite(code: str, user_id: int) -> Optional[str]:
     Returns the label string on success, None if invalid/expired/already used.
     """
     now = datetime.now(timezone.utc).isoformat()
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _get_conn() as db:
         async with db.execute(
             """SELECT label, expires_at, used_by FROM admin_invites WHERE code = ?""",
             (code,),
@@ -574,7 +783,7 @@ async def create_short_link(
 ) -> str:
     """Store a new short link. Returns the code."""
     now = datetime.now(timezone.utc).isoformat()
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _get_conn() as db:
         await db.execute(
             """INSERT OR IGNORE INTO short_links (code, long_url, created_at, created_by, label)
                VALUES (?, ?, ?, ?, ?)""",
@@ -586,7 +795,7 @@ async def create_short_link(
 
 async def get_long_url_by_code(code: str) -> Optional[str]:
     """Return the long URL for a short code, or None if not found."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _get_conn() as db:
         async with db.execute(
             "SELECT long_url FROM short_links WHERE code = ?", (code,)
         ) as cur:
@@ -596,7 +805,7 @@ async def get_long_url_by_code(code: str) -> Optional[str]:
 
 async def get_code_by_long_url(long_url: str) -> Optional[str]:
     """Return an existing code for this long_url (avoids creating duplicates)."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _get_conn() as db:
         async with db.execute(
             "SELECT code FROM short_links WHERE long_url = ?", (long_url,)
         ) as cur:
@@ -607,7 +816,7 @@ async def get_code_by_long_url(long_url: str) -> Optional[str]:
 async def log_click(code: str, user_agent: str, referrer: str, ip: str = "") -> None:
     """Record a click on a short link and bump the counter atomically."""
     now = datetime.now(timezone.utc).isoformat()
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _get_conn() as db:
         await db.execute(
             """INSERT INTO link_clicks (code, clicked_at, user_agent, referrer, ip)
                VALUES (?, ?, ?, ?, ?)""",
@@ -621,7 +830,7 @@ async def log_click(code: str, user_agent: str, referrer: str, ip: str = "") -> 
 
 async def get_link_stats(code: str) -> Optional[dict]:
     """Return click stats for a single short code."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _get_conn() as db:
         async with db.execute(
             "SELECT long_url, created_at, click_count FROM short_links WHERE code = ?", (code,)
         ) as cur:
@@ -650,7 +859,7 @@ async def get_link_stats(code: str) -> Optional[dict]:
 
 async def get_top_links(limit: int = 10) -> list[dict]:
     """Return the most-clicked short links."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _get_conn() as db:
         async with db.execute(
             """SELECT code, long_url, label, click_count, created_at
                FROM short_links ORDER BY click_count DESC LIMIT ?""",
@@ -666,14 +875,14 @@ async def get_top_links(limit: int = 10) -> list[dict]:
 
 async def get_short_link_count() -> int:
     """Total number of short links stored."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _get_conn() as db:
         async with db.execute("SELECT COUNT(*) FROM short_links") as cur:
             return (await cur.fetchone())[0]
 
 
 async def get_shortener_stats() -> dict:
     """Aggregate stats for the admin panel shortener section."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _get_conn() as db:
         async with db.execute("SELECT COUNT(*) FROM short_links") as cur:
             total_links = (await cur.fetchone())[0]
         async with db.execute("SELECT SUM(click_count) FROM short_links") as cur:
@@ -699,7 +908,7 @@ async def get_shortener_stats() -> dict:
 
 async def delete_short_link(code: str) -> bool:
     """Remove a short link and its click history."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _get_conn() as db:
         cur = await db.execute("DELETE FROM short_links WHERE code = ?", (code,))
         await db.execute("DELETE FROM link_clicks WHERE code = ?", (code,))
         await db.commit()
@@ -710,7 +919,7 @@ async def delete_short_link(code: str) -> bool:
 
 async def get_short_url(long_url: str) -> Optional[str]:
     """Return cached short URL for long_url, or None if not cached."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _get_conn() as db:
         async with db.execute(
             "SELECT short_url FROM url_cache WHERE long_url = ?", (long_url,)
         ) as cur:
@@ -721,7 +930,7 @@ async def get_short_url(long_url: str) -> Optional[str]:
 async def cache_short_url(long_url: str, short_url: str) -> None:
     """Store a long→short URL mapping in the cache."""
     now = datetime.now(timezone.utc).isoformat()
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _get_conn() as db:
         await db.execute(
             """INSERT OR REPLACE INTO url_cache (long_url, short_url, created_at)
                VALUES (?, ?, ?)""",
@@ -734,7 +943,7 @@ async def cache_short_url(long_url: str, short_url: str) -> None:
 
 async def get_setting(key: str) -> Optional[str]:
     """Return DB-stored value for setting key, or None if not set."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _get_conn() as db:
         async with db.execute(
             "SELECT value FROM bot_settings WHERE key = ?", (key,)
         ) as cur:
@@ -745,7 +954,7 @@ async def get_setting(key: str) -> Optional[str]:
 async def set_setting(key: str, value: str, admin_id: int) -> None:
     """Insert or replace a setting in the DB."""
     now = datetime.now(timezone.utc).isoformat()
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _get_conn() as db:
         await db.execute(
             """INSERT INTO bot_settings (key, value, updated_by, updated_at)
                VALUES (?, ?, ?, ?)
@@ -760,7 +969,7 @@ async def set_setting(key: str, value: str, admin_id: int) -> None:
 
 async def delete_setting(key: str) -> None:
     """Remove a setting from DB (bot falls back to .env / default)."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _get_conn() as db:
         await db.execute("DELETE FROM bot_settings WHERE key = ?", (key,))
         await db.commit()
 
@@ -768,7 +977,7 @@ async def delete_setting(key: str) -> None:
 async def get_active_invites(created_by: int) -> list[dict]:
     """List unexpired, unused invite codes created by this admin."""
     now = datetime.now(timezone.utc).isoformat()
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _get_conn() as db:
         async with db.execute(
             """SELECT code, label, expires_at FROM admin_invites
                WHERE created_by = ? AND used_by IS NULL AND expires_at > ?
@@ -789,7 +998,7 @@ async def log_api_cost(
     user_id: int = 0,
 ) -> None:
     now = datetime.now(timezone.utc).isoformat()
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _get_conn() as db:
         await db.execute(
             """INSERT INTO api_cost_log (ts, user_id, provider_name, cost_usd, input_tokens, output_tokens)
                VALUES (?, ?, ?, ?, ?, ?)""",
@@ -798,93 +1007,269 @@ async def log_api_cost(
         await db.commit()
 
 
-# ── Model health ───────────────────────────────────────────────────────────────
+# ── Model health (progressive degradation) ────────────────────────────────────
 
 async def increment_model_failures(provider_name: str, reason: str) -> int:
-    """Increment failure counter. Returns new consecutive_failures count."""
-    now = datetime.now(timezone.utc).isoformat()
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            """INSERT INTO model_health (provider_name, consecutive_failures, total_failures, last_failure_ts, last_failure_reason)
-               VALUES (?, 1, 1, ?, ?)
+    """Increment failure counter and record timestamp. Returns new consecutive_failures count."""
+    import json as _json
+    now_iso = datetime.now(timezone.utc).isoformat()
+    now_ts = datetime.now(timezone.utc).timestamp()
+    async with _get_conn() as conn:
+        # Read existing row first (if any) to get current timestamps
+        async with conn.execute(
+            "SELECT failure_timestamps, consecutive_failures FROM model_health WHERE provider_name = ?",
+            (provider_name,),
+        ) as cur:
+            existing = await cur.fetchone()
+
+        if existing:
+            # Row exists — update it and append timestamp
+            try:
+                ts_list = _json.loads(existing[0]) if existing[0] else []
+            except Exception:
+                ts_list = []
+            ts_list.append(now_ts)
+            ts_list = ts_list[-50:]  # bound storage
+            await conn.execute(
+                """UPDATE model_health SET
+                     consecutive_failures = consecutive_failures + 1,
+                     total_failures       = total_failures + 1,
+                     last_failure_ts      = ?,
+                     last_failure_reason  = ?,
+                     failure_timestamps   = ?
+                   WHERE provider_name = ?""",
+                (now_iso, reason[:500], _json.dumps(ts_list), provider_name),
+            )
+            consec = existing[1] + 1
+        else:
+            # New row — insert with a single timestamp
+            await conn.execute(
+                """INSERT INTO model_health (provider_name, consecutive_failures, total_failures,
+                       last_failure_ts, last_failure_reason, failure_timestamps)
+                   VALUES (?, 1, 1, ?, ?, ?)""",
+                (provider_name, now_iso, reason[:500], _json.dumps([now_ts])),
+            )
+            consec = 1
+
+        await conn.commit()
+        return consec
+
+
+async def record_model_success(provider_name: str) -> None:
+    """Record a success: reset consecutive failures, set state to healthy, record timestamp."""
+    import json as _json
+    global _disabled_models_cache
+    _disabled_models_cache = None
+    now_ts = datetime.now(timezone.utc).timestamp()
+    async with _get_conn() as conn:
+        # Ensure the row exists
+        await conn.execute(
+            """INSERT INTO model_health (provider_name, consecutive_failures, state, last_notification_level)
+               VALUES (?, 0, 'healthy', 0)
                ON CONFLICT(provider_name) DO UPDATE SET
-                 consecutive_failures = consecutive_failures + 1,
-                 total_failures       = total_failures + 1,
-                 last_failure_ts      = excluded.last_failure_ts,
-                 last_failure_reason  = excluded.last_failure_reason""",
-            (provider_name, now, reason[:500]),
+                 consecutive_failures    = 0,
+                 state                   = 'healthy',
+                 last_notification_level = 0,
+                 is_disabled             = 0,
+                 disabled_at             = NULL,
+                 disabled_until          = NULL""",
+            (provider_name,),
         )
-        await db.commit()
-        async with db.execute(
-            "SELECT consecutive_failures FROM model_health WHERE provider_name = ?",
+        # Append success timestamp
+        async with conn.execute(
+            "SELECT success_timestamps FROM model_health WHERE provider_name = ?",
             (provider_name,),
         ) as cur:
             row = await cur.fetchone()
-            return row[0] if row else 1
+            if row:
+                try:
+                    ts_list = _json.loads(row[0]) if row[0] else []
+                except Exception:
+                    ts_list = []
+                ts_list.append(now_ts)
+                ts_list = ts_list[-50:]
+                await conn.execute(
+                    "UPDATE model_health SET success_timestamps = ? WHERE provider_name = ?",
+                    (_json.dumps(ts_list), provider_name),
+                )
+        await conn.commit()
 
 
 async def reset_model_failures(provider_name: str) -> None:
-    """Reset consecutive failure counter after a successful call."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            """INSERT INTO model_health (provider_name, consecutive_failures)
-               VALUES (?, 0)
-               ON CONFLICT(provider_name) DO UPDATE SET consecutive_failures = 0""",
+    """Reset consecutive failure counter after a successful call (backward compat wrapper)."""
+    await record_model_success(provider_name)
+
+
+async def get_model_health_row(provider_name: str) -> dict | None:
+    """Return the full health row for a single model, or None if not tracked yet."""
+    import json as _json
+    async with _get_conn() as conn:
+        async with conn.execute(
+            """SELECT provider_name, consecutive_failures, total_failures,
+                      is_disabled, disabled_at, last_failure_ts, last_failure_reason,
+                      state, disabled_until, last_notification_level,
+                      failure_timestamps, success_timestamps
+               FROM model_health WHERE provider_name = ?""",
             (provider_name,),
+        ) as cur:
+            row = await cur.fetchone()
+    if not row:
+        return None
+    try:
+        fail_ts = _json.loads(row[10]) if row[10] else []
+    except Exception:
+        fail_ts = []
+    try:
+        succ_ts = _json.loads(row[11]) if row[11] else []
+    except Exception:
+        succ_ts = []
+    return {
+        "provider_name": row[0],
+        "consecutive_failures": row[1],
+        "total_failures": row[2],
+        "is_disabled": bool(row[3]),
+        "disabled_at": row[4],
+        "last_failure_ts": row[5],
+        "last_failure_reason": row[6],
+        "state": row[7] or "healthy",
+        "disabled_until": row[8],
+        "last_notification_level": row[9] or 0,
+        "failure_timestamps": fail_ts,
+        "success_timestamps": succ_ts,
+    }
+
+
+async def update_model_health_state(
+    provider_name: str,
+    state: str,
+    is_disabled: bool = False,
+    disabled_until: float | None = None,
+    last_notification_level: int | None = None,
+) -> None:
+    """Update the progressive health state fields for a model."""
+    global _disabled_models_cache
+    _disabled_models_cache = None
+    now_iso = datetime.now(timezone.utc).isoformat()
+    async with _get_conn() as conn:
+        parts = ["state = ?", "is_disabled = ?"]
+        params: list = [state, int(is_disabled)]
+
+        if is_disabled:
+            parts.append("disabled_at = ?")
+            params.append(now_iso)
+        elif state == "healthy":
+            parts.append("disabled_at = NULL")
+
+        parts.append("disabled_until = ?")
+        params.append(disabled_until)
+
+        if last_notification_level is not None:
+            parts.append("last_notification_level = ?")
+            params.append(last_notification_level)
+
+        params.append(provider_name)
+        await conn.execute(
+            f"UPDATE model_health SET {', '.join(parts)} WHERE provider_name = ?",
+            tuple(params),
         )
-        await db.commit()
+        await conn.commit()
 
 
 async def mark_model_disabled(provider_name: str, reason: str) -> None:
-    """Permanently disable a model (until re-enabled by admin)."""
+    """Disable a model with an optional auto-recovery timestamp (backward compat)."""
+    global _disabled_models_cache
+    _disabled_models_cache = None
     now = datetime.now(timezone.utc).isoformat()
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            """INSERT INTO model_health (provider_name, is_disabled, disabled_at, last_failure_reason)
-               VALUES (?, 1, ?, ?)
+    async with _get_conn() as conn:
+        await conn.execute(
+            """INSERT INTO model_health (provider_name, is_disabled, disabled_at, last_failure_reason, state)
+               VALUES (?, 1, ?, ?, 'disabled')
                ON CONFLICT(provider_name) DO UPDATE SET
                  is_disabled         = 1,
                  disabled_at         = excluded.disabled_at,
-                 last_failure_reason = excluded.last_failure_reason""",
+                 last_failure_reason = excluded.last_failure_reason,
+                 state               = 'disabled'""",
             (provider_name, now, reason[:500]),
         )
-        await db.commit()
+        await conn.commit()
 
 
 async def re_enable_model(provider_name: str) -> None:
     """Re-enable a previously auto-disabled model."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            """INSERT INTO model_health (provider_name, is_disabled, consecutive_failures)
-               VALUES (?, 0, 0)
+    global _disabled_models_cache
+    _disabled_models_cache = None
+    async with _get_conn() as conn:
+        await conn.execute(
+            """INSERT INTO model_health (provider_name, is_disabled, consecutive_failures, state,
+                   last_notification_level, disabled_until)
+               VALUES (?, 0, 0, 'healthy', 0, NULL)
                ON CONFLICT(provider_name) DO UPDATE SET
-                 is_disabled = 0, consecutive_failures = 0, disabled_at = NULL""",
+                 is_disabled = 0, consecutive_failures = 0, disabled_at = NULL,
+                 state = 'healthy', last_notification_level = 0, disabled_until = NULL""",
             (provider_name,),
         )
-        await db.commit()
+        await conn.commit()
 
 
 async def get_disabled_models() -> set[str]:
-    """Return set of auto-disabled provider full_names."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute(
-            "SELECT provider_name FROM model_health WHERE is_disabled = 1"
+    """Return set of auto-disabled provider full_names (excludes models past their recovery cooldown)."""
+    import time as _t
+    global _disabled_models_cache
+    if _disabled_models_cache and (_time.monotonic() - _disabled_models_cache[0]) < _DISABLED_MODELS_TTL:
+        return _disabled_models_cache[1]
+    now = _t.time()
+    async with _get_conn() as conn:
+        async with conn.execute(
+            "SELECT provider_name, disabled_until FROM model_health WHERE is_disabled = 1"
         ) as cur:
             rows = await cur.fetchall()
-    return {r[0] for r in rows}
+    result: set[str] = set()
+    for r in rows:
+        disabled_until = r[1]
+        # If disabled_until is set and has passed, the model should be retried
+        if disabled_until is not None and now >= disabled_until:
+            continue
+        result.add(r[0])
+    _disabled_models_cache = (_time.monotonic(), result)
+    return result
+
+
+async def get_models_ready_for_recovery() -> list[str]:
+    """Return provider names of models whose disabled_until has passed."""
+    import time as _t
+    now = _t.time()
+    async with _get_conn() as conn:
+        async with conn.execute(
+            "SELECT provider_name FROM model_health WHERE is_disabled = 1 AND disabled_until IS NOT NULL AND disabled_until <= ?",
+            (now,),
+        ) as cur:
+            rows = await cur.fetchall()
+    return [r[0] for r in rows]
 
 
 async def get_all_model_health() -> list[dict]:
     """Return health stats for all tracked models."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute(
+    import json as _json
+    async with _get_conn() as conn:
+        async with conn.execute(
             """SELECT provider_name, consecutive_failures, total_failures,
-                      is_disabled, disabled_at, last_failure_ts, last_failure_reason
+                      is_disabled, disabled_at, last_failure_ts, last_failure_reason,
+                      state, disabled_until, last_notification_level,
+                      failure_timestamps, success_timestamps
                FROM model_health ORDER BY is_disabled DESC, total_failures DESC"""
         ) as cur:
             rows = await cur.fetchall()
-    return [
-        {
+    result = []
+    for r in rows:
+        try:
+            fail_ts = _json.loads(r[10]) if r[10] else []
+        except Exception:
+            fail_ts = []
+        try:
+            succ_ts = _json.loads(r[11]) if r[11] else []
+        except Exception:
+            succ_ts = []
+        result.append({
             "provider_name": r[0],
             "consecutive_failures": r[1],
             "total_failures": r[2],
@@ -892,9 +1277,13 @@ async def get_all_model_health() -> list[dict]:
             "disabled_at": r[4],
             "last_failure_ts": r[5],
             "last_failure_reason": r[6],
-        }
-        for r in rows
-    ]
+            "state": r[7] or "healthy",
+            "disabled_until": r[8],
+            "last_notification_level": r[9] or 0,
+            "failure_timestamps": fail_ts,
+            "success_timestamps": succ_ts,
+        })
+    return result
 
 
 # ── Comprehensive stats for reports ───────────────────────────────────────────
@@ -905,7 +1294,7 @@ async def get_stats_since(since: datetime) -> dict:
     Returns a dict suitable for report formatting.
     """
     since_str = since.isoformat()
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _get_conn() as db:
         async with db.execute(
             "SELECT COUNT(DISTINCT user_id) FROM search_logs WHERE searched_at >= ?",
             (since_str,),
@@ -968,8 +1357,8 @@ async def get_israel_cache(asin: str):
     Return a cached IsraelShippingResult for this ASIN, or None if expired/missing.
     Import is deferred to avoid circular imports.
     """
-    import time as _time
-    async with aiosqlite.connect(DB_PATH) as db:
+
+    async with _get_conn() as db:
         async with db.execute(
             "SELECT ships_to_israel, is_free_shipping, note, checked_at "
             "FROM israel_shipping_cache WHERE asin = ?",
@@ -1001,8 +1390,8 @@ async def set_israel_cache(
     note: str,
 ) -> None:
     """Upsert an Israel shipping verification result."""
-    import time as _time
-    async with aiosqlite.connect(DB_PATH) as db:
+
+    async with _get_conn() as db:
         await db.execute(
             """INSERT INTO israel_shipping_cache
                (asin, ships_to_israel, is_free_shipping, note, checked_at)
@@ -1020,7 +1409,7 @@ async def set_israel_cache(
 
 async def delete_israel_cache(asin: str) -> None:
     """Remove a cached Israel shipping result (force re-check on next call)."""
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _get_conn() as db:
         await db.execute("DELETE FROM israel_shipping_cache WHERE asin = ?", (asin,))
         await db.commit()
 
@@ -1043,8 +1432,8 @@ def _key_row_to_dict(row) -> dict:
 async def create_external_api_key(
     key: str, name: str, plan: str, daily_limit: int, notes: str = ""
 ) -> dict:
-    import time as _time
-    async with aiosqlite.connect(DB_PATH) as db:
+
+    async with _get_conn() as db:
         await db.execute(
             """INSERT INTO external_api_keys
                (key, name, plan, daily_limit, total_requests, created_at, is_active, notes)
@@ -1056,7 +1445,7 @@ async def create_external_api_key(
 
 
 async def get_external_api_key(key: str) -> Optional[dict]:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _get_conn() as db:
         async with db.execute(
             "SELECT key, name, plan, daily_limit, total_requests, "
             "created_at, is_active, notes FROM external_api_keys WHERE key = ?",
@@ -1067,7 +1456,7 @@ async def get_external_api_key(key: str) -> Optional[dict]:
 
 
 async def list_external_api_keys() -> list[dict]:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _get_conn() as db:
         async with db.execute(
             "SELECT key, name, plan, daily_limit, total_requests, "
             "created_at, is_active, notes FROM external_api_keys ORDER BY created_at DESC"
@@ -1077,7 +1466,7 @@ async def list_external_api_keys() -> list[dict]:
 
 
 async def revoke_external_api_key(key: str) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _get_conn() as db:
         await db.execute(
             "UPDATE external_api_keys SET is_active = 0 WHERE key = ?", (key,)
         )
@@ -1090,7 +1479,7 @@ async def update_external_api_key(
     daily_limit: Optional[int] = None,
     is_active: Optional[bool] = None,
 ) -> dict:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with _get_conn() as db:
         if plan is not None:
             await db.execute(
                 "UPDATE external_api_keys SET plan = ? WHERE key = ?", (plan, key)
@@ -1116,8 +1505,8 @@ async def log_api_request(
     is_free_shipping: Optional[bool],
     api_key: str = "unknown",
 ) -> None:
-    import time as _time
-    async with aiosqlite.connect(DB_PATH) as db:
+
+    async with _get_conn() as db:
         await db.execute(
             """INSERT INTO api_request_log
                (api_key, asin, cached, ships_to_israel, is_free_shipping, requested_at)
@@ -1148,8 +1537,8 @@ async def get_price_cache(asin: str):
     Return a PriceHistory object from cache, or None if expired / missing.
     Import is deferred to avoid circular imports.
     """
-    import time as _time
-    async with aiosqlite.connect(DB_PATH) as db:
+
+    async with _get_conn() as db:
         async with db.execute(
             "SELECT source, current, low_all_time, avg_90d, avg_30d, low_90d, cached_at "
             "FROM price_history_cache WHERE asin = ?",
@@ -1175,8 +1564,8 @@ async def get_price_cache(asin: str):
 
 async def set_price_cache(asin: str, ph) -> None:
     """Store a PriceHistory object in the cache."""
-    import time as _time
-    async with aiosqlite.connect(DB_PATH) as db:
+
+    async with _get_conn() as db:
         await db.execute(
             """INSERT INTO price_history_cache
                (asin, source, current, low_all_time, avg_90d, avg_30d, low_90d, cached_at)
@@ -1190,3 +1579,245 @@ async def set_price_cache(asin: str, ph) -> None:
              ph.avg_90d, ph.avg_30d, ph.low_90d, _time.time()),
         )
         await db.commit()
+
+# ── Analytics export ──────────────────────────────────────────────────────────
+
+def _date_filter_clause(
+    column: str,
+    start_date: str | None,
+    end_date: str | None,
+) -> tuple[str, list[str]]:
+    """
+    Build a WHERE clause fragment for a date/timestamp column.
+    Returns (sql_fragment, params).
+    """
+    conditions: list[str] = []
+    params: list[str] = []
+    if start_date:
+        conditions.append(f"{column} >= ?")
+        params.append(start_date)
+    if end_date:
+        conditions.append(f"{column} <= ?")
+        params.append(end_date)
+    clause = (" WHERE " + " AND ".join(conditions)) if conditions else ""
+    return clause, params
+
+
+def _rows_to_csv(headers: list[str], rows: list[tuple]) -> str:
+    """Convert column headers + row tuples into a CSV string."""
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(headers)
+    writer.writerows(rows)
+    return buf.getvalue()
+
+
+async def export_search_logs(
+    fmt: str = "csv",
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> str | list[dict]:
+    """
+    Export the search_logs table.
+
+    Parameters
+    ----------
+    fmt : "csv" or "json"
+    start_date, end_date : ISO-8601 strings to filter searched_at.
+
+    Returns
+    -------
+    CSV string or list of dicts (for JSON).
+    """
+    where, params = _date_filter_clause("searched_at", start_date, end_date)
+    sql = (
+        "SELECT id, user_id, product_name, tag_used, provider_used, "
+        "result_count, israel_filter, searched_at, search_type "
+        f"FROM search_logs{where} ORDER BY searched_at DESC"
+    )
+    headers = [
+        "id", "user_id", "product_name", "tag_used", "provider_used",
+        "result_count", "israel_filter", "searched_at", "search_type",
+    ]
+
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute(sql, params) as cur:
+            rows = await cur.fetchall()
+
+    if fmt == "json":
+        return [dict(zip(headers, row)) for row in rows]
+
+    return _rows_to_csv(headers, rows)
+
+
+async def export_api_costs(
+    fmt: str = "csv",
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> str | list[dict]:
+    """
+    Export the api_cost_log table.
+
+    Parameters
+    ----------
+    fmt : "csv" or "json"
+    start_date, end_date : ISO-8601 strings to filter ts.
+
+    Returns
+    -------
+    CSV string or list of dicts (for JSON).
+    """
+    where, params = _date_filter_clause("ts", start_date, end_date)
+    sql = (
+        "SELECT id, ts, user_id, provider_name, cost_usd, input_tokens, output_tokens "
+        f"FROM api_cost_log{where} ORDER BY ts DESC"
+    )
+    headers = [
+        "id", "ts", "user_id", "provider_name",
+        "cost_usd", "input_tokens", "output_tokens",
+    ]
+
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute(sql, params) as cur:
+            rows = await cur.fetchall()
+
+    if fmt == "json":
+        return [dict(zip(headers, row)) for row in rows]
+
+    return _rows_to_csv(headers, rows)
+
+
+async def export_user_activity(
+    fmt: str = "csv",
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> str | list[dict]:
+    """
+    Export aggregated per-user activity stats.
+
+    Columns: user_id, total_searches, photo_searches, text_searches,
+             providers_used, first_search, last_search.
+
+    Parameters
+    ----------
+    fmt : "csv" or "json"
+    start_date, end_date : ISO-8601 strings to filter searched_at.
+
+    Returns
+    -------
+    CSV string or list of dicts (for JSON).
+    """
+    where, params = _date_filter_clause("searched_at", start_date, end_date)
+    sql = (
+        "SELECT "
+        "  user_id, "
+        "  COUNT(*) AS total_searches, "
+        "  SUM(CASE WHEN search_type = 'photo' THEN 1 ELSE 0 END) AS photo_searches, "
+        "  SUM(CASE WHEN search_type != 'photo' THEN 1 ELSE 0 END) AS text_searches, "
+        "  GROUP_CONCAT(DISTINCT provider_used) AS providers_used, "
+        "  MIN(searched_at) AS first_search, "
+        "  MAX(searched_at) AS last_search "
+        f"FROM search_logs{where} "
+        "GROUP BY user_id ORDER BY total_searches DESC"
+    )
+    headers = [
+        "user_id", "total_searches", "photo_searches", "text_searches",
+        "providers_used", "first_search", "last_search",
+    ]
+
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute(sql, params) as cur:
+            rows = await cur.fetchall()
+
+    if fmt == "json":
+        return [dict(zip(headers, row)) for row in rows]
+
+    return _rows_to_csv(headers, rows)
+
+
+# ── Per-user rate limits ──────────────────────────────────────────────────────
+
+@dataclass
+class UserRateLimit:
+    user_id: int
+    max_requests: int
+    window_seconds: int
+    updated_by: int
+    updated_at: str
+
+
+async def get_user_rate_limit(user_id: int) -> UserRateLimit | None:
+    """Return custom rate limit for a user, or None (falls back to default)."""
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute(
+            "SELECT user_id, max_requests, window_seconds, updated_by, updated_at "
+            "FROM user_rate_limits WHERE user_id = ?",
+            (user_id,),
+        ) as cur:
+            row = await cur.fetchone()
+    if not row:
+        return None
+    return UserRateLimit(
+        user_id=row[0],
+        max_requests=row[1],
+        window_seconds=row[2],
+        updated_by=row[3],
+        updated_at=row[4],
+    )
+
+
+async def set_user_rate_limit(
+    user_id: int,
+    max_requests: int,
+    window_seconds: int,
+    updated_by: int,
+) -> None:
+    """Set a custom rate limit for a specific user."""
+    now = datetime.now(timezone.utc).isoformat()
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute(
+            """INSERT INTO user_rate_limits
+               (user_id, max_requests, window_seconds, updated_by, updated_at)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(user_id) DO UPDATE SET
+                 max_requests=excluded.max_requests,
+                 window_seconds=excluded.window_seconds,
+                 updated_by=excluded.updated_by,
+                 updated_at=excluded.updated_at""",
+            (user_id, max_requests, window_seconds, updated_by, now),
+        )
+        await conn.commit()
+    logger.info(
+        "Rate limit set for user %d: %d req / %d sec (by admin %d)",
+        user_id, max_requests, window_seconds, updated_by,
+    )
+
+
+async def remove_user_rate_limit(user_id: int) -> bool:
+    """Remove custom rate limit for a user (reverts to default). Returns True if existed."""
+    async with aiosqlite.connect(DB_PATH) as conn:
+        cur = await conn.execute(
+            "DELETE FROM user_rate_limits WHERE user_id = ?", (user_id,),
+        )
+        await conn.commit()
+        return cur.rowcount > 0
+
+
+async def list_user_rate_limits() -> list[UserRateLimit]:
+    """List all users with custom rate limits (for admin panel)."""
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute(
+            "SELECT user_id, max_requests, window_seconds, updated_by, updated_at "
+            "FROM user_rate_limits ORDER BY updated_at DESC"
+        ) as cur:
+            rows = await cur.fetchall()
+    return [
+        UserRateLimit(
+            user_id=r[0],
+            max_requests=r[1],
+            window_seconds=r[2],
+            updated_by=r[3],
+            updated_at=r[4],
+        )
+        for r in rows
+    ]

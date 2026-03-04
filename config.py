@@ -10,13 +10,18 @@ settings_store.py writes directly to the module attributes below when a
 setting is changed in the admin panel, so all code reading config.X always
 gets the latest value without restarting.
 """
+import logging
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
+logger = logging.getLogger(__name__)
+
 # ── Telegram ──────────────────────────────────────────────────────────────────
-TELEGRAM_BOT_TOKEN: str = os.environ["TELEGRAM_BOT_TOKEN"]
+TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
+if not TELEGRAM_BOT_TOKEN:
+    logger.critical("TELEGRAM_BOT_TOKEN is not set. Copy .env.example to .env and fill it in.")
 
 # Comma-separated Telegram user IDs that have admin access, e.g. "123456789,987654321"
 # Get your ID by messaging @userinfobot on Telegram
@@ -78,11 +83,41 @@ FREE_DELIVERY_THRESHOLD: float = float(os.getenv("FREE_DELIVERY_THRESHOLD", "49"
 # Show per-request cost info in the bot (useful during development)
 SHOW_COST_INFO: bool = os.getenv("SHOW_COST_INFO", "true").lower() == "true"
 
+# ── Model health / progressive degradation ────────────────────────────────────
+# Time window (seconds) for counting failures — only failures within this window
+# count towards the disable threshold.  Default: 5 minutes.
+HEALTH_FAILURE_WINDOW: int = int(os.getenv("HEALTH_FAILURE_WINDOW", "300"))
+
+# Number of failures within the window before a model is auto-disabled.
+HEALTH_DISABLE_THRESHOLD: int = int(os.getenv("HEALTH_DISABLE_THRESHOLD", "3"))
+
+# Cooldown (seconds) after auto-disable before the model is automatically retried.
+# Default: 10 minutes.
+HEALTH_RECOVERY_COOLDOWN: int = int(os.getenv("HEALTH_RECOVERY_COOLDOWN", "600"))
+
+# ── Prometheus metrics ────────────────────────────────────────────────────────
+# Expose /metrics on the shortener server (Prometheus text format)
+METRICS_ENABLED: bool = os.getenv("METRICS_ENABLED", "true").lower() == "true"
+
+# ── Rate limiting ────────────────────────────────────────────────────────────
+# Default per-user rate limits (can be overridden per user via admin panel)
+# NOTE: overridden at runtime by settings_store / admin panel
+DEFAULT_RATE_LIMIT:  int = int(os.getenv("DEFAULT_RATE_LIMIT", "5"))
+DEFAULT_RATE_WINDOW: int = int(os.getenv("DEFAULT_RATE_WINDOW", "60"))
+
 # ── Scheduled reports ─────────────────────────────────────────────────────────
 # Daily/weekly/monthly reports sent to all admins.
 # Timezone: any IANA timezone string (e.g. "Asia/Jerusalem", "Europe/London")
 REPORT_TIMEZONE: str = os.getenv("REPORT_TIMEZONE", "Asia/Jerusalem")
 REPORT_HOUR:     int = int(os.getenv("REPORT_HOUR", "8"))   # 8 = 08:00 local time
+
+# ── Database backups ─────────────────────────────────────────────────────────
+# Automatic daily SQLite backups via SQLite .backup() method.
+_DATA_DIR_CFG = os.getenv("DATA_DIR", "data")
+BACKUP_ENABLED:   bool = os.getenv("BACKUP_ENABLED", "true").lower() == "true"
+BACKUP_DIR:       str  = os.getenv("BACKUP_DIR", os.path.join(_DATA_DIR_CFG, "backups"))
+BACKUP_KEEP_DAYS: int  = int(os.getenv("BACKUP_KEEP_DAYS", "7"))
+BACKUP_HOUR:      int  = int(os.getenv("BACKUP_HOUR", "3"))   # 3 = 03:00 local time
 
 
 async def apply_db_settings() -> None:
@@ -102,6 +137,6 @@ async def apply_db_settings() -> None:
                 if db_raw is not None:
                     settings_store._apply_to_config(key, db_raw, meta["type"])
             except Exception:
-                pass
+                logger.warning("Failed to apply DB setting '%s'", key, exc_info=True)
     except Exception:
-        pass
+        logger.error("Failed to load DB settings module", exc_info=True)

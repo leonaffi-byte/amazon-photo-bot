@@ -19,3 +19,11 @@ class ProductInfo:
     alternative_query: str
     confidence: str       # high | medium | low
     notes: str            # includes provider name in compare/best mode
+
+    def __post_init__(self):
+        if not self.product_name:
+            self.product_name = "Unknown Product"
+        if self.confidence not in ("high", "medium", "low"):
+            self.confidence = "medium"
+        if len(self.key_features) > 10:
+            self.key_features = self.key_features[:10]

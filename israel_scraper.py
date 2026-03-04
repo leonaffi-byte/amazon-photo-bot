@@ -33,13 +33,38 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 from dataclasses import dataclass
 from typing import Optional
+
+from circuit_breaker import registry as cb_registry
 
 logger = logging.getLogger(__name__)
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 CACHE_TTL = 86_400      # 24 hours
+
+# ── Circuit breaker for proxy health ──────────────────────────────────────────
+_proxy_failures: dict[str, float] = {}   # proxy_url → monotonic timestamp of last failure
+_CIRCUIT_BREAKER_COOLDOWN = 300          # 5 minutes
+
+
+def is_proxy_healthy(proxy_url: str) -> bool:
+    """Return True if proxy has not failed within the cooldown window."""
+    last_fail = _proxy_failures.get(proxy_url)
+    if last_fail is None:
+        return True
+    return (time.monotonic() - last_fail) > _CIRCUIT_BREAKER_COOLDOWN
+
+
+def record_proxy_failure(proxy_url: str) -> None:
+    """Record a proxy failure timestamp for the circuit breaker."""
+    _proxy_failures[proxy_url] = time.monotonic()
+
+
+def record_proxy_success(proxy_url: str) -> None:
+    """Clear a proxy's failure record on success."""
+    _proxy_failures.pop(proxy_url, None)
 
 _UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -121,17 +146,26 @@ async def check_shipping(asin: str) -> IsraelShippingResult:
     except Exception as exc:
         logger.warning("Israel cache read failed: %s", exc)
 
-    # ── Try each proxy in order ────────────────────────────────────────────────
+    # ── Try each proxy in order (skip unhealthy proxies via circuit breaker) ──
     result = None
     for i, proxy_url in enumerate(proxies):
+        proxy_url = proxy_url.strip()
         label = "Decodo" if i == 0 and "decodo.com" in proxy_url else "fallback proxy"
+        cb = cb_registry.get(
+            f"israel_proxy:{label}",
+            failure_threshold=5,
+            recovery_timeout=120.0,   # proxies may need longer recovery
+            success_threshold=2,
+        )
         logger.debug("Israel check: trying %s for %s", label, asin)
-        result = await _scrape(asin, proxy_url.strip())
+        try:
+            result = await cb.call(_scrape_or_raise(asin, proxy_url))
+        except Exception as exc:
+            logger.info("Israel check failed via %s (circuit breaker): %s", label, exc)
+            result = _unverified(asin, f"{label}: {type(exc).__name__}")
         if result and result.verified:
             logger.info("Israel check succeeded via %s for %s", label, asin)
             break
-        if len(proxies) > i + 1:
-            logger.info("Israel check failed via %s — trying fallback proxy", label)
 
     # ── Store only verified results ────────────────────────────────────────────
     if result and result.verified:
@@ -150,6 +184,23 @@ async def check_shipping(asin: str) -> IsraelShippingResult:
 
 
 # ── Playwright scraper ─────────────────────────────────────────────────────────
+
+class _ScrapeFailedError(Exception):
+    """Raised by _scrape_or_raise when scraping returns an unverified result."""
+    pass
+
+
+async def _scrape_or_raise(asin: str, proxy_url: str) -> IsraelShippingResult:
+    """Wrapper around _scrape that raises on unverified results.
+
+    This allows the circuit breaker to track failures properly, since
+    _scrape itself never raises (it returns _unverified() instead).
+    """
+    result = await _scrape(asin, proxy_url)
+    if not result.verified:
+        raise _ScrapeFailedError(result.note)
+    return result
+
 
 async def _scrape(asin: str, proxy_url: str) -> IsraelShippingResult:
     """
@@ -252,7 +303,7 @@ async def _set_delivery_israel(page) -> None:
     """
     try:
         # Extract anti-CSRF token from page JS
-        csrf: Optional[str] = await page.evaluate("""
+        csrf: Optional[str] = await asyncio.wait_for(page.evaluate("""
             () => {
                 const patterns = [
                     /"anti-csrftoken-a2z"\\s*:\\s*"([^"]{10,})"/,
@@ -265,14 +316,14 @@ async def _set_delivery_israel(page) -> None:
                 }
                 return null;
             }
-        """)
+        """), timeout=10)
 
         if not csrf:
             logger.debug("No CSRF token on Amazon homepage — trying UI click")
             await _set_delivery_israel_via_ui(page)
             return
 
-        status: int = await page.evaluate(
+        status: int = await asyncio.wait_for(page.evaluate(
             """
             async ([csrf]) => {
                 try {
@@ -303,7 +354,7 @@ async def _set_delivery_israel(page) -> None:
             }
             """,
             [csrf],
-        )
+        ), timeout=15)
         logger.debug("Delivery-to-IL API returned HTTP %s for %s", status, "homepage")
 
     except Exception as exc:
@@ -447,13 +498,9 @@ def _extract_delivery_section(html: str) -> str:
 
 
 def _is_captcha(html: str) -> bool:
-    html_lower = html.lower()
-    return (
-        "enter the characters you see below"   in html_lower
-        or "api-services-support@amazon.com"   in html_lower
-        or "sorry, we just need to make sure"  in html_lower
-        or "type the characters you see"        in html_lower
-    )
+    """Delegate to centralized CAPTCHA detection in captcha_solver."""
+    from captcha_solver import is_captcha_html
+    return is_captcha_html(html)
 
 
 def _extract_csrf(html: str) -> Optional[str]:

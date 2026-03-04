@@ -70,6 +70,7 @@ CB_TAG_NONE   = f"{P}tag_none"
 # API keys
 CB_KEY_SET    = f"{P}key_set:"    # + key_name
 CB_KEY_DEL    = f"{P}key_del:"    # + key_name
+CB_KEY_DELOK  = f"{P}key_delok:"  # + key_name
 
 # Admins
 CB_ADM_INV    = f"{P}adm_inv"
@@ -241,7 +242,7 @@ async def _tag_add_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     q = update.callback_query
     await q.answer()
     if not await is_admin(q.from_user.id):
-        await q.answer("⛔", show_alert=True)
+        await q.answer("⛔ Admin access only.", show_alert=True)
         return ConversationHandler.END
     context.user_data["tag_flow"] = {}
     await q.edit_message_text(_ADD_TAG_PROMPT, parse_mode="MarkdownV2")
@@ -264,7 +265,9 @@ async def received_tag_name(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     tag = update.message.text.strip()
     if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9\-]{2,48}\-\d{2}$", tag):
         await update.message.reply_text(
-            "⚠️ Invalid format\\. Expected something like `mytag-20`\\.\n\nTry again or /cancel\\.",
+            "⚠️ Invalid format\\. Tags must be 4\\-50 characters, start with a letter/number, "
+            "contain only letters, numbers, and dashes, and end with \\-XX \\(two digits\\)\\.\n\n"
+            "Example: `mytag-20`\n\nTry again or /cancel\\.",
             parse_mode="MarkdownV2",
         )
         return ST_TAG_NAME
@@ -385,7 +388,7 @@ async def _key_set_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     q = update.callback_query
     await q.answer()
     if not await is_admin(q.from_user.id):
-        await q.answer("⛔", show_alert=True)
+        await q.answer("⛔ Admin access only.", show_alert=True)
         return ConversationHandler.END
     key_name = q.data[len(CB_KEY_SET):]
     label, desc = _KEY_LABELS.get(key_name, (key_name, ""))
@@ -591,7 +594,7 @@ async def _setting_edit_entry(update: Update, context: ContextTypes.DEFAULT_TYPE
     q = update.callback_query
     await q.answer()
     if not await is_admin(q.from_user.id):
-        await q.answer("⛔", show_alert=True)
+        await q.answer("⛔ Admin access only.", show_alert=True)
         return ConversationHandler.END
 
     key = q.data[len(CB_SET_EDIT):]
@@ -704,7 +707,7 @@ async def _setting_freetext_entry(update: Update, context: ContextTypes.DEFAULT_
     q = update.callback_query
     await q.answer()
     if not await is_admin(q.from_user.id):
-        await q.answer("⛔", show_alert=True)
+        await q.answer("⛔ Admin access only.", show_alert=True)
         return ConversationHandler.END
 
     key  = q.data[len(CB_SET_FREETEXT):]
@@ -793,8 +796,23 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         text, kb = await _keys_content()
         await q.edit_message_text(text, parse_mode="MarkdownV2", reply_markup=kb)
 
-    elif data.startswith(CB_KEY_DEL):
+    elif data.startswith(CB_KEY_DEL) and not data.startswith(CB_KEY_DELOK):
         key_name = data[len(CB_KEY_DEL):]
+        await q.edit_message_text(
+            f"⚠️ *Clear `{e(key_name)}`?*\n\n"
+            "The bot will fall back to the \\.env value \\(if any\\)\\.\n"
+            "You can re\\-add the key later via the admin panel\\.",
+            parse_mode="MarkdownV2",
+            reply_markup=InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("🗑 Clear key", callback_data=f"{CB_KEY_DELOK}{key_name}"),
+                    InlineKeyboardButton("◀ Cancel", callback_data=CB_KEYS),
+                ],
+            ]),
+        )
+
+    elif data.startswith(CB_KEY_DELOK):
+        key_name = data[len(CB_KEY_DELOK):]
         await key_store.delete(key_name)
         _reload_backends(key_name)
         text, kb = await _keys_content()

@@ -27,11 +27,13 @@ Run in Docker:
 from __future__ import annotations
 
 import asyncio
+import hmac
 import logging
 import os
 import secrets
 import time
 from collections import defaultdict, deque
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -45,6 +47,23 @@ from pydantic import BaseModel, Field
 import database as db
 
 logger = logging.getLogger(__name__)
+
+# ── CORS configuration ────────────────────────────────────────────────────────
+_ALLOWED_ORIGINS = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "*").split(",")]
+
+# ── Lifespan ──────────────────────────────────────────────────────────────────
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # startup
+    logging.basicConfig(
+        level  = logging.INFO,
+        format = "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+    await db.init_db()
+    logger.info("Israel Shipping API started")
+    yield
+    # shutdown (nothing to clean up)
 
 # ── App ────────────────────────────────────────────────────────────────────────
 
@@ -63,14 +82,15 @@ app = FastAPI(
     license_info = {"name": "Commercial — not open source"},
     docs_url     = "/docs",
     redoc_url    = "/redoc",
+    lifespan     = lifespan,
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins     = ["*"],
-    allow_credentials = True,
-    allow_methods     = ["*"],
-    allow_headers     = ["*"],
+    allow_origins     = _ALLOWED_ORIGINS,
+    allow_credentials = "*" not in _ALLOWED_ORIGINS,
+    allow_methods     = ["GET", "POST", "DELETE", "PATCH"],
+    allow_headers     = ["X-API-Key", "X-Admin-Secret", "Content-Type"],
 )
 
 # ── Auth ───────────────────────────────────────────────────────────────────────
@@ -104,8 +124,8 @@ class ShippingResult(BaseModel):
 class BatchRequest(BaseModel):
     asins: list[str] = Field(
         ...,
-        min_items  = 1,
-        max_items  = 10,
+        min_length = 1,
+        max_length = 10,
         example    = ["B08XYZ12AB", "B09ABC12DE"],
         description = "List of ASINs to check (1–10)",
     )
@@ -137,18 +157,6 @@ class CreateKeyRequest(BaseModel):
     plan:        str  = Field("free", pattern="^(free|basic|pro)$")
     daily_limit: Optional[int] = Field(None, description="Override plan default")
     notes:       str  = Field("", description="Optional notes about this key")
-
-
-# ── Startup ────────────────────────────────────────────────────────────────────
-
-@app.on_event("startup")
-async def _startup() -> None:
-    logging.basicConfig(
-        level  = logging.INFO,
-        format = "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    )
-    await db.init_db()
-    logger.info("🚀 Israel Shipping API started")
 
 
 # ── Dependency: validate API key ───────────────────────────────────────────────
@@ -202,7 +210,7 @@ async def get_admin_key(raw_key: str = Security(_ADMIN_KEY_HEADER)) -> None:
             status_code = status.HTTP_503_SERVICE_UNAVAILABLE,
             detail      = "Admin access not configured (set API_ADMIN_SECRET env var).",
         )
-    if raw_key != _ADMIN_SECRET:
+    if not hmac.compare_digest(raw_key or "", _ADMIN_SECRET):
         raise HTTPException(
             status_code = status.HTTP_401_UNAUTHORIZED,
             detail      = "Invalid admin secret.",
@@ -213,7 +221,7 @@ async def get_admin_key(raw_key: str = Security(_ADMIN_KEY_HEADER)) -> None:
 
 def _validate_asin(asin: str) -> str:
     asin = asin.strip().upper()
-    if len(asin) != 10 or not asin.isalnum():
+    if len(asin) != 10 or not asin.isascii() or not asin.isalnum():
         raise HTTPException(
             status_code = 422,
             detail      = f"Invalid ASIN '{asin}'. Must be exactly 10 alphanumeric characters.",

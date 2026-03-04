@@ -15,6 +15,7 @@ If PA-API fails (e.g. account suspended), it auto-falls back to RapidAPI silentl
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Optional
 
@@ -25,19 +26,34 @@ import config
 logger = logging.getLogger(__name__)
 
 # Re-export AmazonItem so existing imports from amazon_search still work
-__all__ = ["AmazonItem", "search_amazon", "get_backend", "backend_name"]
+__all__ = ["AmazonItem", "search_amazon", "get_backend", "backend_name", "reset_backend"]
 
 _backend: Optional[SearchBackend] = None
+_backend_lock = asyncio.Lock()
+
+
+def reset_backend() -> None:
+    """Clear cached backend — call when SEARCH_BACKEND setting changes."""
+    global _backend
+    _backend = None
+    logger.info("Search backend cache cleared")
 
 
 async def get_backend() -> SearchBackend:
     """Return the active backend, initialising it once on first call."""
     global _backend
-    if _backend is not None:
-        return _backend
-    _backend = await _build_backend()
-    logger.info("Search backend: %s", _backend.name)
+    async with _backend_lock:
+        if _backend is None:
+            _backend = await _build_backend()
+            logger.info("Search backend: %s", _backend.name)
     return _backend
+
+
+def _clean_query(q: str) -> str:
+    """Strip non-ASCII and normalize whitespace for Amazon search queries."""
+    q = q.encode("ascii", errors="ignore").decode()
+    q = " ".join(q.split())
+    return q[:100]
 
 
 async def backend_name() -> str:
@@ -180,35 +196,38 @@ async def search_amazon(
     backend = await get_backend()
     seen: dict[str, AmazonItem] = {}
 
+    # Pre-process queries: strip non-ASCII and normalize whitespace
+    primary_query = _clean_query(product.amazon_search_query)
+    alt_query = _clean_query(product.alternative_query)
+
     if page > 1:
         # Lazy-load: fetch a specific Amazon results page directly (no fallback needed)
         try:
-            items = await backend.search(product.amazon_search_query, max_results, page=page)
+            items = await backend.search(primary_query, max_results, page=page)
             for item in items:
                 seen[item.asin] = item
-            logger.info("[%s] Page %d '%s' → %d items", backend.name, page, product.amazon_search_query, len(seen))
+            logger.info("[%s] Page %d '%s' → %d items", backend.name, page, primary_query, len(seen))
         except Exception as exc:
             logger.warning("Page %d search failed: %s", page, exc)
     else:
         # Primary query
         try:
-            items = await backend.search(product.amazon_search_query, max_results)
+            items = await backend.search(primary_query, max_results)
             for item in items:
                 seen[item.asin] = item
-            logger.info("[%s] Primary '%s' → %d results", backend.name, product.amazon_search_query, len(seen))
+            logger.info("[%s] Primary '%s' → %d results", backend.name, primary_query, len(seen))
         except Exception as exc:
             logger.warning("Primary search failed: %s", exc)
 
         # Fallback if too few results — small delay to avoid burst rate-limiting
-        if len(seen) < 3 and product.alternative_query != product.amazon_search_query:
-            import asyncio
+        if len(seen) < 3 and alt_query != primary_query:
             await asyncio.sleep(1.0)
             try:
-                items = await backend.search(product.alternative_query, max_results)
+                items = await backend.search(alt_query, max_results)
                 for item in items:
                     if item.asin not in seen:
                         seen[item.asin] = item
-                logger.info("[%s] Fallback '%s' → %d total", backend.name, product.alternative_query, len(seen))
+                logger.info("[%s] Fallback '%s' → %d total", backend.name, alt_query, len(seen))
             except Exception as exc:
                 logger.warning("Fallback search failed: %s", exc)
 

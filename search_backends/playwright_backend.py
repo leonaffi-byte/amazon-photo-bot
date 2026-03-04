@@ -210,7 +210,7 @@ class PlaywrightBackend(SearchBackend):
             raise RuntimeError("Search result cards did not appear")
 
         # ── Extract data via JS ────────────────────────────────────────────────
-        raw_items: list[dict] = await page.evaluate(_EXTRACT_JS)
+        raw_items: list[dict] = await asyncio.wait_for(page.evaluate(_EXTRACT_JS), timeout=10)
         logger.info("[Playwright] Found %d raw results for '%s'", len(raw_items), query)
 
         # ── Parse into AmazonItem objects ──────────────────────────────────────

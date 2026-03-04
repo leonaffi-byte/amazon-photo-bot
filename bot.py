@@ -7,6 +7,7 @@ Session state is kept in-memory per user_id.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
@@ -28,11 +29,13 @@ import config
 import database as db
 import style
 import url_shortener
+from correlation import get_correlation_id, new_correlation_id
 from image_analyzer import ProductInfo
 from providers.base import ProviderResult
 from providers.manager import analyse_image, get_providers
 from amazon_search import AmazonItem, search_amazon, backend_name
 from translator import detect_language, translate_and_refine
+from metrics import REQUESTS_TOTAL
 from dataforseo_labs import DataForSEOLabs
 
 logger = logging.getLogger(__name__)
@@ -53,6 +56,16 @@ _dfs_labs_client: "DataForSEOLabs | None" = None
 
 # Placeholder image when a product has no photo URL
 _PLACEHOLDER_IMG = "https://placehold.co/600x400/FF9900/FFF.png?text=Amazon"
+
+# Maximum photo file size we'll process (bytes)
+_MAX_PHOTO_BYTES = 10 * 1024 * 1024  # 10 MB
+
+# Background task references — prevent fire-and-forget tasks from being GC'd
+_background_tasks: set[asyncio.Task] = set()
+
+# Deduplication cache: file_unique_id → (timestamp, winner, all_results)
+_analysis_cache: dict[str, tuple[float, ProviderResult, list[ProviderResult]]] = {}
+_ANALYSIS_CACHE_TTL = 60  # seconds
 
 
 async def _get_dfs_labs() -> "DataForSEOLabs | None":
@@ -165,20 +178,52 @@ _sessions: dict[int, UserSession] = {}
 
 
 # ── Rate limiter ───────────────────────────────────────────────────────────────
-RATE_MAX_REQUESTS = 5
-RATE_WINDOW_SECS  = 60
+# Per-user rate limiting: custom limits from DB, fallback to config defaults.
+# In-memory buckets keyed by user_id; limits resolved per-check.
 _rate_buckets: dict[int, deque] = defaultdict(deque)
+# Local cache of per-user DB limits to avoid hitting DB on every request.
+# Populated on first check, refreshed when admin changes limits.
+_rate_limit_cache: dict[int, tuple[int, int]] = {}  # user_id -> (max_requests, window_seconds)
 
 
-def _is_rate_limited(user_id: int) -> bool:
+async def _get_user_limits(user_id: int) -> tuple[int, int]:
+    """Return (max_requests, window_seconds) for the given user.
+
+    Checks local cache first, then DB for per-user override, then config defaults.
+    """
+    if user_id in _rate_limit_cache:
+        return _rate_limit_cache[user_id]
+    custom = await db.get_user_rate_limit(user_id)
+    if custom:
+        limits = (custom.max_requests, custom.window_seconds)
+        _rate_limit_cache[user_id] = limits
+        return limits
+    return (config.DEFAULT_RATE_LIMIT, config.DEFAULT_RATE_WINDOW)
+
+
+def invalidate_rate_limit_cache(user_id: int | None = None) -> None:
+    """Clear cached rate limits. Called when admin changes limits."""
+    if user_id is not None:
+        _rate_limit_cache.pop(user_id, None)
+    else:
+        _rate_limit_cache.clear()
+
+
+async def _is_rate_limited(user_id: int) -> tuple[bool, int, int]:
+    """Check whether user_id is rate-limited.
+
+    Returns (is_limited, max_requests, window_seconds) so the caller can
+    display the correct limits in the error message.
+    """
+    max_req, window = await _get_user_limits(user_id)
     now    = time.monotonic()
     bucket = _rate_buckets[user_id]
-    while bucket and now - bucket[0] > RATE_WINDOW_SECS:
+    while bucket and now - bucket[0] > window:
         bucket.popleft()
-    if len(bucket) >= RATE_MAX_REQUESTS:
-        return True
+    if len(bucket) >= max_req:
+        return True, max_req, window
     bucket.append(now)
-    return False
+    return False, max_req, window
 
 
 def get_session(user_id: int) -> UserSession:
@@ -210,6 +255,7 @@ def compare_keyboard(results: list[ProviderResult]) -> InlineKeyboardMarkup:
             f"{conf_icon}  {r.provider_name}  ({r.confidence})",
             callback_data=f"{CB_USE_RESULT}{i}",
         )])
+    rows.append([InlineKeyboardButton("✨ Use best result", callback_data=f"{CB_USE_RESULT}0")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -253,7 +299,11 @@ async def results_keyboard(session: UserSession, affiliate_tag: Optional[str]) -
 
     # ── Try differently ────────────────────────────────────────────────────────
     if len(session.all_provider_results) > 1:
-        rows.append([InlineKeyboardButton("🔄  Try differently", callback_data=CB_TRY_DIFFERENTLY)])
+        next_idx = (session.chosen_provider_idx + 1) % len(session.all_provider_results)
+        next_name = session.all_provider_results[next_idx].provider_name
+        current = session.chosen_provider_idx + 1
+        total_providers = len(session.all_provider_results)
+        rows.append([InlineKeyboardButton(f"🔄 Try {next_name} ({current}/{total_providers})", callback_data=CB_TRY_DIFFERENTLY)])
 
     # ── Similar products (DFS Labs) ────────────────────────────────────────────
     if item and item.asin:
@@ -285,10 +335,12 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def cmd_providers(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.effective_user.id
+    is_admin = user_id in config.ADMIN_IDS or await db.is_admin_in_db(user_id)
     try:
         providers = await get_providers()
     except Exception:
-        await update.message.reply_text(style.error_no_providers(), parse_mode="MarkdownV2")
+        await update.message.reply_text(style.error_no_providers(is_admin=is_admin), parse_mode="MarkdownV2")
         return
     try:
         sb = await backend_name()
@@ -301,11 +353,15 @@ async def cmd_providers(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    REQUESTS_TOTAL.inc(labels={"type": "photo"})
     user_id = update.effective_user.id
+    cid = new_correlation_id()
+    logger.info("Photo received from user %d [cid=%s]", user_id, cid)
 
-    if _is_rate_limited(user_id):
+    limited, max_req, window = await _is_rate_limited(user_id)
+    if limited:
         await update.message.reply_text(
-            style.error_rate_limited(RATE_MAX_REQUESTS, RATE_WINDOW_SECS),
+            style.error_rate_limited(max_req, window),
             parse_mode="MarkdownV2",
         )
         return
@@ -320,7 +376,14 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         n_providers = 0
 
     if n_providers == 0:
-        await update.message.reply_text(style.error_no_providers(), parse_mode="MarkdownV2")
+        is_admin = user_id in config.ADMIN_IDS or await db.is_admin_in_db(user_id)
+        await update.message.reply_text(style.error_no_providers(is_admin=is_admin), parse_mode="MarkdownV2")
+        return
+
+    # ── Reject oversized photos before any loading message ──────────────────
+    photo = update.message.photo[-1]
+    if photo.file_size and photo.file_size > _MAX_PHOTO_BYTES:
+        await update.message.reply_text("Photo is too large (max 10 MB). Please send a smaller image.")
         return
 
     # ── Handle optional caption (user hint, possibly in Hebrew/Russian) ────────
@@ -341,24 +404,32 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         style.loading_vision(n_providers, config.VISION_MODE, context_hint=context_hint),
         parse_mode="MarkdownV2",
     )
-
-    photo      = update.message.photo[-1]
     photo_file = await context.bot.get_file(photo.file_id)
     image_bytes = bytes(await photo_file.download_as_bytearray())
 
     session.image_bytes = image_bytes
 
-    try:
-        winner, all_results = await analyse_image(
-            image_bytes, mode=config.VISION_MODE, context_hint=context_hint, user_id=user_id
-        )
-    except RuntimeError:
-        await msg.edit_text(style.error_no_providers(), parse_mode="MarkdownV2")
-        return
-    except Exception as exc:
-        logger.error("Vision analysis failed: %s", exc)
-        await msg.edit_text(style.error_analysis_failed(), parse_mode="MarkdownV2")
-        return
+    # Check dedup cache to avoid re-analyzing the same photo within TTL
+    cache_key = photo.file_unique_id
+    cached = _analysis_cache.get(cache_key)
+    if cached and (time.monotonic() - cached[0]) < _ANALYSIS_CACHE_TTL:
+        logger.info("Dedup cache hit for %s (user %d)", cache_key, user_id)
+        winner, all_results = cached[1], cached[2]
+    else:
+        try:
+            winner, all_results = await analyse_image(
+                image_bytes, mode=config.VISION_MODE, context_hint=context_hint, user_id=user_id
+            )
+            _analysis_cache[cache_key] = (time.monotonic(), winner, all_results)
+        except RuntimeError:
+            is_admin = user_id in config.ADMIN_IDS or await db.is_admin_in_db(user_id)
+            await msg.edit_text(style.error_no_providers(is_admin=is_admin), parse_mode="MarkdownV2")
+            return
+        except Exception as exc:
+            logger.error("Vision analysis failed: %s", exc)
+            is_admin = user_id in config.ADMIN_IDS or await db.is_admin_in_db(user_id)
+            await msg.edit_text(style.error_analysis_failed(is_admin=is_admin), parse_mode="MarkdownV2")
+            return
 
     session.all_provider_results = all_results
     session.chosen_provider_idx  = 0
@@ -382,11 +453,20 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    REQUESTS_TOTAL.inc(labels={"type": "callback"})
     query = update.callback_query
     await query.answer()
     user_id = update.effective_user.id
+    cid = new_correlation_id()
+    logger.info("Callback '%s' from user %d [cid=%s]", query.data, user_id, cid)
     session = get_session(user_id)
     data    = query.data
+
+    # ── Noop page indicator tap — show page info ──────────────────────────────
+    if data == "nav:noop":
+        idx = session.page
+        total = len(session.filtered_items)
+        await query.answer(f"Page {idx + 1} of {total}")
 
     # ── DFS Labs: Similar products ─────────────────────────────────────────────
     if data.startswith(CB_SIMILAR):
@@ -442,8 +522,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     # ── Provider chosen in compare mode ───────────────────────────────────────
     if data.startswith(CB_USE_RESULT):
-        idx = int(data[len(CB_USE_RESULT):])
-        chosen = session.all_provider_results[idx]
+        try:
+            idx = int(data[len(CB_USE_RESULT):])
+            chosen = session.all_provider_results[idx]
+        except (ValueError, IndexError):
+            await query.answer("Session expired — please send a new photo.", show_alert=True)
+            return
         session.chosen_result       = chosen
         session.chosen_provider_idx = idx
         session.product_info        = chosen.to_product_info()
@@ -458,7 +542,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if data in (CB_FILTER_YES, CB_FILTER_NO):
         if not session.product_info:
             await query.edit_message_text(
-                "⚠️ Session expired — please send a new photo\\.",
+                "⚠️ Session expired\\. Send a new photo or type a product name to start over\\.",
                 parse_mode="MarkdownV2",
             )
             return
@@ -498,6 +582,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             result_count=len(all_items),
             israel_filter=israel_only,
             search_type="text" if session.chosen_result is None else "photo",
+            correlation_id=get_correlation_id(),
         )
         if active_tag:
             await db.increment_tag_search_count(active_tag)
@@ -521,9 +606,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if data == CB_CHANGE_FILTER:
         session.apply_filter(not session.israel_only)
         if not session.filtered_items:
+            # Show button to toggle back instead of a dead-end message
+            toggle_back = "🌐  Show all" if session.israel_only else "✈️  Free delivery only"
             await query.edit_message_text(
                 "😔 No results with that filter\\. Try the other option\\.",
                 parse_mode="MarkdownV2",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton(toggle_back, callback_data=CB_CHANGE_FILTER)],
+                ]),
             )
             return
         await _render_results(query, context, session)
@@ -593,13 +683,20 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         elif session.more_available:
             # Lazy-load: fetch next batch from Amazon
             try:
-                session.amazon_page += 1
+                try:
+                    await query.edit_message_caption(
+                        caption="⏳ _Loading more results…_",
+                        parse_mode="MarkdownV2",
+                    )
+                except Exception:
+                    pass
                 new_items = await search_amazon(
                     session.product_info,
                     max_results=config.MAX_RESULTS,
-                    page=session.amazon_page,
+                    page=session.amazon_page + 1,
                 )
                 if new_items:
+                    session.amazon_page += 1
                     session.append_items(new_items)
                     session.more_available = len(new_items) >= config.MAX_RESULTS
                     session.page = next_page
@@ -611,29 +708,27 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 session.more_available = False
                 session.page = max(0, total - 1)
         else:
-            session.page = max(0, total - 1)   # already at end
+            session.page = max(0, total - 1)
+            await query.answer("No more results available.", show_alert=False)
 
         await _render_results(query, context, session)
         return
 
 
-def _spawn_price_check(context, session: UserSession, item, affiliate_tag: str | None,
-                       chat_id: int | None = None) -> None:
-    """
-    Fire-and-forget: fetch price history (CamelCamelCamel → Keepa) in the
-    background and silently update the product card caption when it arrives.
-    """
+def _spawn_background_check(
+    coro,
+    context,
+    session: UserSession,
+    chat_id: int | None = None,
+) -> None:
+    """Fire-and-forget: run a background coroutine that updates the product card."""
     try:
-        msg_id    = session.results_msg_id
-        page_snap = session.page
+        msg_id = session.results_msg_id
         if not chat_id or not msg_id:
             return
-        asyncio.create_task(
-            _verify_price_async(
-                context.bot, chat_id, msg_id,
-                item, session, page_snap, affiliate_tag,
-            )
-        )
+        task = asyncio.create_task(coro)
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
     except Exception:
         pass
 
@@ -686,28 +781,6 @@ async def _verify_price_async(
             pass
     except Exception as exc:
         logger.debug("Price history async fetch failed: %s", exc)
-
-
-def _spawn_israel_check(context, session: UserSession, item, affiliate_tag: str | None,
-                        chat_id: int | None = None) -> None:
-    """
-    Fire-and-forget: verify Israel shipping in the background and silently
-    update the product card caption when the result arrives.
-    Does nothing if no Israeli proxy is configured.
-    """
-    try:
-        msg_id    = session.results_msg_id
-        page_snap = session.page
-        if not chat_id or not msg_id:
-            return
-        asyncio.create_task(
-            _verify_israel_async(
-                context.bot, chat_id, msg_id,
-                item, session, page_snap, affiliate_tag,
-            )
-        )
-    except Exception:
-        pass
 
 
 async def _verify_israel_async(
@@ -943,10 +1016,16 @@ async def _render_results(query, context, session: UserSession) -> None:
             except Exception:
                 pass
             # Kick off background checks (non-blocking)
-            _spawn_israel_check(context, session, item, affiliate_tag,
-                                chat_id=query.message.chat_id)
-            _spawn_price_check(context, session, item, affiliate_tag,
-                               chat_id=query.message.chat_id)
+            _spawn_background_check(
+                _verify_israel_async(context.bot, query.message.chat_id, session.results_msg_id,
+                                     item, session, session.page, affiliate_tag),
+                context, session, chat_id=query.message.chat_id,
+            )
+            _spawn_background_check(
+                _verify_price_async(context.bot, query.message.chat_id, session.results_msg_id,
+                                    item, session, session.page, affiliate_tag),
+                context, session, chat_id=query.message.chat_id,
+            )
             return
         except Exception as exc:
             logger.error("send_photo failed: %s", exc)
@@ -964,10 +1043,16 @@ async def _render_results(query, context, session: UserSession) -> None:
                 reply_markup = keyboard,
             )
             # Kick off background checks (non-blocking)
-            _spawn_israel_check(context, session, item, affiliate_tag,
-                                chat_id=query.message.chat_id)
-            _spawn_price_check(context, session, item, affiliate_tag,
-                               chat_id=query.message.chat_id)
+            _spawn_background_check(
+                _verify_israel_async(context.bot, query.message.chat_id, session.results_msg_id,
+                                     item, session, session.page, affiliate_tag),
+                context, session, chat_id=query.message.chat_id,
+            )
+            _spawn_background_check(
+                _verify_price_async(context.bot, query.message.chat_id, session.results_msg_id,
+                                    item, session, session.page, affiliate_tag),
+                context, session, chat_id=query.message.chat_id,
+            )
             return
         except Exception as exc:
             logger.warning("edit_message_media failed (%s), trying caption-only", exc)
@@ -996,15 +1081,20 @@ async def _render_results(query, context, session: UserSession) -> None:
 
 async def handle_text_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle text messages as product search queries (English / Hebrew / Russian)."""
+    REQUESTS_TOTAL.inc(labels={"type": "text"})
     user_id = update.effective_user.id
     text    = (update.message.text or "").strip()
 
     if not text:
         return
 
-    if _is_rate_limited(user_id):
+    cid = new_correlation_id()
+    logger.info("Text search from user %d: '%s' [cid=%s]", user_id, text[:80], cid)
+
+    limited, max_req, window = await _is_rate_limited(user_id)
+    if limited:
         await update.message.reply_text(
-            style.error_rate_limited(RATE_MAX_REQUESTS, RATE_WINDOW_SECS),
+            style.error_rate_limited(max_req, window),
             parse_mode="MarkdownV2",
         )
         return
@@ -1012,7 +1102,7 @@ async def handle_text_search(update: Update, context: ContextTypes.DEFAULT_TYPE)
     _sessions[user_id] = UserSession()
     session = _sessions[user_id]
 
-    msg = await update.message.reply_text("🔍 Processing…")
+    msg = await update.message.reply_text(f"🔍 Searching Amazon for '{text[:60]}'…")
 
     # ── Detect language & translate ───────────────────────────────────────────
     lang = detect_language(text)
@@ -1021,6 +1111,10 @@ async def handle_text_search(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception as exc:
         logger.warning("translate_and_refine failed: %s", exc)
         english, refined_query = text, text
+        try:
+            await msg.edit_text("⚠️ Translation unavailable, searching with original text…")
+        except Exception:
+            pass
 
     lang_labels = {"he": "🇮🇱 Hebrew", "ru": "🇷🇺 Russian"}
 
@@ -1142,6 +1236,11 @@ async def cmd_shorten(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await update.message.reply_text(msg, parse_mode="MarkdownV2")
 
 
+async def handle_unsupported(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Reply to non-photo/text messages (video, voice, sticker, etc.)."""
+    await update.message.reply_text(style.not_a_photo(), parse_mode="MarkdownV2")
+
+
 def build_application() -> Application:
     from admin import get_admin_handlers
 
@@ -1162,4 +1261,8 @@ def build_application() -> Application:
     app.add_handler(MessageHandler(filters.PHOTO,                   handle_photo))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_search))
+    app.add_handler(MessageHandler(
+        filters.VIDEO | filters.VOICE | filters.Sticker.ALL | filters.VIDEO_NOTE | filters.AUDIO | filters.ANIMATION,
+        handle_unsupported,
+    ))
     return app

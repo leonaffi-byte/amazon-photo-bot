@@ -5,6 +5,8 @@ Handles playwright-stealth v1/v2 API differences transparently.
 """
 from __future__ import annotations
 
+import logging
+
 
 async def apply_stealth(page) -> None:
     """
@@ -25,4 +27,7 @@ async def apply_stealth(page) -> None:
         from playwright_stealth import stealth_async
         await stealth_async(page)
     except (ImportError, AttributeError):
-        pass   # stealth not available — continue without it
+        logging.getLogger(__name__).warning(
+            "playwright-stealth not installed — stealth mode unavailable. "
+            "Install with: pip install playwright-stealth"
+        )

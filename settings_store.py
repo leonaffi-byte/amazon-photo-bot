@@ -11,19 +11,14 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_db = None
-
 
 def _get_db():
-    global _db
-    if _db is None:
-        import database as db
-        _db = db
-    return _db
+    import database as db
+    return db
 
 
 # ── Setting definitions ────────────────────────────────────────────────────────
@@ -197,7 +192,9 @@ def _apply_to_config(key: str, raw: str, typ: str) -> None:
     attr = key.upper()
     if hasattr(cfg, attr):
         setattr(cfg, attr, value)
-        logger.info("settings_store: config.%s = %r (live)", attr, value)
+        logger.debug("Applied DB setting %s = %r", attr, value)
+    else:
+        logger.warning("Setting %r has no matching config attribute %r — skipping", key, attr)
     # Special case: reload backends when search_backend or marketplace changes
     if key in ("search_backend", "amazon_marketplace"):
         try:

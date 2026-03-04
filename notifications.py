@@ -8,6 +8,7 @@ Usage:
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING
 
@@ -41,12 +42,17 @@ async def admin(text: str, parse_mode: str = "MarkdownV2") -> None:
         admin_ids = set(config.ADMIN_IDS)
 
     for uid in admin_ids:
-        try:
-            await _app.bot.send_message(
-                chat_id=uid,
-                text=text,
-                parse_mode=parse_mode,
-                disable_web_page_preview=True,
-            )
-        except Exception as exc:
-            logger.warning("Failed to notify admin %d: %s", uid, exc)
+        for attempt in range(2):
+            try:
+                await _app.bot.send_message(
+                    chat_id=uid,
+                    text=text,
+                    parse_mode=parse_mode,
+                    disable_web_page_preview=True,
+                )
+                break
+            except Exception as exc:
+                if attempt == 0:
+                    await asyncio.sleep(2)
+                else:
+                    logger.warning("Failed to notify admin %d: %s", uid, exc)

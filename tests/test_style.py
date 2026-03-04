@@ -131,7 +131,7 @@ class TestErrorRateLimited:
 
     def test_contains_window_seconds(self):
         text = style.error_rate_limited(5, 60)
-        assert "60" in text
+        assert "1 minute" in text
 
 
 # ── product_card() ────────────────────────────────────────────────────────────

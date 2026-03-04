@@ -34,8 +34,10 @@ def tmp_data_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(database, "DB_PATH", str(data / "bot_data.db"))
     monkeypatch.setattr(database, "_DATA_DIR", data)
 
-    # Also reset the internal lock so tests don't share state
+    # Also reset the internal locks and persistent connection so tests don't share state
     import asyncio
     monkeypatch.setattr(database, "_lock", asyncio.Lock())
+    monkeypatch.setattr(database, "_conn_lock", asyncio.Lock())
+    monkeypatch.setattr(database, "_persistent_conn", None)
 
     yield data
