@@ -6,7 +6,7 @@ in the same asyncio event loop — no threads, no subprocesses.
 
 Architecture:
   asyncio event loop
-    ├── python-telegram-bot (polling)
+    ├── TelegramAdapter → BotCore  (polling)
     └── aiohttp web server  (redirect + click tracking)
          Only started when SHORTENER_ENABLED=true and SHORTENER_BASE_URL is set.
 """
@@ -23,7 +23,6 @@ from telegram.warnings import PTBUserWarning
 warnings.filterwarnings("ignore", category=PTBUserWarning, message=".*per_message=False.*")
 
 import config
-from bot import build_application
 
 # Log file lives in the same data/ directory as the database so that a single
 # Docker volume mount (./data:/app/data) captures both.
@@ -48,14 +47,8 @@ logger = logging.getLogger(__name__)
 
 
 async def run() -> None:
-    # ── Database bootstrap (must happen before anything else) ─────────────────
-    # Call init_db() here explicitly so that:
-    #   a) any failure is immediately visible in the logs (not swallowed)
-    #   b) the DB is ready before PTB builds the application
-    # (PTB's post_init hook also calls this, but it can be silently skipped in
-    #  some PTB 20.x versions when the event loop is already running.)
+    # ── Database bootstrap (must happen before anything else) ─────────────
     import database as _db
-    import settings_store as _ss
     try:
         await _db.init_db()
         logger.info("Database ready at %s", _db.DB_PATH)
@@ -68,12 +61,37 @@ async def run() -> None:
         logger.critical("FATAL: database init failed: %s", exc, exc_info=True)
         raise
 
-    # ── Notifications module (must be before scheduler) ───────────────────────
-    import notifications
-    ptb_app = build_application()
-    notifications.init(ptb_app)
+    # ── Load i18n locales ─────────────────────────────────────────────────
+    from i18n import load_locales
+    load_locales()
+    logger.info("Locales loaded.")
 
-    # ── Start custom URL shortener server if configured ────────────────────────
+    # ── Wire up adapter + core ────────────────────────────────────────────
+    from adapters.telegram import TelegramAdapter
+    from bot_core import BotCore
+
+    adapter = TelegramAdapter(
+        on_photo=lambda a, e: bot_core.handle_photo(e),
+        on_callback=lambda a, uid, cid, d, e: bot_core.handle_callback(
+            int(uid), cid, d, e,
+        ),
+        on_text=lambda a, uid, cid, t, e: bot_core.handle_text_search(
+            int(uid), cid, t, e,
+        ),
+        on_command=lambda a, uid, cid, c, args, e: bot_core.handle_command(
+            int(uid), cid, c, args.split() if args else [], e,
+        ),
+    )
+    bot_core = BotCore(adapter)
+
+    # ── Start the adapter (builds PTB app, registers handlers, polls) ─────
+    await adapter.start()
+
+    # ── Notifications module (needs the underlying PTB Application) ───────
+    import notifications
+    notifications.init(adapter._app)
+
+    # ── Start custom URL shortener server if configured ────────────────────
     web_runner = None
     if config.SHORTENER_ENABLED and config.SHORTENER_BASE_URL:
         from shortener_server import start_shortener
@@ -83,7 +101,14 @@ async def run() -> None:
             logger.error("Failed to start shortener server: %s", exc)
             logger.warning("Continuing without custom shortener.")
 
-    # ── Run PTB in async context (PTB v20 pattern for custom event loops) ──────
+    # ── Start periodic cleanup task ───────────────────────────────────────
+    cleanup_task = asyncio.create_task(bot_core.periodic_cleanup())
+
+    # ── Start scheduled reports ───────────────────────────────────────────
+    import scheduler as sched
+    sched_task = sched.start()
+
+    # ── Signal handling ───────────────────────────────────────────────────
     stop_event = asyncio.Event()
 
     def _stop(*_):
@@ -97,44 +122,37 @@ async def run() -> None:
         except (NotImplementedError, RuntimeError):
             logger.warning("Signal handler for %s not supported on this platform", sig.name)
 
-    async with ptb_app:
-        await ptb_app.initialize()
-        await ptb_app.start()
-        await ptb_app.updater.start_polling(
-            allowed_updates=["message", "callback_query"],
-            drop_pending_updates=True,
+    logger.info("Bot is running. Press Ctrl+C to stop.")
+    if web_runner:
+        logger.info(
+            "Shortener: %s  (port %d)",
+            config.SHORTENER_BASE_URL,
+            config.SHORTENER_PORT,
         )
 
-        # ── Start scheduled reports ────────────────────────────────────────────
-        import scheduler as sched
-        sched_task = sched.start()
+    # Block until signal received
+    try:
+        await stop_event.wait()
+    except (KeyboardInterrupt, SystemExit):
+        pass
 
-        logger.info("✅ Bot is running. Press Ctrl+C to stop.")
-        if web_runner:
-            logger.info(
-                "🔗 Shortener: %s  (port %d)",
-                config.SHORTENER_BASE_URL,
-                config.SHORTENER_PORT,
-            )
+    # ── Graceful shutdown ─────────────────────────────────────────────────
+    logger.info("Shutting down…")
 
-        # Block until signal received
-        try:
-            await stop_event.wait()
-        except (KeyboardInterrupt, SystemExit):
-            pass
+    sched.stop()
+    sched_task.cancel()
+    try:
+        await asyncio.wait_for(sched_task, timeout=5.0)
+    except (asyncio.CancelledError, asyncio.TimeoutError):
+        pass
 
-        # Graceful shutdown
-        logger.info("Shutting down…")
-        sched.stop()
-        sched_task.cancel()
-        try:
-            await asyncio.wait_for(sched_task, timeout=5.0)
-        except asyncio.CancelledError:
-            pass
-        except asyncio.TimeoutError:
-            logger.warning("Scheduler task did not finish within 5s timeout.")
-        await ptb_app.updater.stop()
-        await ptb_app.stop()
+    cleanup_task.cancel()
+    try:
+        await asyncio.wait_for(cleanup_task, timeout=5.0)
+    except (asyncio.CancelledError, asyncio.TimeoutError):
+        pass
+
+    await adapter.stop()
 
     if web_runner:
         await web_runner.cleanup()
