@@ -98,6 +98,11 @@ class UserSession:
     # Cached admin flag — resolved once per session
     is_admin: Optional[bool] = None
 
+    # Per-ASIN Israel shipping verification results (populated by background checks).
+    # True = confirmed ships to Israel, False = confirmed does NOT ship.
+    # Items verified as False are hidden from the israel_only filter.
+    _israel_verified: dict = field(default_factory=dict)  # asin -> bool
+
     @property
     def total_items(self) -> int:
         return max(1, len(self.filtered_items))
@@ -113,17 +118,47 @@ class UserSession:
         item = self.current_item()
         return [item] if item else []
 
+    def _israel_eligible(self, item: AmazonItem) -> bool:
+        """
+        True when an item should appear in the Israel-only filter.
+
+        Priority:
+          1. Playwright-verified FALSE  → always exclude (confirmed non-shipper)
+          2. Playwright-verified TRUE   → always include (confirmed shipper)
+          3. No verification yet        → use heuristic (qualifies_for_israel_free_delivery)
+             which now includes free_delivery_likely so far more items pass.
+        """
+        verified = self._israel_verified.get(item.asin)
+        if verified is False:
+            return False
+        if verified is True:
+            return True
+        return item.qualifies_for_israel_free_delivery
+
     def apply_filter(self, israel_only: bool) -> None:
         self.israel_only = israel_only
         self.page = 0
-        eligible = [i for i in self.all_items if i.qualifies_for_israel_free_delivery]
-        self.filtered_items = eligible if (israel_only and eligible) else list(self.all_items)
+        if israel_only:
+            eligible = [i for i in self.all_items if self._israel_eligible(i)]
+            # If heuristic yields nothing, show everything rather than an empty list
+            self.filtered_items = eligible if eligible else list(self.all_items)
+        else:
+            self.filtered_items = list(self.all_items)
 
     def append_items(self, new_items: list[AmazonItem]) -> None:
         """Add more Amazon results without resetting the page position."""
         self.all_items.extend(new_items)
-        eligible = [i for i in self.all_items if i.qualifies_for_israel_free_delivery]
-        self.filtered_items = eligible if (self.israel_only and eligible) else list(self.all_items)
+        if self.israel_only:
+            eligible = [i for i in self.all_items if self._israel_eligible(i)]
+            self.filtered_items = eligible if eligible else list(self.all_items)
+        else:
+            self.filtered_items = list(self.all_items)
+
+    def record_israel_result(self, asin: str, ships: bool) -> None:
+        """Called by background Israel check; re-applies active filter."""
+        self._israel_verified[asin] = ships
+        # Re-apply current filter so confirmed non-shippers disappear from results
+        self.apply_filter(self.israel_only)
 
 
 _sessions: dict[int, UserSession] = {}
@@ -703,6 +738,10 @@ async def _verify_israel_async(
 
         # Store on session so price-history update can include it
         session._last_israel_result = result
+
+        # Update per-ASIN verification dict (re-applies filter — removes confirmed non-shippers)
+        if result.ships_to_israel is not None:
+            session.record_israel_result(item.asin, result.ships_to_israel)
 
         # Include any already-loaded price history if available
         ph = getattr(session, "_last_price_history", None)

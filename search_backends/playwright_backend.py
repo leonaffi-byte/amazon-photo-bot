@@ -293,16 +293,24 @@ def _parse_result(raw: dict) -> Optional[AmazonItem]:
     if href and not href.startswith("http"):
         href = "https://www.amazon.com" + href
 
+    free_delivery_likely = (
+        "free delivery" in delivery_text
+        or "free shipping" in delivery_text
+        or is_amazon_fulfilled
+        or is_prime
+    )
+
     return AmazonItem(
-        asin               = asin,
-        title              = title,
-        image_url          = image_url,
-        price_usd          = price_usd,
-        currency           = "USD",
-        rating             = rating,
-        review_count       = review_count,
-        is_amazon_fulfilled= is_amazon_fulfilled,
-        is_sold_by_amazon  = is_sold_by_amazon,
-        is_prime           = is_prime,
-        availability       = "In Stock",
+        asin                = asin,
+        title               = title,
+        image_url           = image_url,
+        price_usd           = price_usd,
+        currency            = "USD",
+        rating              = rating,
+        review_count        = review_count,
+        is_amazon_fulfilled = is_amazon_fulfilled,
+        is_sold_by_amazon   = is_sold_by_amazon,
+        is_prime            = is_prime,
+        availability        = "In Stock",
+        free_delivery_likely= free_delivery_likely,
     )

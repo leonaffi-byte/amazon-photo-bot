@@ -186,6 +186,15 @@ class RapidAPIBackend(SearchBackend):
                 or is_sold_by_amazon
             )
 
+            # Broad free-delivery signal: any "FREE delivery" in text counts
+            # (catches FBA items RapidAPI doesn't explicitly flag as "shipped by Amazon")
+            free_delivery_likely = (
+                "free delivery" in delivery_text
+                or "free shipping" in delivery_text
+                or is_amazon_fulfilled
+                or is_prime
+            )
+
             return AmazonItem(
                 asin=asin,
                 title=title,
@@ -198,6 +207,7 @@ class RapidAPIBackend(SearchBackend):
                 is_sold_by_amazon=is_sold_by_amazon,
                 is_prime=is_prime,
                 availability="In Stock" if raw.get("product_url") else "Unknown",
+                free_delivery_likely=free_delivery_likely,
             )
         except Exception as exc:
             logger.warning("Failed to parse RapidAPI product %s: %s", raw.get("asin", "?"), exc)
