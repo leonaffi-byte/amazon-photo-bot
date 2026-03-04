@@ -140,3 +140,36 @@ async def apply_db_settings() -> None:
                 logger.warning("Failed to apply DB setting '%s'", key, exc_info=True)
     except Exception:
         logger.error("Failed to load DB settings module", exc_info=True)
+
+# ── Meta (shared across WhatsApp, Instagram, Messenger) ───────────────────────
+META_APP_SECRET: str | None  = os.getenv("META_APP_SECRET")
+META_VERIFY_TOKEN: str       = os.getenv("META_VERIFY_TOKEN", "")
+
+# ── WhatsApp ──────────────────────────────────────────────────────────────────
+WHATSAPP_TOKEN: str | None           = os.getenv("WHATSAPP_TOKEN")
+WHATSAPP_PHONE_NUMBER_ID: str | None = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
+WHATSAPP_VERIFY_TOKEN: str           = os.getenv("WHATSAPP_VERIFY_TOKEN", "")
+
+# ── Instagram ─────────────────────────────────────────────────────────────────
+INSTAGRAM_TOKEN: str | None   = os.getenv("INSTAGRAM_TOKEN")
+INSTAGRAM_PAGE_ID: str | None = os.getenv("INSTAGRAM_PAGE_ID")
+
+# ── Facebook Messenger ────────────────────────────────────────────────────────
+MESSENGER_TOKEN: str | None        = os.getenv("MESSENGER_TOKEN")
+MESSENGER_PAGE_ID: str | None      = os.getenv("MESSENGER_PAGE_ID")
+MESSENGER_VERIFY_TOKEN: str        = os.getenv("MESSENGER_VERIFY_TOKEN", "")
+
+# ── Viber ─────────────────────────────────────────────────────────────────────
+VIBER_TOKEN: str | None    = os.getenv("VIBER_TOKEN")
+VIBER_BOT_NAME: str        = os.getenv("VIBER_BOT_NAME", "AmazonPhotoBot")
+VIBER_WEBHOOK_URL: str     = os.getenv("VIBER_WEBHOOK_URL", "")
+
+# ── Discord ───────────────────────────────────────────────────────────────────
+DISCORD_TOKEN: str | None = os.getenv("DISCORD_TOKEN")
+
+# ── LINE ──────────────────────────────────────────────────────────────────────
+LINE_CHANNEL_SECRET: str | None = os.getenv("LINE_CHANNEL_SECRET")
+LINE_CHANNEL_TOKEN: str | None  = os.getenv("LINE_CHANNEL_TOKEN")
+
+# ── Webhook base URL (for platforms that need it for webhook registration) ────
+WEBHOOK_BASE_URL: str = os.getenv("WEBHOOK_BASE_URL", "")

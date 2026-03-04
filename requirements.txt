@@ -15,3 +15,7 @@ tzdata
 openai>=1.50.0                  # OpenAI gpt-4o / gpt-4o-mini
 anthropic>=0.40.0               # Anthropic claude-3-5-sonnet / claude-3-haiku
 google-genai>=1.0.0             # Google Gemini (replaces old google-generativeai)
+
+# Platform adapters
+discord.py>=2.3.0               # Discord bot gateway
+line-bot-sdk>=3.0.0             # LINE Messaging API (optional — adapter uses raw HTTP)
