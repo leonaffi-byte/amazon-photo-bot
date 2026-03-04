@@ -108,47 +108,60 @@ def _build_proxy_cfg(proxy_url: str) -> Optional[dict]:
 
 async def _fetch_rendered_html(url: str, timeout_ms: int = 15_000) -> Optional[str]:
     """
-    Fetch a URL using Playwright headless Chrome + Decodo proxy.
+    Fetch a URL using Playwright headless Chrome.
+    Tries each configured proxy in order (Decodo → SOCKS5 → no proxy).
     Handles Cloudflare JS challenges that block plain aiohttp requests.
     Returns the fully rendered HTML, or None on any failure.
     """
     try:
         from playwright.async_api import async_playwright
         from playwright_utils import apply_stealth
-        from israel_scraper import _get_proxy_url
-        proxy_cfg = _build_proxy_cfg(await _get_proxy_url())
+        from israel_scraper import _get_ordered_proxy_urls
+        proxy_urls = await _get_ordered_proxy_urls()
+        # Try each proxy; fall back to no-proxy as last resort
+        proxy_cfgs = [_build_proxy_cfg(p) for p in proxy_urls] + [None]
 
         async with async_playwright() as pw:
-            browser = await pw.chromium.launch(
-                headless = True,
-                proxy    = proxy_cfg,
-                args     = ["--no-sandbox", "--disable-dev-shm-usage"],
-            )
-            ctx  = await browser.new_context(
-                locale      = "en-US",
-                timezone_id = "America/New_York",
-                viewport    = {"width": 1280, "height": 800},
-                extra_http_headers = {
-                    "Accept-Language": "en-US,en;q=0.9",
-                },
-            )
-            page = await ctx.new_page()
-            await apply_stealth(page)
-
-            html = ""
-            try:
-                await page.goto(url, wait_until="networkidle", timeout=timeout_ms)
-                html = await page.content()
-            except Exception:
-                # Timeout is acceptable — grab whatever loaded
+            for proxy_cfg in proxy_cfgs:
+                label = proxy_cfg["server"] if proxy_cfg else "no-proxy"
                 try:
-                    html = await page.content()
-                except Exception:
-                    pass
-            finally:
-                await browser.close()
+                    browser = await pw.chromium.launch(
+                        headless = True,
+                        proxy    = proxy_cfg,
+                        args     = ["--no-sandbox", "--disable-dev-shm-usage"],
+                    )
+                    ctx  = await browser.new_context(
+                        locale      = "en-US",
+                        timezone_id = "America/New_York",
+                        viewport    = {"width": 1280, "height": 800},
+                        extra_http_headers={"Accept-Language": "en-US,en;q=0.9"},
+                    )
+                    page = await ctx.new_page()
+                    await apply_stealth(page)
 
-        return html or None
+                    html = ""
+                    try:
+                        await page.goto(url, wait_until="networkidle", timeout=timeout_ms)
+                        html = await page.content()
+                    except Exception:
+                        try:
+                            html = await page.content()
+                        except Exception:
+                            pass
+                    await browser.close()
+
+                    if html:
+                        logger.debug("Fetched %s via %s (%d chars)", url[:50], label, len(html))
+                        return html
+                    logger.debug("Empty HTML via %s — trying next proxy", label)
+                except Exception as exc:
+                    logger.debug("Playwright fetch via %s failed: %s — trying next", label, exc)
+                    try:
+                        await browser.close()
+                    except Exception:
+                        pass
+
+        return None
     except Exception as exc:
         logger.debug("Playwright fetch failed for %s: %s", url, exc)
         return None
@@ -276,43 +289,56 @@ async def _from_keepa(asin: str) -> Optional[PriceHistory]:
     try:
         from playwright.async_api import async_playwright
         from playwright_utils import apply_stealth
-        from israel_scraper import _get_proxy_url
-        proxy_cfg = _build_proxy_cfg(await _get_proxy_url())
+        from israel_scraper import _get_ordered_proxy_urls
+        proxy_urls  = await _get_ordered_proxy_urls()
+        proxy_cfgs  = [_build_proxy_cfg(p) for p in proxy_urls] + [None]
 
         captured: list[dict] = []
 
         async with async_playwright() as pw:
-            browser = await pw.chromium.launch(
-                headless = True,
-                proxy    = proxy_cfg,
-                args     = ["--no-sandbox", "--disable-dev-shm-usage"],
-            )
-            ctx  = await browser.new_context(
-                locale      = "en-US",
-                timezone_id = "America/New_York",
-                viewport    = {"width": 1280, "height": 800},
-            )
-            page = await ctx.new_page()
-            await apply_stealth(page)
+            for proxy_cfg in proxy_cfgs:
+                label = proxy_cfg["server"] if proxy_cfg else "no-proxy"
+                captured.clear()
+                try:
+                    browser = await pw.chromium.launch(
+                        headless = True,
+                        proxy    = proxy_cfg,
+                        args     = ["--no-sandbox", "--disable-dev-shm-usage"],
+                    )
+                    ctx  = await browser.new_context(
+                        locale      = "en-US",
+                        timezone_id = "America/New_York",
+                        viewport    = {"width": 1280, "height": 800},
+                    )
+                    page = await ctx.new_page()
+                    await apply_stealth(page)
 
-            # Intercept Keepa's internal API calls
-            async def _on_response(response):
-                if "api.keepa.com/product" in response.url and response.status == 200:
+                    async def _on_response(response):
+                        if "api.keepa.com/product" in response.url and response.status == 200:
+                            try:
+                                body = await response.json()
+                                captured.append(body)
+                            except Exception:
+                                pass
+
+                    page.on("response", _on_response)
+                    url = _KEEPA_URL.format(asin=asin)
                     try:
-                        body = await response.json()
-                        captured.append(body)
+                        await page.goto(url, wait_until="networkidle", timeout=20_000)
                     except Exception:
                         pass
+                    await browser.close()
 
-            page.on("response", _on_response)
-
-            url = _KEEPA_URL.format(asin=asin)
-            try:
-                await page.goto(url, wait_until="networkidle", timeout=20_000)
-            except Exception:
-                pass   # timeout is OK — we just need the XHR to fire
-
-            await browser.close()
+                    if captured:
+                        logger.debug("Keepa XHR captured via %s", label)
+                        break
+                    logger.debug("Keepa: no XHR via %s — trying next proxy", label)
+                except Exception as exc:
+                    logger.debug("Keepa via %s failed: %s", label, exc)
+                    try:
+                        await browser.close()
+                    except Exception:
+                        pass
 
         if not captured:
             logger.debug("Keepa: no XHR captured for %s", asin)

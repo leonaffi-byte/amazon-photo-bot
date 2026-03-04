@@ -60,44 +60,55 @@ class IsraelShippingResult:
 
 # ── Public API ─────────────────────────────────────────────────────────────────
 
-async def _get_proxy_url() -> Optional[str]:
+async def _get_ordered_proxy_urls() -> list[str]:
     """
-    Resolve the proxy URL to use for Amazon scraping.
+    Return all configured proxy URLs in priority order:
+      1. Decodo residential (rotating Israeli IPs)   — best reliability
+      2. israel_proxy_url  (WireGuard / SOCKS5)       — static fallback
 
-    Priority:
-      1. Decodo residential proxy  — rotating Israeli residential IPs, best reliability
-      2. israel_proxy_url          — WireGuard or any custom proxy (static IP)
-      3. None                      — no proxy configured
-
-    Both the Israel shipping scraper and the Playwright search backend call
-    this function so proxy configuration is managed in one place.
+    The scraper will try each in order and move to the next on failure.
+    Port is read from decodo_port key (default 7000).
+    Supported Decodo ports:
+      7000  HTTP  (recommended for Playwright)
+      7001  HTTPS
+      7002  SOCKS5
     """
     import key_store
+    urls: list[str] = []
 
     user = (await key_store.get("decodo_user")     or "").strip()
     pw   = (await key_store.get("decodo_password") or "").strip()
     if user and pw:
-        # Decodo residential proxy with country-level Israel targeting.
-        # Format: http://USER-country-IL:PASS@gate.decodo.com:7000
-        return f"http://{user}-country-IL:{pw}@gate.decodo.com:7000"
+        raw_port = (await key_store.get("decodo_port") or "").strip()
+        port = raw_port if raw_port.isdigit() else "7000"
+        urls.append(f"http://{user}-country-IL:{pw}@gate.decodo.com:{port}")
 
-    # Fallback: WireGuard or any manually configured proxy URL
-    url = await key_store.get("israel_proxy_url")
-    return url.strip() if url and url.strip() else None
+    wg = (await key_store.get("israel_proxy_url") or "").strip()
+    if wg:
+        urls.append(wg)
+
+    return urls
+
+
+async def _get_proxy_url() -> Optional[str]:
+    """Return the highest-priority configured proxy URL, or None."""
+    urls = await _get_ordered_proxy_urls()
+    return urls[0] if urls else None
 
 
 async def is_configured() -> bool:
     """Return True if any Israeli proxy is configured (Decodo or WireGuard)."""
-    return (await _get_proxy_url()) is not None
+    return bool(await _get_ordered_proxy_urls())
 
 
 async def check_shipping(asin: str) -> IsraelShippingResult:
     """
     Return Israel shipping info for an ASIN, using a 24-hour DB cache.
+    Tries each configured proxy in order — Decodo first, SOCKS5 fallback.
     Never raises — returns an unverified result on any error.
     """
-    proxy_url = await _get_proxy_url()
-    if not proxy_url:
+    proxies = await _get_ordered_proxy_urls()
+    if not proxies:
         return _unverified(asin, "No proxy configured — add Decodo keys or israel_proxy_url via /admin")
 
     # ── Check DB cache ─────────────────────────────────────────────────────────
@@ -110,11 +121,20 @@ async def check_shipping(asin: str) -> IsraelShippingResult:
     except Exception as exc:
         logger.warning("Israel cache read failed: %s", exc)
 
-    # ── Scrape via Playwright ──────────────────────────────────────────────────
-    result = await _scrape(asin, proxy_url.strip())
+    # ── Try each proxy in order ────────────────────────────────────────────────
+    result = None
+    for i, proxy_url in enumerate(proxies):
+        label = "Decodo" if i == 0 and "decodo.com" in proxy_url else "fallback proxy"
+        logger.debug("Israel check: trying %s for %s", label, asin)
+        result = await _scrape(asin, proxy_url.strip())
+        if result and result.verified:
+            logger.info("Israel check succeeded via %s for %s", label, asin)
+            break
+        if len(proxies) > i + 1:
+            logger.info("Israel check failed via %s — trying fallback proxy", label)
 
     # ── Store only verified results ────────────────────────────────────────────
-    if result.verified:
+    if result and result.verified:
         try:
             import database as db
             await db.set_israel_cache(
