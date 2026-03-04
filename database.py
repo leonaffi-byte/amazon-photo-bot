@@ -177,6 +177,18 @@ CREATE TABLE IF NOT EXISTS israel_shipping_cache (
     checked_at       REAL    NOT NULL    -- Unix timestamp
 );
 
+-- Historical price cache (CamelCamelCamel / Keepa), 6h TTL
+CREATE TABLE IF NOT EXISTS price_history_cache (
+    asin         TEXT    PRIMARY KEY,
+    source       TEXT    NOT NULL,   -- "camelcamelcamel" | "keepa"
+    current      REAL,
+    low_all_time REAL,
+    avg_90d      REAL,
+    avg_30d      REAL,
+    low_90d      REAL,
+    cached_at    REAL    NOT NULL
+);
+
 -- External REST API keys (for the Israel Shipping Verifier public API)
 CREATE TABLE IF NOT EXISTS external_api_keys (
     key             TEXT    PRIMARY KEY,
@@ -1122,5 +1134,59 @@ async def log_api_request(
         await db.execute(
             "UPDATE external_api_keys SET total_requests = total_requests + 1 WHERE key = ?",
             (api_key,),
+        )
+        await db.commit()
+
+
+# ── Price history cache ───────────────────────────────────────────────────────
+
+_PRICE_CACHE_TTL = 6 * 3600   # 6 hours
+
+
+async def get_price_cache(asin: str):
+    """
+    Return a PriceHistory object from cache, or None if expired / missing.
+    Import is deferred to avoid circular imports.
+    """
+    import time as _time
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT source, current, low_all_time, avg_90d, avg_30d, low_90d, cached_at "
+            "FROM price_history_cache WHERE asin = ?",
+            (asin,),
+        ) as cur:
+            row = await cur.fetchone()
+    if not row:
+        return None
+    source, current, low_all_time, avg_90d, avg_30d, low_90d, cached_at = row
+    if _time.time() - cached_at > _PRICE_CACHE_TTL:
+        return None   # expired
+    from price_history import PriceHistory
+    return PriceHistory(
+        asin         = asin,
+        source       = source,
+        current      = current,
+        low_all_time = low_all_time,
+        avg_90d      = avg_90d,
+        avg_30d      = avg_30d,
+        low_90d      = low_90d,
+    )
+
+
+async def set_price_cache(asin: str, ph) -> None:
+    """Store a PriceHistory object in the cache."""
+    import time as _time
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """INSERT INTO price_history_cache
+               (asin, source, current, low_all_time, avg_90d, avg_30d, low_90d, cached_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(asin) DO UPDATE SET
+                 source=excluded.source, current=excluded.current,
+                 low_all_time=excluded.low_all_time, avg_90d=excluded.avg_90d,
+                 avg_30d=excluded.avg_30d, low_90d=excluded.low_90d,
+                 cached_at=excluded.cached_at""",
+            (asin, ph.source, ph.current, ph.low_all_time,
+             ph.avg_90d, ph.avg_30d, ph.low_90d, _time.time()),
         )
         await db.commit()

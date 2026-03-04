@@ -495,6 +495,77 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
 
 
+def _spawn_price_check(context, session: UserSession, item, affiliate_tag: str | None,
+                       chat_id: int | None = None) -> None:
+    """
+    Fire-and-forget: fetch price history (CamelCamelCamel → Keepa) in the
+    background and silently update the product card caption when it arrives.
+    """
+    try:
+        msg_id    = session.results_msg_id
+        page_snap = session.page
+        if not chat_id or not msg_id:
+            return
+        asyncio.create_task(
+            _verify_price_async(
+                context.bot, chat_id, msg_id,
+                item, session, page_snap, affiliate_tag,
+            )
+        )
+    except Exception:
+        pass
+
+
+async def _verify_price_async(
+    bot, chat_id: int, msg_id: int,
+    item, session: UserSession, page_snap: int,
+    affiliate_tag: str | None,
+) -> None:
+    """
+    Background coroutine: fetch price history then edit the caption.
+    Silently aborts if user has navigated away or no data is found.
+    """
+    try:
+        import price_history as ph_mod
+        ph = await ph_mod.get_price_history(item.asin)
+        if not ph:
+            return
+
+        # Guard: abort if user already moved to another product
+        if session.page != page_snap:
+            return
+
+        # Store on session so Israel update can include it
+        session._last_price_history = ph
+
+        # Include any already-verified Israel result
+        israel_result = getattr(session, "_last_israel_result", None)
+
+        caption = style.product_caption(
+            item,
+            index         = page_snap + 1,
+            total         = len(session.filtered_items),
+            is_admin      = session.is_admin,
+            provider_name = session.chosen_result.provider_name if session.chosen_result else None,
+            affiliate_tag = affiliate_tag,
+            israel_verified = israel_result,
+            price_history   = ph,
+        )
+        keyboard = await results_keyboard(session, affiliate_tag)
+        try:
+            await bot.edit_message_caption(
+                chat_id      = chat_id,
+                message_id   = msg_id,
+                caption      = caption,
+                parse_mode   = "MarkdownV2",
+                reply_markup = keyboard,
+            )
+        except Exception:
+            pass
+    except Exception as exc:
+        logger.debug("Price history async fetch failed: %s", exc)
+
+
 def _spawn_israel_check(context, session: UserSession, item, affiliate_tag: str | None,
                         chat_id: int | None = None) -> None:
     """
@@ -543,14 +614,21 @@ async def _verify_israel_async(
         if session.page != page_snap:
             return
 
+        # Store on session so price-history update can include it
+        session._last_israel_result = result
+
+        # Include any already-loaded price history if available
+        ph = getattr(session, "_last_price_history", None)
+
         caption = style.product_caption(
             item,
-            index         = page_snap + 1,
-            total         = len(session.filtered_items),
-            is_admin      = session.is_admin,
-            provider_name = session.chosen_result.provider_name if session.chosen_result else None,
-            affiliate_tag = affiliate_tag,
+            index           = page_snap + 1,
+            total           = len(session.filtered_items),
+            is_admin        = session.is_admin,
+            provider_name   = session.chosen_result.provider_name if session.chosen_result else None,
+            affiliate_tag   = affiliate_tag,
             israel_verified = result,
+            price_history   = ph,
         )
         keyboard = await results_keyboard(session, affiliate_tag)
         try:
@@ -618,9 +696,11 @@ async def _render_results(query, context, session: UserSession) -> None:
                 await query.message.delete()
             except Exception:
                 pass
-            # Kick off background Israel verification (non-blocking)
+            # Kick off background checks (non-blocking)
             _spawn_israel_check(context, session, item, affiliate_tag,
                                 chat_id=query.message.chat_id)
+            _spawn_price_check(context, session, item, affiliate_tag,
+                               chat_id=query.message.chat_id)
             return
         except Exception as exc:
             logger.error("send_photo failed: %s", exc)
@@ -637,9 +717,11 @@ async def _render_results(query, context, session: UserSession) -> None:
                 ),
                 reply_markup = keyboard,
             )
-            # Kick off background Israel verification (non-blocking)
+            # Kick off background checks (non-blocking)
             _spawn_israel_check(context, session, item, affiliate_tag,
                                 chat_id=query.message.chat_id)
+            _spawn_price_check(context, session, item, affiliate_tag,
+                               chat_id=query.message.chat_id)
             return
         except Exception as exc:
             logger.warning("edit_message_media failed (%s), trying caption-only", exc)

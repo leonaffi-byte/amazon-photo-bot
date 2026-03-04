@@ -246,11 +246,13 @@ def product_caption(
     is_admin: bool = False,
     provider_name: Optional[str] = None,
     affiliate_tag: Optional[str] = None,
-    israel_verified=None,           # Optional[israel_scraper.IsraelShippingResult]
+    israel_verified=None,   # Optional[israel_scraper.IsraelShippingResult]
+    price_history=None,     # Optional[price_history.PriceHistory]
 ) -> str:
     """
     Single-product caption for the photo carousel (max 1024 chars).
-    Shows position counter, price, rating, and Israel delivery signal.
+    Shows position counter, price, rating, Israel delivery signal,
+    and optional historical price data from CamelCamelCamel / Keepa.
     Admin users see the AI provider + affiliate tag in a footer line.
     """
     title = esc(item.title[:100])
@@ -273,6 +275,9 @@ def product_caption(
     else:
         israel = esc(item.israel_delivery_note)
 
+    # Price history line (e.g. "📊 ATL $24.99 · 90d avg $38.50 · ✅ Below avg")
+    price_line = _price_history_line(price_history)
+
     # Position counter e.g. "3 of 18"
     counter  = f"_{index} of {total}_" if total > 1 else ""
 
@@ -288,6 +293,7 @@ def product_caption(
         f"{price}   {rating}\n"
         f"{delivery}\n"
         f"{israel}"
+        f"{price_line}"
         f"{admin_line}"
     )
 
@@ -295,6 +301,29 @@ def product_caption(
     if len(caption) > 1020:
         caption = caption[:1020] + "\\.\\.\\."
     return caption
+
+
+def _price_history_line(ph) -> str:
+    """
+    Format a compact price history line for the product caption.
+    Returns empty string if ph is None or has no useful data.
+    Example: "\n📊 ATL $24\\.99 · 90d avg $38\\.50 · ✅ Below avg"
+    """
+    if not ph:
+        return ""
+    parts: list[str] = []
+    if ph.low_all_time:
+        parts.append(f"ATL {esc(f'${ph.low_all_time:.2f}')}")
+    if ph.avg_90d:
+        parts.append(f"90d avg {esc(f'${ph.avg_90d:.2f}')}")
+    elif ph.avg_30d:
+        parts.append(f"30d avg {esc(f'${ph.avg_30d:.2f}')}")
+    if not parts:
+        return ""
+    deal = ph.deal_label   # already MD-escaped inside the property
+    summary = " · ".join(parts)
+    deal_suffix = f" · {deal}" if deal else ""
+    return f"\n📊 _{summary}{deal_suffix}_"
 
 
 def results_page(session, affiliate_tag: Optional[str] = None, is_admin: bool = False) -> str:
