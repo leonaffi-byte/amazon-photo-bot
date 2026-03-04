@@ -114,12 +114,7 @@ async def _fetch_rendered_html(url: str, timeout_ms: int = 15_000) -> Optional[s
     """
     try:
         from playwright.async_api import async_playwright
-        try:
-            from playwright_stealth import stealth_async
-            _has_stealth = True
-        except ImportError:
-            _has_stealth = False
-
+        from playwright_utils import apply_stealth
         from israel_scraper import _get_proxy_url
         proxy_cfg = _build_proxy_cfg(await _get_proxy_url())
 
@@ -138,8 +133,7 @@ async def _fetch_rendered_html(url: str, timeout_ms: int = 15_000) -> Optional[s
                 },
             )
             page = await ctx.new_page()
-            if _has_stealth:
-                await stealth_async(page)
+            await apply_stealth(page)
 
             html = ""
             try:
@@ -281,12 +275,7 @@ async def _from_keepa(asin: str) -> Optional[PriceHistory]:
     """
     try:
         from playwright.async_api import async_playwright
-        try:
-            from playwright_stealth import stealth_async
-            _HAS_STEALTH = True
-        except ImportError:
-            _HAS_STEALTH = False
-
+        from playwright_utils import apply_stealth
         from israel_scraper import _get_proxy_url
         proxy_cfg = _build_proxy_cfg(await _get_proxy_url())
 
@@ -299,14 +288,12 @@ async def _from_keepa(asin: str) -> Optional[PriceHistory]:
                 args     = ["--no-sandbox", "--disable-dev-shm-usage"],
             )
             ctx  = await browser.new_context(
-                locale          = "en-US",
-                timezone_id     = "America/New_York",
-                viewport        = {"width": 1280, "height": 800},
+                locale      = "en-US",
+                timezone_id = "America/New_York",
+                viewport    = {"width": 1280, "height": 800},
             )
             page = await ctx.new_page()
-
-            if _HAS_STEALTH:
-                await stealth_async(page)
+            await apply_stealth(page)
 
             # Intercept Keepa's internal API calls
             async def _on_response(response):

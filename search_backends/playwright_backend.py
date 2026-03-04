@@ -136,12 +136,7 @@ class PlaywrightBackend(SearchBackend):
 
         try:
             from playwright.async_api import async_playwright, TimeoutError as PWTimeout
-            try:
-                from playwright_stealth import stealth_async
-                _has_stealth = True
-            except ImportError:
-                _has_stealth = False
-                logger.warning("playwright-stealth not installed — add to requirements.txt")
+            from playwright_utils import apply_stealth
 
             async with async_playwright() as pw:
                 launch_args = {
@@ -165,9 +160,7 @@ class PlaywrightBackend(SearchBackend):
                 )
                 page_obj = await context.new_page()
 
-                if _has_stealth:
-                    from playwright_stealth import stealth_async
-                    await stealth_async(page_obj)
+                await apply_stealth(page_obj)
 
                 try:
                     items = await self._run_search(page_obj, query, page, max_results)

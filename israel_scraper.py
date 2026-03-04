@@ -139,16 +139,7 @@ async def _scrape(asin: str, proxy_url: str) -> IsraelShippingResult:
     try:
         from playwright.async_api import async_playwright, TimeoutError as PWTimeout
 
-        # Import stealth — graceful if package not installed
-        try:
-            from playwright_stealth import stealth_async
-            _has_stealth = True
-        except ImportError:
-            _has_stealth = False
-            logger.warning(
-                "playwright-stealth not installed — bot detection risk is higher. "
-                "Add 'playwright-stealth>=1.0.6' to requirements.txt."
-            )
+        from playwright_utils import apply_stealth
 
         async with async_playwright() as pw:
             browser = await pw.chromium.launch(
@@ -171,9 +162,7 @@ async def _scrape(asin: str, proxy_url: str) -> IsraelShippingResult:
             page = await context.new_page()
 
             # Apply stealth patches (canvas, WebGL, navigator.webdriver, etc.)
-            if _has_stealth:
-                from playwright_stealth import stealth_async
-                await stealth_async(page)
+            await apply_stealth(page)
 
             try:
                 # ── Step 1: Amazon homepage — cookies + CSRF ───────────────
