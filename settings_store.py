@@ -119,6 +119,22 @@ SETTINGS_META: dict[str, dict] = {
         "desc": "Port for the self-hosted shortener server",
         "choices": [],
     },
+    "default_rate_limit": {
+        "env": "DEFAULT_RATE_LIMIT",
+        "default": "5",
+        "type": "int",
+        "label": "⏱ Rate Limit (requests)",
+        "desc": "Max requests per user per window (default for all users)",
+        "choices": [],
+    },
+    "default_rate_window": {
+        "env": "DEFAULT_RATE_WINDOW",
+        "default": "60",
+        "type": "int",
+        "label": "⏱ Rate Window (seconds)",
+        "desc": "Time window for rate limiting in seconds",
+        "choices": [],
+    },
 }
 
 

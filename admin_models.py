@@ -127,6 +127,7 @@ async def models_content() -> tuple[str, InlineKeyboardMarkup]:
 # ── Health panel ──────────────────────────────────────────────────────────────
 
 async def health_content() -> tuple[str, InlineKeyboardMarkup]:
+    import time as _time
     health_rows = await db.get_all_model_health()
 
     lines = [
@@ -137,14 +138,28 @@ async def health_content() -> tuple[str, InlineKeyboardMarkup]:
     if not health_rows:
         lines.append("_No failure data yet\\._")
     else:
+        now = _time.time()
         for r in health_rows:
-            status = "🔴 DISABLED" if r["is_disabled"] else (
-                "🟡 unstable" if r["consecutive_failures"] >= 2 else "🟢 ok"
-            )
+            state = r.get("state", "healthy")
+            if state == "disabled":
+                status = "🔴 DISABLED"
+            elif state == "degraded":
+                status = "🟡 degraded"
+            else:
+                status = "🟢 healthy"
             short = _esc(r["provider_name"].split("/")[-1][:22])
             lines.append(f"  {status} `{short}`")
             if r["consecutive_failures"]:
                 lines.append(f"    Failures: {r['consecutive_failures']}×")
+            # Show auto-recovery time for disabled models
+            disabled_until = r.get("disabled_until")
+            if state == "disabled" and disabled_until:
+                remaining = max(0, disabled_until - now)
+                if remaining > 0:
+                    mins = int(remaining // 60)
+                    lines.append(f"    Retry in: {mins}m")
+                else:
+                    lines.append(f"    _Ready for retry_")
             if r["last_failure_reason"]:
                 lines.append(f"    Last: _{_esc(r['last_failure_reason'][:60])}_")
 

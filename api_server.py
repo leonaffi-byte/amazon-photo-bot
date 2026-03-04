@@ -73,6 +73,18 @@ app.add_middleware(
     allow_headers     = ["*"],
 )
 
+
+@app.middleware("http")
+async def correlation_id_middleware(request: Request, call_next):
+    """Assign a correlation ID to every incoming API request."""
+    from correlation import new_correlation_id, get_correlation_id
+    cid = new_correlation_id()
+    logger.info("API request %s %s [cid=%s]", request.method, request.url.path, cid)
+    response = await call_next(request)
+    response.headers["X-Correlation-ID"] = cid
+    return response
+
+
 # ── Auth ───────────────────────────────────────────────────────────────────────
 
 _API_KEY_HEADER    = APIKeyHeader(name="X-API-Key",      auto_error=False)
@@ -144,10 +156,12 @@ class CreateKeyRequest(BaseModel):
 
 @app.on_event("startup")
 async def _startup() -> None:
+    from correlation import CorrelationFilter
     logging.basicConfig(
         level  = logging.INFO,
-        format = "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        format = "%(asctime)s [%(levelname)s] [%(correlation_id)s] %(name)s: %(message)s",
     )
+    logging.getLogger().addFilter(CorrelationFilter())
     await db.init_db()
     logger.info("🚀 Israel Shipping API started")
 
@@ -503,10 +517,12 @@ async def update_key(
 # ── Entry point ────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    from correlation import CorrelationFilter
     logging.basicConfig(
         level  = logging.INFO,
-        format = "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        format = "%(asctime)s [%(levelname)s] [%(correlation_id)s] %(name)s: %(message)s",
     )
+    logging.getLogger().addFilter(CorrelationFilter())
     uvicorn.run(
         "api_server:app",
         host    = "0.0.0.0",

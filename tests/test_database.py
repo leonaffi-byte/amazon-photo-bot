@@ -115,6 +115,120 @@ class TestAffiliateTags:
         t = next(t for t in tags if t.tag == "count-20")
         assert t.search_count == 2
 
+    async def test_is_default_false_by_default(self):
+        tag = await db.add_tag("nodef-20", "No default", admin_id=1, admin_name="A")
+        assert tag.is_default is False
+
+    async def test_set_default_tag(self):
+        t1 = await db.add_tag("def1-20", "D1", admin_id=1, admin_name="A")
+        t2 = await db.add_tag("def2-20", "D2", admin_id=1, admin_name="A")
+        await db.set_default_tag(t1.id)
+        default = await db.get_default_tag()
+        assert default == "def1-20"
+
+    async def test_set_default_unsets_previous(self):
+        t1 = await db.add_tag("old-20", "Old", admin_id=1, admin_name="A")
+        t2 = await db.add_tag("new-20", "New", admin_id=1, admin_name="A")
+        await db.set_default_tag(t1.id)
+        await db.set_default_tag(t2.id)
+        default = await db.get_default_tag()
+        assert default == "new-20"
+        # Confirm old is no longer default
+        tags = await db.get_all_tags()
+        old_tag = next(t for t in tags if t.tag == "old-20")
+        assert old_tag.is_default is False
+
+    async def test_get_default_tag_none_when_unset(self):
+        await db.add_tag("plain-20", "Plain", admin_id=1, admin_name="A")
+        default = await db.get_default_tag()
+        assert default is None
+
+    async def test_clear_default_tag(self):
+        t1 = await db.add_tag("clr-20", "Clear", admin_id=1, admin_name="A")
+        await db.set_default_tag(t1.id)
+        await db.clear_default_tag()
+        default = await db.get_default_tag()
+        assert default is None
+
+    async def test_get_active_tag_falls_back_to_default(self):
+        """When no tag is active, get_active_tag returns the default tag."""
+        t1 = await db.add_tag("fallback-20", "Fallback", admin_id=1, admin_name="A")
+        await db.set_default_tag(t1.id)
+        # No active tag, but default is set
+        active = await db.get_active_tag()
+        assert active == "fallback-20"
+
+    async def test_get_active_tag_prefers_active_over_default(self):
+        """Active tag takes precedence over default tag."""
+        t1 = await db.add_tag("default-20", "Default", admin_id=1, admin_name="A")
+        t2 = await db.add_tag("active-20", "Active", admin_id=1, admin_name="A", make_active=True)
+        await db.set_default_tag(t1.id)
+        active = await db.get_active_tag()
+        assert active == "active-20"
+
+    async def test_export_tags_csv(self):
+        await db.add_tag("exp1-20", "First export", admin_id=1, admin_name="A", make_active=True)
+        await db.add_tag("exp2-20", "Second export", admin_id=1, admin_name="A")
+        await db.set_default_tag(
+            (await db.get_all_tags())[0].id  # first tag (exp1-20 is active so it's first)
+        )
+        csv_data = await db.export_tags_csv()
+        assert "tag_name" in csv_data
+        assert "exp1-20" in csv_data
+        assert "exp2-20" in csv_data
+        assert "is_default" in csv_data
+
+    async def test_export_empty_tags_csv(self):
+        csv_data = await db.export_tags_csv()
+        lines = csv_data.strip().split("\n")
+        assert len(lines) == 1   # header only
+
+    async def test_import_tags_csv(self):
+        csv_data = "tag_name,description,is_active,is_default\nimp1-20,Imported,0,0\nimp2-20,Also imported,0,0\n"
+        result = await db.import_tags_csv(csv_data, imported_by=42)
+        assert result["imported"] == 2
+        assert result["skipped"] == 0
+        assert result["errors"] == 0
+        tags = await db.get_all_tags()
+        names = {t.tag for t in tags}
+        assert "imp1-20" in names
+        assert "imp2-20" in names
+
+    async def test_import_tags_csv_skips_duplicates(self):
+        await db.add_tag("dup-20", "Existing", admin_id=1, admin_name="A")
+        csv_data = "tag_name,description\ndup-20,Duplicate\nnew-20,New one\n"
+        result = await db.import_tags_csv(csv_data, imported_by=42)
+        assert result["imported"] == 1
+        assert result["skipped"] == 1
+
+    async def test_import_tags_csv_errors_on_empty_name(self):
+        csv_data = "tag_name,description\n,No name\ngood-20,Good\n"
+        result = await db.import_tags_csv(csv_data, imported_by=42)
+        assert result["imported"] == 1
+        assert result["errors"] == 1
+
+    async def test_import_tags_csv_with_active_and_default(self):
+        csv_data = "tag_name,description,is_active,is_default\nact-20,Active,1,0\ndef-20,Default,0,1\n"
+        result = await db.import_tags_csv(csv_data, imported_by=42)
+        assert result["imported"] == 2
+        active = await db.get_active_tag()
+        # act-20 was set active but then def-20's import didn't change it
+        # Since act-20 was imported first as active, the active tag should be act-20
+        # (def-20 is not active, but is default)
+        assert active == "act-20"
+        default = await db.get_default_tag()
+        assert default == "def-20"
+
+    async def test_import_tags_csv_roundtrip(self):
+        """Export then re-import should produce the same tags (minus duplicates)."""
+        await db.add_tag("rt1-20", "Round trip 1", admin_id=1, admin_name="A", make_active=True)
+        await db.add_tag("rt2-20", "Round trip 2", admin_id=1, admin_name="A")
+        csv_data = await db.export_tags_csv()
+        # Import into a fresh context (tags already exist, so all should be skipped)
+        result = await db.import_tags_csv(csv_data, imported_by=42)
+        assert result["skipped"] == 2
+        assert result["imported"] == 0
+
 
 # ── Search logs ────────────────────────────────────────────────────────────────
 
@@ -333,3 +447,63 @@ class TestBotSettings:
         await db.delete_setting("vision_mode")
         result = await db.get_setting("vision_mode")
         assert result is None
+
+
+# ── User rate limits ──────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+class TestUserRateLimits:
+    async def test_no_custom_limit_returns_none(self):
+        result = await db.get_user_rate_limit(12345)
+        assert result is None
+
+    async def test_set_and_get(self):
+        await db.set_user_rate_limit(
+            user_id=100, max_requests=10, window_seconds=120, updated_by=1,
+        )
+        rl = await db.get_user_rate_limit(100)
+        assert rl is not None
+        assert rl.user_id == 100
+        assert rl.max_requests == 10
+        assert rl.window_seconds == 120
+        assert rl.updated_by == 1
+        assert rl.updated_at  # non-empty string
+
+    async def test_update_existing(self):
+        await db.set_user_rate_limit(200, 5, 60, updated_by=1)
+        await db.set_user_rate_limit(200, 20, 300, updated_by=2)
+        rl = await db.get_user_rate_limit(200)
+        assert rl.max_requests == 20
+        assert rl.window_seconds == 300
+        assert rl.updated_by == 2
+
+    async def test_remove_existing(self):
+        await db.set_user_rate_limit(300, 5, 60, updated_by=1)
+        removed = await db.remove_user_rate_limit(300)
+        assert removed is True
+        assert await db.get_user_rate_limit(300) is None
+
+    async def test_remove_nonexistent_returns_false(self):
+        removed = await db.remove_user_rate_limit(99999)
+        assert removed is False
+
+    async def test_list_empty(self):
+        limits = await db.list_user_rate_limits()
+        assert limits == []
+
+    async def test_list_multiple(self):
+        await db.set_user_rate_limit(400, 10, 60, updated_by=1)
+        await db.set_user_rate_limit(500, 20, 120, updated_by=1)
+        limits = await db.list_user_rate_limits()
+        assert len(limits) == 2
+        user_ids = {rl.user_id for rl in limits}
+        assert user_ids == {400, 500}
+
+    async def test_list_ordered_by_updated_at_desc(self):
+        # First insert will have earlier timestamp
+        await db.set_user_rate_limit(600, 5, 30, updated_by=1)
+        await db.set_user_rate_limit(700, 10, 60, updated_by=1)
+        limits = await db.list_user_rate_limits()
+        # Most recently updated first
+        assert limits[0].user_id == 700
+        assert limits[1].user_id == 600

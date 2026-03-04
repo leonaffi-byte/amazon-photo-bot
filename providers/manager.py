@@ -17,15 +17,24 @@ Per-model enable/disable via environment variables (all default to true):
   ENABLE_GEMINI_1_5_FLASH=true/false
   ENABLE_GEMINI_2_0_FLASH=true/false
   ENABLE_GEMINI_1_5_PRO=true/false
+
+Progressive health degradation:
+  After 1 failure in window: state = 'degraded', log warning
+  After 2 failures in window: state = 'degraded', send admin notification
+  After 3+ failures in window: state = 'disabled', send admin alert, auto-recover after cooldown
 """
 from __future__ import annotations
 
 import asyncio
 import logging
 import os
+import time
 from typing import Optional
 
+from correlation import get_correlation_id
 from providers.base import ProviderResult, VisionProvider
+from circuit_breaker import CircuitOpenError, registry as cb_registry
+from metrics import VISION_REQUESTS_TOTAL, VISION_LATENCY, API_COST_DOLLARS, ERRORS_TOTAL
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +63,27 @@ async def _build_providers() -> dict[str, VisionProvider]:
         disabled = await db.get_disabled_models()
     except Exception:
         disabled = set()   # DB unavailable (e.g. during tests) — treat all as enabled
+
+    # Check for models ready for auto-recovery
+    try:
+        recovery_models = await db.get_models_ready_for_recovery()
+        for pname in recovery_models:
+            await db.update_model_health_state(
+                pname, state="degraded", is_disabled=False,
+                last_notification_level=0,
+            )
+            logger.info("[%s] Auto-recovery: moving from disabled -> degraded for retry", pname)
+            import notifications
+            _esc_name = pname.replace("-", "\\-").replace(".", "\\.").replace("/", "\\/")
+            try:
+                await notifications.admin(
+                    f"\\u2705 `{_esc_name}` recovered and is back online\n"
+                    f"State: degraded \\(testing\\)"
+                )
+            except Exception:
+                pass
+    except Exception:
+        pass
 
     providers: dict[str, VisionProvider] = {}
 
@@ -210,17 +240,145 @@ async def cheapest_provider() -> VisionProvider:
     )
 
 
-# ── Core analysis function ────────────────────────────────────────────────────
+# -- Progressive health degradation -------------------------------------------
 
-_AUTO_DISABLE_THRESHOLD = 5   # consecutive failures before auto-disabling a model
-
-# Errors that strongly suggest the model is gone / unavailable (permanent — skip retry)
+# Errors that strongly suggest the model is gone / unavailable
 _MODEL_GONE_PATTERNS = (
     "404", "not found", "does not exist", "no such model",
     "model_not_found", "invalid model", "deprecated",
     "unauthorized", "forbidden", "invalid api key", "authentication",
 )
 
+
+def _escape_md2(text: str) -> str:
+    """Escape MarkdownV2 special characters for admin notifications."""
+    for ch in r"\_*[]()~`>#+-=|{}.!":
+        text = text.replace(ch, f"\\{ch}")
+    return text
+
+
+def _failures_in_window(failure_timestamps: list[float], window_seconds: int) -> int:
+    """Count how many failure timestamps fall within the recent time window."""
+    cutoff = time.time() - window_seconds
+    return sum(1 for ts in failure_timestamps if ts >= cutoff)
+
+
+async def _handle_progressive_health(
+    provider_name: str,
+    error_str: str,
+    model_gone: bool,
+) -> None:
+    """
+    Progressive degradation logic:
+      1 failure in window  -> state='degraded', log warning
+      2 failures in window -> state='degraded', send admin notification
+      3+ failures in window -> state='disabled', send admin alert, schedule auto-recovery
+    """
+    import config
+    import database as db
+    import notifications
+
+    health = await db.get_model_health_row(provider_name)
+    if not health:
+        return
+
+    failure_window = config.HEALTH_FAILURE_WINDOW
+    disable_threshold = config.HEALTH_DISABLE_THRESHOLD
+    recovery_cooldown = config.HEALTH_RECOVERY_COOLDOWN
+
+    # If model is definitively gone (404, not found, etc.), disable immediately
+    if model_gone:
+        disabled_until = time.time() + recovery_cooldown
+        await db.update_model_health_state(
+            provider_name,
+            state="disabled",
+            is_disabled=True,
+            disabled_until=disabled_until,
+            last_notification_level=3,
+        )
+        _providers.pop(provider_name, None)
+        esc_name = _escape_md2(provider_name)
+        esc_err = _escape_md2(error_str[:200])
+        cooldown_min = recovery_cooldown // 60
+        await notifications.admin(
+            f"\\u26d4 `{esc_name}` auto\\-disabled\n"
+            f"Reason: model not found\n"
+            f"Error: `{esc_err}`\n"
+            f"Will retry in {cooldown_min} minutes\\.\n\n"
+            f"Re\\-enable via /admin \\u2192 Models"
+        )
+        logger.warning("[%s] AUTO-DISABLED: model not found", provider_name)
+        return
+
+    # Count failures within the time window
+    failures_in_window = _failures_in_window(health["failure_timestamps"], failure_window)
+    prev_notification_level = health["last_notification_level"]
+
+    if failures_in_window >= disable_threshold:
+        # Level 3: auto-disable with recovery timer
+        disabled_until = time.time() + recovery_cooldown
+        await db.update_model_health_state(
+            provider_name,
+            state="disabled",
+            is_disabled=True,
+            disabled_until=disabled_until,
+            last_notification_level=3,
+        )
+        _providers.pop(provider_name, None)
+        logger.warning(
+            "[%s] AUTO-DISABLED after %d failures in %ds window. Will retry in %ds.",
+            provider_name, failures_in_window, failure_window, recovery_cooldown,
+        )
+        if prev_notification_level < 3:
+            esc_name = _escape_md2(provider_name)
+            esc_err = _escape_md2(error_str[:200])
+            cooldown_min = recovery_cooldown // 60
+            await notifications.admin(
+                f"\\u26d4 `{esc_name}` auto\\-disabled after "
+                f"{failures_in_window} failures in {failure_window // 60} min\\.\n"
+                f"Last error: `{esc_err}`\n"
+                f"Will retry in {cooldown_min} minutes\\.\n\n"
+                f"Re\\-enable via /admin \\u2192 Models"
+            )
+
+    elif failures_in_window == 2:
+        # Level 2: degraded + admin alert
+        await db.update_model_health_state(
+            provider_name,
+            state="degraded",
+            last_notification_level=max(prev_notification_level, 2),
+        )
+        logger.warning(
+            "[%s] DEGRADED: 2 failures in %ds window — may be experiencing issues",
+            provider_name, failure_window,
+        )
+        if prev_notification_level < 2:
+            esc_name = _escape_md2(provider_name)
+            await notifications.admin(
+                f"\\ud83d\\udd34 `{esc_name}` had 2 failures in the last "
+                f"{failure_window // 60} min \\u2014 may be experiencing issues"
+            )
+
+    elif failures_in_window == 1:
+        # Level 1: degraded + log warning only
+        await db.update_model_health_state(
+            provider_name,
+            state="degraded",
+            last_notification_level=max(prev_notification_level, 1),
+        )
+        logger.warning(
+            "[%s] DEGRADED: 1 failure in %ds window",
+            provider_name, failure_window,
+        )
+        if prev_notification_level < 1:
+            esc_name = _escape_md2(provider_name)
+            await notifications.admin(
+                f"\\u26a0\\ufe0f `{esc_name}` had 1 failure in the last "
+                f"{failure_window // 60} min"
+            )
+
+
+# -- Core analysis function ---------------------------------------------------
 
 async def analyse_image(
     image_bytes: bytes,
@@ -247,18 +405,37 @@ async def analyse_image(
     else:
         targets = list(providers.values())
 
+    cid = get_correlation_id()
+    logger.info(
+        "analyse_image mode=%s targets=[%s] cid=%s",
+        mode, ", ".join(t.full_name for t in targets), cid,
+    )
+
     async def _safe_run(provider: VisionProvider) -> Optional[ProviderResult]:
         import database as db
+        cb = cb_registry.get(
+            f"vision:{provider.full_name}",
+            failure_threshold=5,
+            recovery_timeout=60.0,
+            success_threshold=2,
+        )
         last_exc: Exception | None = None
 
         for attempt in range(2):  # 1 initial + 1 retry
             try:
-                result = await provider.analyse(image_bytes, context_hint=context_hint)
+                result = await cb.call(
+                    provider.analyse(image_bytes, context_hint=context_hint)
+                )
                 logger.info(
-                    "[%s] OK — confidence=%s cost=%s latency=%dms",
+                    "[%s] OK -- confidence=%s cost=%s latency=%dms",
                     provider.full_name, result.confidence, result.cost_str, result.latency_ms,
                 )
-                # Log cost + reset failure counter
+                # Record metrics
+                _labels = {"provider": provider.name, "model": provider.model_id}
+                VISION_REQUESTS_TOTAL.inc(labels={**_labels, "status": "success"})
+                VISION_LATENCY.observe(result.latency_ms / 1000.0, labels=_labels)
+                API_COST_DOLLARS.inc(result.cost_usd, labels=_labels)
+                # Log cost + record success (resets failure state)
                 try:
                     await db.log_api_cost(
                         provider_name=provider.full_name,
@@ -267,7 +444,22 @@ async def analyse_image(
                         output_tokens=result.output_tokens,
                         user_id=user_id,
                     )
-                    await db.reset_model_failures(provider.full_name)
+                    # Check if this model was degraded — send recovery notification
+                    health = await db.get_model_health_row(provider.full_name)
+                    was_degraded = health and health["state"] in ("degraded", "disabled")
+                    prev_level = health["last_notification_level"] if health else 0
+
+                    await db.record_model_success(provider.full_name)
+
+                    if was_degraded and prev_level >= 2:
+                        esc_name = _escape_md2(provider.full_name)
+                        import notifications
+                        try:
+                            await notifications.admin(
+                                f"\\u2705 `{esc_name}` recovered and is back online"
+                            )
+                        except Exception:
+                            pass
                 except Exception as dbe:
                     logger.warning("[%s] DB log failed (non-critical): %s", provider.full_name, dbe)
                 return result
@@ -282,24 +474,16 @@ async def analyse_image(
                     await asyncio.sleep(2)
                     continue
 
-                # Final failure — track and potentially auto-disable
+                # Final failure — track and apply progressive degradation
                 logger.error("[%s] Failed: %s", provider.full_name, exc)
+                VISION_REQUESTS_TOTAL.inc(labels={"provider": provider.name, "model": provider.model_id, "status": "error"})
+                ERRORS_TOTAL.inc(labels={"module": "providers.manager", "error_type": type(exc).__name__})
                 try:
-                    consec = await db.increment_model_failures(provider.full_name, str(exc))
+                    await db.increment_model_failures(provider.full_name, str(exc))
                     model_gone = any(p in err_str for p in _MODEL_GONE_PATTERNS)
-                    if model_gone or consec >= _AUTO_DISABLE_THRESHOLD:
-                        await db.mark_model_disabled(provider.full_name, str(exc))
-                        _providers.pop(provider.full_name, None)
-                        import notifications
-                        reason = "model not found" if model_gone else f"{consec} consecutive failures"
-                        await notifications.admin(
-                            f"⚠️ *Auto\\-disabled model*\n"
-                            f"`{provider.full_name}`\n"
-                            f"Reason: {reason}\n"
-                            f"Last error: `{str(exc)[:200]}`\n\n"
-                            f"Re\\-enable via /admin → 🤖 Models"
-                        )
-                        logger.warning("[%s] AUTO-DISABLED after %d failures", provider.full_name, consec)
+                    await _handle_progressive_health(
+                        provider.full_name, str(exc), model_gone,
+                    )
                 except Exception as dbe:
                     logger.warning("[%s] DB health tracking failed: %s", provider.full_name, dbe)
                 return None
@@ -309,7 +493,7 @@ async def analyse_image(
     all_results  = [r for r in raw_results if r is not None]
 
     if not all_results:
-        raise RuntimeError("All vision providers failed. Add or check your API keys in /admin → 🔑 API Keys.")
+        raise RuntimeError("All vision providers failed. Add or check your API keys in /admin -> API Keys.")
 
     winner = max(all_results, key=lambda r: r.quality_score)
     return winner, all_results

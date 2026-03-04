@@ -37,6 +37,8 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
+from circuit_breaker import registry as cb_registry
+
 logger = logging.getLogger(__name__)
 
 # ── Constants ──────────────────────────────────────────────────────────────────
@@ -149,18 +151,21 @@ async def check_shipping(asin: str) -> IsraelShippingResult:
     for i, proxy_url in enumerate(proxies):
         proxy_url = proxy_url.strip()
         label = "Decodo" if i == 0 and "decodo.com" in proxy_url else "fallback proxy"
-        if not is_proxy_healthy(proxy_url):
-            logger.debug("Israel check: skipping %s (circuit breaker open) for %s", label, asin)
-            continue
+        cb = cb_registry.get(
+            f"israel_proxy:{label}",
+            failure_threshold=5,
+            recovery_timeout=120.0,   # proxies may need longer recovery
+            success_threshold=2,
+        )
         logger.debug("Israel check: trying %s for %s", label, asin)
-        result = await _scrape(asin, proxy_url)
+        try:
+            result = await cb.call(_scrape_or_raise(asin, proxy_url))
+        except Exception as exc:
+            logger.info("Israel check failed via %s (circuit breaker): %s", label, exc)
+            result = _unverified(asin, f"{label}: {type(exc).__name__}")
         if result and result.verified:
-            record_proxy_success(proxy_url)
             logger.info("Israel check succeeded via %s for %s", label, asin)
             break
-        record_proxy_failure(proxy_url)
-        if len(proxies) > i + 1:
-            logger.info("Israel check failed via %s — trying fallback proxy", label)
 
     # ── Store only verified results ────────────────────────────────────────────
     if result and result.verified:
@@ -179,6 +184,23 @@ async def check_shipping(asin: str) -> IsraelShippingResult:
 
 
 # ── Playwright scraper ─────────────────────────────────────────────────────────
+
+class _ScrapeFailedError(Exception):
+    """Raised by _scrape_or_raise when scraping returns an unverified result."""
+    pass
+
+
+async def _scrape_or_raise(asin: str, proxy_url: str) -> IsraelShippingResult:
+    """Wrapper around _scrape that raises on unverified results.
+
+    This allows the circuit breaker to track failures properly, since
+    _scrape itself never raises (it returns _unverified() instead).
+    """
+    result = await _scrape(asin, proxy_url)
+    if not result.verified:
+        raise _ScrapeFailedError(result.note)
+    return result
+
 
 async def _scrape(asin: str, proxy_url: str) -> IsraelShippingResult:
     """

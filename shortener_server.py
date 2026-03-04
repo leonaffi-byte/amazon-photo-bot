@@ -7,6 +7,7 @@ Handles redirect requests and logs every click to SQLite for analytics.
 Endpoints:
   GET /{code}        → 301 redirect to the long URL (logs click)
   GET /health        → plain-text health check (for uptime monitors / nginx)
+  GET /metrics       → Prometheus text-format metrics (if METRICS_ENABLED=true)
   GET /stats/{code}  → JSON click stats for a code (admin use)
 
 Setup:
@@ -36,6 +37,7 @@ from aiohttp import web
 
 import config
 import database as db
+from metrics import registry as _metrics_registry
 
 logger = logging.getLogger(__name__)
 
@@ -90,11 +92,23 @@ async def handle_stats(request: web.Request) -> web.Response:
     return web.json_response(stats)
 
 
+async def handle_metrics(request: web.Request) -> web.Response:
+    """Prometheus-compatible metrics endpoint."""
+    if not config.METRICS_ENABLED:
+        raise web.HTTPNotFound(text="Metrics disabled.")
+    body = _metrics_registry.format_prometheus()
+    return web.Response(
+        text=body,
+        content_type="text/plain; version=0.0.4; charset=utf-8",
+    )
+
+
 # ── App factory ────────────────────────────────────────────────────────────────
 
 def build_web_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/health",        handle_health)
+    app.router.add_get("/metrics",       handle_metrics)
     app.router.add_get("/stats/{code}",  handle_stats)
     app.router.add_get("/{code}",        handle_redirect)
     return app

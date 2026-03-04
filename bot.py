@@ -29,11 +29,13 @@ import config
 import database as db
 import style
 import url_shortener
+from correlation import get_correlation_id, new_correlation_id
 from image_analyzer import ProductInfo
 from providers.base import ProviderResult
 from providers.manager import analyse_image, get_providers
 from amazon_search import AmazonItem, search_amazon, backend_name
 from translator import detect_language, translate_and_refine
+from metrics import REQUESTS_TOTAL
 
 logger = logging.getLogger(__name__)
 
@@ -118,25 +120,52 @@ _sessions: dict[int, UserSession] = {}
 
 
 # ── Rate limiter ───────────────────────────────────────────────────────────────
-RATE_MAX_REQUESTS = 5
-RATE_WINDOW_SECS  = 60
+# Per-user rate limiting: custom limits from DB, fallback to config defaults.
+# In-memory buckets keyed by user_id; limits resolved per-check.
 _rate_buckets: dict[int, deque] = defaultdict(deque)
+# Local cache of per-user DB limits to avoid hitting DB on every request.
+# Populated on first check, refreshed when admin changes limits.
+_rate_limit_cache: dict[int, tuple[int, int]] = {}  # user_id -> (max_requests, window_seconds)
 
 
-def _is_rate_limited(user_id: int) -> bool:
+async def _get_user_limits(user_id: int) -> tuple[int, int]:
+    """Return (max_requests, window_seconds) for the given user.
+
+    Checks local cache first, then DB for per-user override, then config defaults.
+    """
+    if user_id in _rate_limit_cache:
+        return _rate_limit_cache[user_id]
+    custom = await db.get_user_rate_limit(user_id)
+    if custom:
+        limits = (custom.max_requests, custom.window_seconds)
+        _rate_limit_cache[user_id] = limits
+        return limits
+    return (config.DEFAULT_RATE_LIMIT, config.DEFAULT_RATE_WINDOW)
+
+
+def invalidate_rate_limit_cache(user_id: int | None = None) -> None:
+    """Clear cached rate limits. Called when admin changes limits."""
+    if user_id is not None:
+        _rate_limit_cache.pop(user_id, None)
+    else:
+        _rate_limit_cache.clear()
+
+
+async def _is_rate_limited(user_id: int) -> tuple[bool, int, int]:
+    """Check whether user_id is rate-limited.
+
+    Returns (is_limited, max_requests, window_seconds) so the caller can
+    display the correct limits in the error message.
+    """
+    max_req, window = await _get_user_limits(user_id)
     now    = time.monotonic()
     bucket = _rate_buckets[user_id]
-    while bucket and now - bucket[0] > RATE_WINDOW_SECS:
+    while bucket and now - bucket[0] > window:
         bucket.popleft()
-    if len(bucket) >= RATE_MAX_REQUESTS:
-        return True
+    if len(bucket) >= max_req:
+        return True, max_req, window
     bucket.append(now)
-    # Periodic cleanup of stale buckets (every 100 calls)
-    if len(_rate_buckets) > 50 and hash(user_id) % 100 == 0:
-        stale = [uid for uid, bkt in _rate_buckets.items() if not bkt]
-        for uid in stale:
-            del _rate_buckets[uid]
-    return False
+    return False, max_req, window
 
 
 def get_session(user_id: int) -> UserSession:
@@ -252,11 +281,15 @@ async def cmd_providers(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    REQUESTS_TOTAL.inc(labels={"type": "photo"})
     user_id = update.effective_user.id
+    cid = new_correlation_id()
+    logger.info("Photo received from user %d [cid=%s]", user_id, cid)
 
-    if _is_rate_limited(user_id):
+    limited, max_req, window = await _is_rate_limited(user_id)
+    if limited:
         await update.message.reply_text(
-            style.error_rate_limited(RATE_MAX_REQUESTS, RATE_WINDOW_SECS),
+            style.error_rate_limited(max_req, window),
             parse_mode="MarkdownV2",
         )
         return
@@ -344,9 +377,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    REQUESTS_TOTAL.inc(labels={"type": "callback"})
     query = update.callback_query
     await query.answer()
     user_id = update.effective_user.id
+    cid = new_correlation_id()
+    logger.info("Callback '%s' from user %d [cid=%s]", query.data, user_id, cid)
     session = get_session(user_id)
     data    = query.data
 
@@ -408,6 +444,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             result_count=len(all_items),
             israel_filter=israel_only,
             search_type="text" if session.chosen_result is None else "photo",
+            correlation_id=get_correlation_id(),
         )
         if active_tag:
             await db.increment_tag_search_count(active_tag)
@@ -767,15 +804,20 @@ async def _render_results(query, context, session: UserSession) -> None:
 
 async def handle_text_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle text messages as product search queries (English / Hebrew / Russian)."""
+    REQUESTS_TOTAL.inc(labels={"type": "text"})
     user_id = update.effective_user.id
     text    = (update.message.text or "").strip()
 
     if not text:
         return
 
-    if _is_rate_limited(user_id):
+    cid = new_correlation_id()
+    logger.info("Text search from user %d: '%s' [cid=%s]", user_id, text[:80], cid)
+
+    limited, max_req, window = await _is_rate_limited(user_id)
+    if limited:
         await update.message.reply_text(
-            style.error_rate_limited(RATE_MAX_REQUESTS, RATE_WINDOW_SECS),
+            style.error_rate_limited(max_req, window),
             parse_mode="MarkdownV2",
         )
         return

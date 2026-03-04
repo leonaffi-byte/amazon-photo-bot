@@ -1,5 +1,5 @@
 """
-scheduler.py — Scheduled reports sent to all admin users.
+scheduler.py — Scheduled reports and database backups sent to all admin users.
 
 Schedule (all in REPORT_TIMEZONE, default Asia/Jerusalem):
   Every day at REPORT_HOUR (default 08:00):
@@ -8,6 +8,8 @@ Schedule (all in REPORT_TIMEZONE, default Asia/Jerusalem):
     → Also weekly report: last 7 days
   Every 1st of month at REPORT_HOUR:
     → Also monthly report: last 30 days
+  Every day at BACKUP_HOUR (default 03:00):
+    → Database backup + cleanup of old backups
 
 Reports include:
   • Unique users
@@ -98,6 +100,30 @@ async def _send_report(period_label: str, hours: int) -> None:
         logger.error("Failed to send %s report: %s", period_label, exc)
 
 
+async def _run_backup() -> None:
+    """Run the daily database backup and clean up old backups."""
+    import config
+    import notifications
+    from db_backup import backup_database, cleanup_old_backups
+
+    try:
+        path = await backup_database(config.BACKUP_DIR)
+        deleted = await cleanup_old_backups(config.BACKUP_DIR, config.BACKUP_KEEP_DAYS)
+        logger.info("Daily backup complete: %s (cleaned %d old)", path, deleted)
+    except Exception as exc:
+        logger.error("Database backup FAILED: %s", exc, exc_info=True)
+        try:
+            from style import esc, DIV
+            msg = (
+                f"*DATABASE BACKUP FAILED*\n{DIV}\n\n"
+                f"Error: `{esc(str(exc)[:200])}`\n\n"
+                f"_Check logs for details\\._"
+            )
+            await notifications.admin(msg)
+        except Exception:
+            pass   # don't let notification failure mask the original error
+
+
 def _seconds_until_next_fire(report_hour: int) -> float:
     """Compute seconds from now until the next occurrence of report_hour in local time."""
     now = _now_local()
@@ -108,18 +134,21 @@ def _seconds_until_next_fire(report_hour: int) -> float:
 
 
 async def _scheduler_loop() -> None:
-    """Background coroutine — sleeps until next report time, fires, repeats."""
+    """Background coroutine — sleeps until next fire time, handles reports and backups."""
     import config
 
     # Use ISO date string to track last fired day (handles year boundaries correctly)
     last_fired_date: str = ""
+    last_backup_date: str = ""
 
-    logger.info("📅 Scheduler started (reports at %02d:00 %s)",
-                config.REPORT_HOUR, config.REPORT_TIMEZONE)
+    logger.info("📅 Scheduler started (reports at %02d:00, backups at %02d:00 %s)",
+                config.REPORT_HOUR, config.BACKUP_HOUR, config.REPORT_TIMEZONE)
 
     while True:
-        # Sleep until the next fire time (instead of polling every 30s)
-        sleep_secs = _seconds_until_next_fire(config.REPORT_HOUR)
+        # Sleep until the soonest of (next report time, next backup time)
+        sleep_report = _seconds_until_next_fire(config.REPORT_HOUR)
+        sleep_backup = _seconds_until_next_fire(config.BACKUP_HOUR) if config.BACKUP_ENABLED else sleep_report
+        sleep_secs = min(sleep_report, sleep_backup)
         # Clamp to reasonable bounds (avoid sleeping exactly 0 or negative)
         sleep_secs = max(10, min(sleep_secs + 5, 86400))
 
@@ -132,23 +161,30 @@ async def _scheduler_loop() -> None:
 
         try:
             now = _now_local()
-            if now.hour != config.REPORT_HOUR or now.minute > 2:
-                continue
-
             today = now.strftime("%Y-%m-%d")
-            if today == last_fired_date:
-                continue
 
-            last_fired_date = today
-            logger.info("⏰ Firing scheduled reports for %s", today)
+            # ── Reports ───────────────────────────────────────────────────────
+            if now.hour == config.REPORT_HOUR and now.minute <= 2:
+                if today != last_fired_date:
+                    last_fired_date = today
+                    logger.info("⏰ Firing scheduled reports for %s", today)
 
-            await _send_report("DAILY", 24)
+                    await _send_report("DAILY", 24)
 
-            if now.weekday() == 6:
-                await _send_report("WEEKLY", 7 * 24)
+                    if now.weekday() == 6:
+                        await _send_report("WEEKLY", 7 * 24)
 
-            if now.day == 1:
-                await _send_report("MONTHLY", 30 * 24)
+                    if now.day == 1:
+                        await _send_report("MONTHLY", 30 * 24)
+
+            # ── Backups ───────────────────────────────────────────────────────
+            if (config.BACKUP_ENABLED
+                    and now.hour == config.BACKUP_HOUR
+                    and now.minute <= 2
+                    and today != last_backup_date):
+                last_backup_date = today
+                logger.info("💾 Running scheduled database backup")
+                await _run_backup()
 
         except Exception as exc:
             logger.error("Scheduler loop error: %s", exc)

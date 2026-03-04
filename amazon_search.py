@@ -16,11 +16,15 @@ If PA-API fails (e.g. account suspended), it auto-falls back to RapidAPI silentl
 from __future__ import annotations
 
 import logging
+import time
 from typing import Optional
 
+from correlation import get_correlation_id
 from search_backends.base import AmazonItem, SearchBackend
 from image_analyzer import ProductInfo
+from circuit_breaker import registry as cb_registry
 import config
+from metrics import SEARCH_REQUESTS_TOTAL, SEARCH_LATENCY, ERRORS_TOTAL
 
 logger = logging.getLogger(__name__)
 
@@ -178,25 +182,46 @@ async def search_amazon(
         List of AmazonItem, best first.
     """
     backend = await get_backend()
+    cid = get_correlation_id()
+    logger.info(
+        "search_amazon backend=%s query='%s' cid=%s",
+        backend.name, product.amazon_search_query, cid,
+    )
     seen: dict[str, AmazonItem] = {}
+    _search_t0 = time.monotonic()
+    _search_ok = True
+
+    # Circuit breaker for the active search backend
+    cb = cb_registry.get(
+        f"search:{backend.name}",
+        failure_threshold=5,
+        recovery_timeout=60.0,
+        success_threshold=2,
+    )
 
     if page > 1:
         # Lazy-load: fetch a specific Amazon results page directly (no fallback needed)
         try:
-            items = await backend.search(product.amazon_search_query, max_results, page=page)
+            items = await cb.call(
+                backend.search(product.amazon_search_query, max_results, page=page)
+            )
             for item in items:
                 seen[item.asin] = item
             logger.info("[%s] Page %d '%s' → %d items", backend.name, page, product.amazon_search_query, len(seen))
         except Exception as exc:
+            _search_ok = False
             logger.warning("Page %d search failed: %s", page, exc)
     else:
         # Primary query
         try:
-            items = await backend.search(product.amazon_search_query, max_results)
+            items = await cb.call(
+                backend.search(product.amazon_search_query, max_results)
+            )
             for item in items:
                 seen[item.asin] = item
             logger.info("[%s] Primary '%s' → %d results", backend.name, product.amazon_search_query, len(seen))
         except Exception as exc:
+            _search_ok = False
             logger.warning("Primary search failed: %s", exc)
 
         # Fallback if too few results — small delay to avoid burst rate-limiting
@@ -204,13 +229,20 @@ async def search_amazon(
             import asyncio
             await asyncio.sleep(1.0)
             try:
-                items = await backend.search(product.alternative_query, max_results)
+                items = await cb.call(
+                    backend.search(product.alternative_query, max_results)
+                )
                 for item in items:
                     if item.asin not in seen:
                         seen[item.asin] = item
                 logger.info("[%s] Fallback '%s' → %d total", backend.name, product.alternative_query, len(seen))
             except Exception as exc:
                 logger.warning("Fallback search failed: %s", exc)
+
+    # Record search metrics
+    _search_elapsed = time.monotonic() - _search_t0
+    SEARCH_LATENCY.observe(_search_elapsed, labels={"backend": backend.name})
+    SEARCH_REQUESTS_TOTAL.inc(labels={"backend": backend.name, "status": "success" if _search_ok else "error"})
 
     result = list(seen.values())
 

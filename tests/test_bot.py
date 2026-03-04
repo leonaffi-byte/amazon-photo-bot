@@ -43,8 +43,6 @@ from bot import (
     CB_CHANGE_FILTER,
     CB_USE_RESULT,
     CB_TRY_DIFFERENTLY,
-    RATE_MAX_REQUESTS,
-    RATE_WINDOW_SECS,
 )
 from image_analyzer import ProductInfo
 from providers.base import ProviderResult
@@ -402,7 +400,7 @@ class TestHandlePhoto:
     async def test_rate_limited_user_gets_error(self):
         update = _make_update(user_id=77, has_photo=True)
         ctx = _make_context()
-        with patch("bot._is_rate_limited", return_value=True):
+        with patch("bot._is_rate_limited", new=AsyncMock(return_value=(True, 5, 60))):
             with patch("style.error_rate_limited", return_value="Rate limited"):
                 await handle_photo(update, ctx)
         update.message.reply_text.assert_called_once()
@@ -413,7 +411,7 @@ class TestHandlePhoto:
     async def test_no_providers_shows_error(self):
         update = _make_update(user_id=10, has_photo=True)
         ctx = _make_context()
-        with patch("bot._is_rate_limited", return_value=False):
+        with patch("bot._is_rate_limited", new=AsyncMock(return_value=(False, 5, 60))):
             with patch("bot.get_providers", new=AsyncMock(side_effect=RuntimeError("none"))):
                 with patch("style.error_no_providers", return_value="No providers"):
                     await handle_photo(update, ctx)
@@ -431,7 +429,7 @@ class TestHandlePhoto:
         reply_msg.edit_text = AsyncMock()
         update.message.reply_text = AsyncMock(return_value=reply_msg)
 
-        with patch("bot._is_rate_limited", return_value=False), \
+        with patch("bot._is_rate_limited", new=AsyncMock(return_value=(False, 5, 60))), \
              patch("bot.get_providers", new=AsyncMock(return_value=fake_providers)), \
              patch("bot.analyse_image", new=AsyncMock(return_value=(winner, all_results))), \
              patch("style.loading_vision", return_value="Loading..."), \
@@ -461,7 +459,7 @@ class TestHandlePhoto:
 
         mock_analyse = AsyncMock()
 
-        with patch("bot._is_rate_limited", return_value=False), \
+        with patch("bot._is_rate_limited", new=AsyncMock(return_value=(False, 5, 60))), \
              patch("bot.get_providers", new=AsyncMock(return_value=fake_providers)), \
              patch("bot.analyse_image", mock_analyse), \
              patch("style.loading_vision", return_value="Loading..."), \
@@ -481,7 +479,7 @@ class TestHandlePhoto:
         reply_msg.edit_text = AsyncMock()
         update.message.reply_text = AsyncMock(return_value=reply_msg)
 
-        with patch("bot._is_rate_limited", return_value=False), \
+        with patch("bot._is_rate_limited", new=AsyncMock(return_value=(False, 5, 60))), \
              patch("bot.get_providers", new=AsyncMock(return_value=fake_providers)), \
              patch("bot.analyse_image", new=AsyncMock(side_effect=Exception("API down"))), \
              patch("style.loading_vision", return_value="Loading..."), \
@@ -506,7 +504,7 @@ class TestHandlePhoto:
         reply_msg.edit_text = AsyncMock()
         update.message.reply_text = AsyncMock(return_value=reply_msg)
 
-        with patch("bot._is_rate_limited", return_value=False), \
+        with patch("bot._is_rate_limited", new=AsyncMock(return_value=(False, 5, 60))), \
              patch("bot.get_providers", new=AsyncMock(return_value=fake_providers)), \
              patch("bot.analyse_image", new=AsyncMock(return_value=(result1, all_results))), \
              patch("style.loading_vision", return_value="Loading..."), \
@@ -845,7 +843,7 @@ class TestHandleTextSearch:
     async def test_rate_limited_shows_error(self):
         update = _make_update(user_id=10, text="headphones")
         ctx = _make_context()
-        with patch("bot._is_rate_limited", return_value=True), \
+        with patch("bot._is_rate_limited", new=AsyncMock(return_value=(True, 5, 60))), \
              patch("style.error_rate_limited", return_value="Too many requests"):
             await handle_text_search(update, ctx)
         update.message.reply_text.assert_called_once()
@@ -859,7 +857,7 @@ class TestHandleTextSearch:
         reply_msg.edit_text = AsyncMock()
         update.message.reply_text = AsyncMock(return_value=reply_msg)
 
-        with patch("bot._is_rate_limited", return_value=False), \
+        with patch("bot._is_rate_limited", new=AsyncMock(return_value=(False, 5, 60))), \
              patch("bot.detect_language", return_value="en"), \
              patch("bot.translate_and_refine", new=AsyncMock(return_value=("wireless keyboard", "wireless keyboard"))), \
              patch("style.text_search_ready", return_value="Ready text"):
@@ -879,7 +877,7 @@ class TestHandleTextSearch:
         reply_msg.edit_text = AsyncMock()
         update.message.reply_text = AsyncMock(return_value=reply_msg)
 
-        with patch("bot._is_rate_limited", return_value=False), \
+        with patch("bot._is_rate_limited", new=AsyncMock(return_value=(False, 5, 60))), \
              patch("bot.detect_language", return_value="ru"), \
              patch("bot.translate_and_refine", new=AsyncMock(side_effect=Exception("Translation API down"))), \
              patch("style.text_search_ready", return_value="Ready"):
