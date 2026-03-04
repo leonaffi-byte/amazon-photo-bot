@@ -56,6 +56,7 @@ class PlatformAdapter(ABC):
 
     # ── Capability flags (override in subclasses) ──────────────────────────
 
+    platform_name: str = "unknown"
     max_caption_length: int = 1024
     max_message_length: int = 4096
     supports_photo_edit: bool = False
@@ -91,6 +92,10 @@ class PlatformAdapter(ABC):
     def get_platform_user_id(self, event: Any) -> str:
         """Return the raw platform-specific user ID string for the sender."""
         ...
+
+    def get_chat_id(self, event: Any) -> str:
+        """Return the chat/conversation ID for the event. Defaults to user ID."""
+        return self.get_platform_user_id(event)
 
     # ── Outgoing: text ─────────────────────────────────────────────────────
 
