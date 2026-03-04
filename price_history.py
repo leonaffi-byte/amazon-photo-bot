@@ -2,7 +2,7 @@
 price_history.py — Historical Amazon price data for product cards.
 
 Backends (tried in order, first success wins):
-  1. CamelCamelCamel — plain aiohttp GET + BeautifulSoup parse (~1-2s, no proxy)
+  1. CamelCamelCamel — Playwright + Decodo proxy (~5-8s, handles Cloudflare)
   2. Keepa           — Playwright + Decodo proxy, intercepts the XHR that
                        the Keepa website makes to its own API backend (~6-10s)
 
@@ -19,7 +19,6 @@ import time
 from dataclasses import asdict, dataclass
 from typing import Optional
 
-import aiohttp
 from bs4 import BeautifulSoup
 
 import database as db
@@ -30,15 +29,7 @@ _CCC_URL     = "https://camelcamelcamel.com/product/{asin}"
 _KEEPA_URL   = "https://keepa.com/#!product/1-{asin}"     # 1 = amazon.com
 _CACHE_TTL   = 6 * 3600   # seconds
 
-_HEADERS = {
-    "User-Agent":      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                       "AppleWebKit/537.36 (KHTML, like Gecko) "
-                       "Chrome/122.0.0.0 Safari/537.36",
-    "Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
-}
-_TIMEOUT = aiohttp.ClientTimeout(total=10)
+
 
 
 # ── Data model ────────────────────────────────────────────────────────────────
@@ -97,26 +88,90 @@ async def get_price_history(asin: str) -> Optional[PriceHistory]:
     return result
 
 
+# ── Shared Playwright fetcher ─────────────────────────────────────────────────
+
+def _build_proxy_cfg(proxy_url: str) -> Optional[dict]:
+    """Convert a proxy URL string to Playwright's proxy config dict."""
+    if not proxy_url:
+        return None
+    try:
+        import urllib.parse as _up
+        p = _up.urlparse(proxy_url)
+        return {
+            "server":   f"{p.scheme}://{p.hostname}:{p.port}",
+            "username": p.username or "",
+            "password": p.password or "",
+        }
+    except Exception:
+        return None
+
+
+async def _fetch_rendered_html(url: str, timeout_ms: int = 15_000) -> Optional[str]:
+    """
+    Fetch a URL using Playwright headless Chrome + Decodo proxy.
+    Handles Cloudflare JS challenges that block plain aiohttp requests.
+    Returns the fully rendered HTML, or None on any failure.
+    """
+    try:
+        from playwright.async_api import async_playwright
+        try:
+            from playwright_stealth import stealth_async
+            _has_stealth = True
+        except ImportError:
+            _has_stealth = False
+
+        from israel_scraper import _get_proxy_url
+        proxy_cfg = _build_proxy_cfg(await _get_proxy_url())
+
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch(
+                headless = True,
+                proxy    = proxy_cfg,
+                args     = ["--no-sandbox", "--disable-dev-shm-usage"],
+            )
+            ctx  = await browser.new_context(
+                locale      = "en-US",
+                timezone_id = "America/New_York",
+                viewport    = {"width": 1280, "height": 800},
+                extra_http_headers = {
+                    "Accept-Language": "en-US,en;q=0.9",
+                },
+            )
+            page = await ctx.new_page()
+            if _has_stealth:
+                await stealth_async(page)
+
+            html = ""
+            try:
+                await page.goto(url, wait_until="networkidle", timeout=timeout_ms)
+                html = await page.content()
+            except Exception:
+                # Timeout is acceptable — grab whatever loaded
+                try:
+                    html = await page.content()
+                except Exception:
+                    pass
+            finally:
+                await browser.close()
+
+        return html or None
+    except Exception as exc:
+        logger.debug("Playwright fetch failed for %s: %s", url, exc)
+        return None
+
+
 # ── Backend 1: CamelCamelCamel ────────────────────────────────────────────────
 
 async def _from_camelcamelcamel(asin: str) -> Optional[PriceHistory]:
     """
-    Scrape camelcamelcamel.com/product/ASIN with plain aiohttp.
-    No proxy needed — CCC doesn't aggressively block scrapers.
+    Scrape camelcamelcamel.com/product/ASIN using Playwright + Decodo proxy.
+    CCC is behind Cloudflare JS challenge so plain aiohttp returns 403.
     Parses the Amazon-price stats section (Current, Lowest, Average).
     """
-    url = _CCC_URL.format(asin=asin)
-    try:
-        async with aiohttp.ClientSession(headers=_HEADERS, timeout=_TIMEOUT) as session:
-            async with session.get(url, allow_redirects=True) as resp:
-                if resp.status != 200:
-                    logger.debug("CCC returned %d for %s", resp.status, asin)
-                    return None
-                html = await resp.text()
-    except Exception as exc:
-        logger.debug("CCC fetch error for %s: %s", asin, exc)
+    url  = _CCC_URL.format(asin=asin)
+    html = await _fetch_rendered_html(url)
+    if not html:
         return None
-
     return _parse_ccc_html(asin, html)
 
 
@@ -233,18 +288,7 @@ async def _from_keepa(asin: str) -> Optional[PriceHistory]:
             _HAS_STEALTH = False
 
         from israel_scraper import _get_proxy_url
-        proxy_url = await _get_proxy_url()
-
-        proxy_cfg = None
-        if proxy_url:
-            # Playwright proxy config dict
-            import urllib.parse as _up
-            p = _up.urlparse(proxy_url)
-            proxy_cfg = {
-                "server":   f"{p.scheme}://{p.hostname}:{p.port}",
-                "username": p.username or "",
-                "password": p.password or "",
-            }
+        proxy_cfg = _build_proxy_cfg(await _get_proxy_url())
 
         captured: list[dict] = []
 
