@@ -54,7 +54,7 @@ async def _build_backend() -> SearchBackend:
 
     Priority order (auto mode):
       1. PA-API          — free, best data quality, needs Associates qualification
-      2. DataForSEO      — pay-per-use (~$0.003/search), no subscription
+      2. RapidAPI        — free tier 100/month, most reliable default
       3. RapidAPI        — pay-per-use or subscription, 100 free/month
     """
     import key_store
@@ -100,16 +100,18 @@ async def _build_backend() -> SearchBackend:
         logger.info("Using Playwright / Amazon Direct Scraper backend")
         return _make_playwright()
 
-    # auto mode: PA-API → DataForSEO → RapidAPI → Playwright (free fallback)
+    # auto mode: PA-API → RapidAPI → DataForSEO → Playwright (free fallback)
+    # RapidAPI comes before DataForSEO: it has a free quota and is more reliable
+    # for accounts that haven't enabled the DataForSEO Amazon SERP endpoint.
     if has_paapi:
         logger.info("Auto-selected PA-API backend")
         return _make_paapi(amazon_access, amazon_secret, amazon_tag)
-    if has_dataforseo:
-        logger.info("Auto-selected DataForSEO backend")
-        return _make_dataforseo(dataforseo_login, dataforseo_password)
     if has_rapidapi:
         logger.info("Auto-selected RapidAPI backend")
         return _make_rapidapi(rapidapi_key)
+    if has_dataforseo:
+        logger.info("Auto-selected DataForSEO backend")
+        return _make_dataforseo(dataforseo_login, dataforseo_password)
 
     # Last resort: Playwright — no API key needed, just Chromium
     logger.info("No API keys found — falling back to Playwright direct scraper (free)")
