@@ -229,6 +229,9 @@ def _extract_items(data: dict, query: str) -> list[dict]:
     items: list[dict] = []
     for task in data.get("tasks", []):
         code = task.get("status_code")
+        if code == 20001:
+            logger.info("DataForSEO task queued (status 20001) for '%s' — results pending", query)
+            continue
         if code != 20000:
             logger.warning(
                 "DataForSEO task error %s for '%s': %s",

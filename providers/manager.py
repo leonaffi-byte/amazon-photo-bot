@@ -212,12 +212,13 @@ async def cheapest_provider() -> VisionProvider:
 
 # ── Core analysis function ────────────────────────────────────────────────────
 
-_AUTO_DISABLE_THRESHOLD = 3   # consecutive failures before auto-disabling a model
+_AUTO_DISABLE_THRESHOLD = 5   # consecutive failures before auto-disabling a model
 
-# Errors that strongly suggest the model is gone / unavailable
+# Errors that strongly suggest the model is gone / unavailable (permanent — skip retry)
 _MODEL_GONE_PATTERNS = (
     "404", "not found", "does not exist", "no such model",
     "model_not_found", "invalid model", "deprecated",
+    "unauthorized", "forbidden", "invalid api key", "authentication",
 )
 
 
@@ -248,50 +249,61 @@ async def analyse_image(
 
     async def _safe_run(provider: VisionProvider) -> Optional[ProviderResult]:
         import database as db
-        try:
-            result = await provider.analyse(image_bytes, context_hint=context_hint)
-            logger.info(
-                "[%s] OK — confidence=%s cost=%s latency=%dms",
-                provider.full_name, result.confidence, result.cost_str, result.latency_ms,
-            )
-            # Log cost + reset failure counter (fast SQLite writes — await directly)
+        last_exc: Exception | None = None
+
+        for attempt in range(2):  # 1 initial + 1 retry
             try:
-                await db.log_api_cost(
-                    provider_name=provider.full_name,
-                    cost_usd=result.cost_usd,
-                    input_tokens=result.input_tokens,
-                    output_tokens=result.output_tokens,
-                    user_id=user_id,
+                result = await provider.analyse(image_bytes, context_hint=context_hint)
+                logger.info(
+                    "[%s] OK — confidence=%s cost=%s latency=%dms",
+                    provider.full_name, result.confidence, result.cost_str, result.latency_ms,
                 )
-                await db.reset_model_failures(provider.full_name)
-            except Exception as dbe:
-                logger.warning("[%s] DB log failed (non-critical): %s", provider.full_name, dbe)
-            return result
-
-        except Exception as exc:
-            err_str = str(exc).lower()
-            logger.error("[%s] Failed: %s", provider.full_name, exc)
-
-            # Track failure and potentially auto-disable
-            try:
-                consec = await db.increment_model_failures(provider.full_name, str(exc))
-                model_gone = any(p in err_str for p in _MODEL_GONE_PATTERNS)
-                if model_gone or consec >= _AUTO_DISABLE_THRESHOLD:
-                    await db.mark_model_disabled(provider.full_name, str(exc))
-                    _providers.pop(provider.full_name, None)
-                    import notifications
-                    reason = "model not found" if model_gone else f"{consec} consecutive failures"
-                    await notifications.admin(
-                        f"⚠️ *Auto\\-disabled model*\n"
-                        f"`{provider.full_name}`\n"
-                        f"Reason: {reason}\n"
-                        f"Last error: `{str(exc)[:200]}`\n\n"
-                        f"Re\\-enable via /admin → 🤖 Models"
+                # Log cost + reset failure counter
+                try:
+                    await db.log_api_cost(
+                        provider_name=provider.full_name,
+                        cost_usd=result.cost_usd,
+                        input_tokens=result.input_tokens,
+                        output_tokens=result.output_tokens,
+                        user_id=user_id,
                     )
-                    logger.warning("[%s] AUTO-DISABLED after %d failures", provider.full_name, consec)
-            except Exception as dbe:
-                logger.warning("[%s] DB health tracking failed: %s", provider.full_name, dbe)
-            return None
+                    await db.reset_model_failures(provider.full_name)
+                except Exception as dbe:
+                    logger.warning("[%s] DB log failed (non-critical): %s", provider.full_name, dbe)
+                return result
+
+            except Exception as exc:
+                last_exc = exc
+                err_str = str(exc).lower()
+                is_permanent = any(p in err_str for p in _MODEL_GONE_PATTERNS)
+
+                if attempt == 0 and not is_permanent:
+                    logger.warning("[%s] Transient failure, retrying in 2s: %s", provider.full_name, exc)
+                    await asyncio.sleep(2)
+                    continue
+
+                # Final failure — track and potentially auto-disable
+                logger.error("[%s] Failed: %s", provider.full_name, exc)
+                try:
+                    consec = await db.increment_model_failures(provider.full_name, str(exc))
+                    model_gone = any(p in err_str for p in _MODEL_GONE_PATTERNS)
+                    if model_gone or consec >= _AUTO_DISABLE_THRESHOLD:
+                        await db.mark_model_disabled(provider.full_name, str(exc))
+                        _providers.pop(provider.full_name, None)
+                        import notifications
+                        reason = "model not found" if model_gone else f"{consec} consecutive failures"
+                        await notifications.admin(
+                            f"⚠️ *Auto\\-disabled model*\n"
+                            f"`{provider.full_name}`\n"
+                            f"Reason: {reason}\n"
+                            f"Last error: `{str(exc)[:200]}`\n\n"
+                            f"Re\\-enable via /admin → 🤖 Models"
+                        )
+                        logger.warning("[%s] AUTO-DISABLED after %d failures", provider.full_name, consec)
+                except Exception as dbe:
+                    logger.warning("[%s] DB health tracking failed: %s", provider.full_name, dbe)
+                return None
+        return None
 
     raw_results = await asyncio.gather(*[_safe_run(p) for p in targets])
     all_results  = [r for r in raw_results if r is not None]

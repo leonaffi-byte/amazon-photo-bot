@@ -60,15 +60,12 @@ async def handle_redirect(request: web.Request) -> web.Response:
             content_type="text/plain",
         )
 
-    # Log click asynchronously (don't await — let redirect happen immediately)
-    import asyncio
-    asyncio.create_task(
-        db.log_click(
-            code=code,
-            user_agent=request.headers.get("User-Agent", ""),
-            referrer=request.headers.get("Referer", ""),
-            ip=request.headers.get("X-Real-IP") or request.remote or "",
-        )
+    # Log click (fast SQLite write — await to ensure delivery and prevent unbounded tasks)
+    await db.log_click(
+        code=code,
+        user_agent=request.headers.get("User-Agent", ""),
+        referrer=request.headers.get("Referer", ""),
+        ip=request.headers.get("X-Real-IP") or request.remote or "",
     )
 
     # 302 (temporary) works better than 301 in Telegram's in-app browser

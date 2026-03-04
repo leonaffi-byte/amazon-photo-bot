@@ -33,6 +33,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 from dataclasses import dataclass
 from typing import Optional
 
@@ -40,6 +41,28 @@ logger = logging.getLogger(__name__)
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 CACHE_TTL = 86_400      # 24 hours
+
+# ── Circuit breaker for proxy health ──────────────────────────────────────────
+_proxy_failures: dict[str, float] = {}   # proxy_url → monotonic timestamp of last failure
+_CIRCUIT_BREAKER_COOLDOWN = 300          # 5 minutes
+
+
+def is_proxy_healthy(proxy_url: str) -> bool:
+    """Return True if proxy has not failed within the cooldown window."""
+    last_fail = _proxy_failures.get(proxy_url)
+    if last_fail is None:
+        return True
+    return (time.monotonic() - last_fail) > _CIRCUIT_BREAKER_COOLDOWN
+
+
+def record_proxy_failure(proxy_url: str) -> None:
+    """Record a proxy failure timestamp for the circuit breaker."""
+    _proxy_failures[proxy_url] = time.monotonic()
+
+
+def record_proxy_success(proxy_url: str) -> None:
+    """Clear a proxy's failure record on success."""
+    _proxy_failures.pop(proxy_url, None)
 
 _UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -121,15 +144,21 @@ async def check_shipping(asin: str) -> IsraelShippingResult:
     except Exception as exc:
         logger.warning("Israel cache read failed: %s", exc)
 
-    # ── Try each proxy in order ────────────────────────────────────────────────
+    # ── Try each proxy in order (skip unhealthy proxies via circuit breaker) ──
     result = None
     for i, proxy_url in enumerate(proxies):
+        proxy_url = proxy_url.strip()
         label = "Decodo" if i == 0 and "decodo.com" in proxy_url else "fallback proxy"
+        if not is_proxy_healthy(proxy_url):
+            logger.debug("Israel check: skipping %s (circuit breaker open) for %s", label, asin)
+            continue
         logger.debug("Israel check: trying %s for %s", label, asin)
-        result = await _scrape(asin, proxy_url.strip())
+        result = await _scrape(asin, proxy_url)
         if result and result.verified:
+            record_proxy_success(proxy_url)
             logger.info("Israel check succeeded via %s for %s", label, asin)
             break
+        record_proxy_failure(proxy_url)
         if len(proxies) > i + 1:
             logger.info("Israel check failed via %s — trying fallback proxy", label)
 
@@ -252,7 +281,7 @@ async def _set_delivery_israel(page) -> None:
     """
     try:
         # Extract anti-CSRF token from page JS
-        csrf: Optional[str] = await page.evaluate("""
+        csrf: Optional[str] = await asyncio.wait_for(page.evaluate("""
             () => {
                 const patterns = [
                     /"anti-csrftoken-a2z"\\s*:\\s*"([^"]{10,})"/,
@@ -265,14 +294,14 @@ async def _set_delivery_israel(page) -> None:
                 }
                 return null;
             }
-        """)
+        """), timeout=10)
 
         if not csrf:
             logger.debug("No CSRF token on Amazon homepage — trying UI click")
             await _set_delivery_israel_via_ui(page)
             return
 
-        status: int = await page.evaluate(
+        status: int = await asyncio.wait_for(page.evaluate(
             """
             async ([csrf]) => {
                 try {
@@ -303,7 +332,7 @@ async def _set_delivery_israel(page) -> None:
             }
             """,
             [csrf],
-        )
+        ), timeout=15)
         logger.debug("Delivery-to-IL API returned HTTP %s for %s", status, "homepage")
 
     except Exception as exc:

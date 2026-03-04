@@ -83,6 +83,7 @@ _ADMIN_SECRET      = os.getenv("API_ADMIN_SECRET", "")
 # { api_key: deque of UTC timestamps }
 _windows: dict[str, deque] = defaultdict(lambda: deque())
 _WINDOW  = 86_400   # 24 hours in seconds
+_request_count = 0   # counter for periodic stale-window cleanup
 
 PLAN_LIMITS = {
     "free":  100,
@@ -177,6 +178,15 @@ async def get_api_key(raw_key: str = Security(_API_KEY_HEADER)) -> dict:
         )
 
     # ── Sliding-window rate limit ──────────────────────────────────────────────
+    global _request_count
+    _request_count += 1
+    # Periodically purge stale windows from inactive API keys
+    if _request_count % 1000 == 0:
+        cutoff_clean = time.time() - _WINDOW
+        stale = [k for k, v in _windows.items() if not v or v[-1] < cutoff_clean]
+        for k in stale:
+            del _windows[k]
+
     limit = key_row["daily_limit"]
     win   = _windows[raw_key]
     cutoff = time.time() - _WINDOW

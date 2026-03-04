@@ -116,10 +116,13 @@ async def _fetch_rendered_html(url: str, timeout_ms: int = 15_000) -> Optional[s
     try:
         from playwright.async_api import async_playwright
         from playwright_utils import apply_stealth
-        from israel_scraper import _get_ordered_proxy_urls
+        from israel_scraper import _get_ordered_proxy_urls, is_proxy_healthy, record_proxy_failure, record_proxy_success
         proxy_urls = await _get_ordered_proxy_urls()
-        # Try each proxy; fall back to no-proxy as last resort
-        proxy_cfgs = [_build_proxy_cfg(p) for p in proxy_urls] + [None]
+        # Try each proxy; fall back to no-proxy as last resort.
+        # Skip proxies marked unhealthy by the circuit breaker.
+        proxy_cfgs = [
+            _build_proxy_cfg(p) for p in proxy_urls if is_proxy_healthy(p.strip())
+        ] + [None]
 
         async with async_playwright() as pw:
             for proxy_cfg in proxy_cfgs:
@@ -289,9 +292,11 @@ async def _from_keepa(asin: str) -> Optional[PriceHistory]:
     try:
         from playwright.async_api import async_playwright
         from playwright_utils import apply_stealth
-        from israel_scraper import _get_ordered_proxy_urls
+        from israel_scraper import _get_ordered_proxy_urls, is_proxy_healthy
         proxy_urls  = await _get_ordered_proxy_urls()
-        proxy_cfgs  = [_build_proxy_cfg(p) for p in proxy_urls] + [None]
+        proxy_cfgs  = [
+            _build_proxy_cfg(p) for p in proxy_urls if is_proxy_healthy(p.strip())
+        ] + [None]
 
         captured: list[dict] = []
 

@@ -52,6 +52,10 @@ _PLACEHOLDER_IMG = "https://placehold.co/600x400/FF9900/FFF.png?text=Amazon"
 # Maximum photo file size we'll process (bytes)
 _MAX_PHOTO_BYTES = 10 * 1024 * 1024  # 10 MB
 
+# Deduplication cache: file_unique_id → (timestamp, winner, all_results)
+_analysis_cache: dict[str, tuple[float, ProviderResult, list[ProviderResult]]] = {}
+_ANALYSIS_CACHE_TTL = 60  # seconds
+
 
 # ── Session ────────────────────────────────────────────────────────────────────
 
@@ -293,17 +297,25 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     session.image_bytes = image_bytes
 
-    try:
-        winner, all_results = await analyse_image(
-            image_bytes, mode=config.VISION_MODE, context_hint=context_hint, user_id=user_id
-        )
-    except RuntimeError:
-        await msg.edit_text(style.error_no_providers(), parse_mode="MarkdownV2")
-        return
-    except Exception as exc:
-        logger.error("Vision analysis failed: %s", exc)
-        await msg.edit_text(style.error_analysis_failed(), parse_mode="MarkdownV2")
-        return
+    # Check dedup cache to avoid re-analyzing the same photo within TTL
+    cache_key = photo.file_unique_id
+    cached = _analysis_cache.get(cache_key)
+    if cached and (time.monotonic() - cached[0]) < _ANALYSIS_CACHE_TTL:
+        logger.info("Dedup cache hit for %s (user %d)", cache_key, user_id)
+        winner, all_results = cached[1], cached[2]
+    else:
+        try:
+            winner, all_results = await analyse_image(
+                image_bytes, mode=config.VISION_MODE, context_hint=context_hint, user_id=user_id
+            )
+            _analysis_cache[cache_key] = (time.monotonic(), winner, all_results)
+        except RuntimeError:
+            await msg.edit_text(style.error_no_providers(), parse_mode="MarkdownV2")
+            return
+        except Exception as exc:
+            logger.error("Vision analysis failed: %s", exc)
+            await msg.edit_text(style.error_analysis_failed(), parse_mode="MarkdownV2")
+            return
 
     session.all_provider_results = all_results
     session.chosen_provider_idx  = 0
