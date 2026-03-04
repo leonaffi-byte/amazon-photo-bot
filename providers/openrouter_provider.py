@@ -22,6 +22,7 @@ Cross-provider note:
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 import time
@@ -87,7 +88,7 @@ class OpenRouterProvider(VisionProvider):
 
         t0 = time.monotonic()
 
-        response = await self._client.chat.completions.create(
+        response = await asyncio.wait_for(self._client.chat.completions.create(
             model=self.model_id,
             max_tokens=768,
             temperature=0,
@@ -107,7 +108,7 @@ class OpenRouterProvider(VisionProvider):
                     ],
                 },
             ],
-        )
+        ), timeout=45)
 
         latency_ms    = int((time.monotonic() - t0) * 1000)
         raw           = response.choices[0].message.content or ""

@@ -221,7 +221,6 @@ async def search_amazon(
 
         # Fallback if too few results — small delay to avoid burst rate-limiting
         if len(seen) < 3 and alt_query != primary_query:
-            await asyncio.sleep(1.0)
             try:
                 items = await backend.search(alt_query, max_results)
                 for item in items:

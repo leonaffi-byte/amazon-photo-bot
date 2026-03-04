@@ -10,6 +10,7 @@ Pricing (as of early 2025):
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import time
 import logging
@@ -52,7 +53,7 @@ class OpenAIProvider(VisionProvider):
         b64 = base64.b64encode(image_bytes).decode()
         t0 = time.monotonic()
 
-        response = await self._client.chat.completions.create(
+        response = await asyncio.wait_for(self._client.chat.completions.create(
             model=self.model_id,
             max_tokens=768,
             temperature=0,
@@ -64,7 +65,7 @@ class OpenAIProvider(VisionProvider):
                         {
                             "type": "image_url",
                             "image_url": {
-                                "url": f"data:image/jpeg;base64,{b64}",
+                                "url": f"data:{detect_media_type(image_bytes)};base64,{b64}",
                                 "detail": "high",
                             },
                         },
@@ -72,7 +73,7 @@ class OpenAIProvider(VisionProvider):
                     ],
                 },
             ],
-        )
+        ), timeout=45)
 
         latency_ms = int((time.monotonic() - t0) * 1000)
         raw = response.choices[0].message.content

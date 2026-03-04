@@ -25,6 +25,7 @@ from typing import Optional
 from providers.base import (
     SYSTEM_PROMPT, USER_PROMPT, build_user_prompt,
     ProviderResult, VisionProvider, parse_json_response,
+    sanitize_query, _extract_features,
 )
 
 logger = logging.getLogger(__name__)
@@ -116,9 +117,9 @@ class GroqProvider(VisionProvider):
             product_name        = data.get("product_name", "Unknown"),
             brand               = data.get("brand"),
             category            = data.get("category", "All"),
-            key_features        = data.get("key_features", []),
-            amazon_search_query = data.get("amazon_search_query", ""),
-            alternative_query   = data.get("alternative_query", data.get("amazon_search_query", "")),
+            key_features        = _extract_features(data),
+            amazon_search_query = sanitize_query(data.get("amazon_search_query", "")),
+            alternative_query   = sanitize_query(data.get("alternative_query", data.get("amazon_search_query", ""))),
             confidence          = data.get("confidence", "medium"),
             notes               = data.get("notes", ""),
             latency_ms          = latency_ms,

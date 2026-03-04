@@ -64,6 +64,7 @@ class PaapiBackend(SearchBackend):
         associate_tag: str,
         marketplace: str = "www.amazon.com",
     ) -> None:
+        self._session: Optional[aiohttp.ClientSession] = None
         self._access_key    = access_key
         self._secret_key    = secret_key
         self._associate_tag = associate_tag
@@ -136,10 +137,10 @@ class PaapiBackend(SearchBackend):
         url     = f"https://{self._host}/paapi5/searchitems"
         headers = self._signed_headers(payload)
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15))
+        async with self._session.post(
                 url, json=payload, headers=headers,
-                timeout=aiohttp.ClientTimeout(total=15),
             ) as resp:
                 data = await resp.json(content_type=None)
                 if resp.status != 200:

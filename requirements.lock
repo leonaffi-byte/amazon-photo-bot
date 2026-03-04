@@ -63,6 +63,6 @@ watchfiles==1.0.5
 
 # google-genai transitive
 google-auth==2.40.3
-google-api-core==2.27.1
+google-api-core==2.30.0
 googleapis-common-protos==1.70.0
 protobuf==6.33.4

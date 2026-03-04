@@ -25,6 +25,9 @@ from telegram.ext import (
     filters,
 )
 
+from PIL import Image as _PILImage
+import io as _io
+
 import config
 import database as db
 import style
@@ -66,6 +69,44 @@ _background_tasks: set[asyncio.Task] = set()
 # Deduplication cache: file_unique_id → (timestamp, winner, all_results)
 _analysis_cache: dict[str, tuple[float, ProviderResult, list[ProviderResult]]] = {}
 _ANALYSIS_CACHE_TTL = 60  # seconds
+
+_MAX_IMAGE_DIM = 1024
+_JPEG_QUALITY = 85
+_SESSION_TTL = 600  # 10 minutes
+_CLEANUP_INTERVAL = 300  # 5 minutes
+
+def _compress_image(raw: bytes) -> bytes:
+    img = _PILImage.open(_io.BytesIO(raw))
+    if img.mode in ("RGBA", "P"):
+        img = img.convert("RGB")
+    w, h = img.size
+    if max(w, h) > _MAX_IMAGE_DIM:
+        ratio = _MAX_IMAGE_DIM / max(w, h)
+        img = img.resize((int(w * ratio), int(h * ratio)), _PILImage.LANCZOS)
+    buf = _io.BytesIO()
+    img.save(buf, format="JPEG", quality=_JPEG_QUALITY)
+    return buf.getvalue()
+
+
+async def _periodic_cleanup() -> None:
+    while True:
+        await asyncio.sleep(_CLEANUP_INTERVAL)
+        now = time.monotonic()
+        stale_keys = [k for k, (ts, *_) in _analysis_cache.items()
+                      if now - ts > _ANALYSIS_CACHE_TTL]
+        for k in stale_keys:
+            del _analysis_cache[k]
+        stale_sessions = [uid for uid, s in _sessions.items()
+                          if now - s._created_at > _SESSION_TTL]
+        for uid in stale_sessions:
+            del _sessions[uid]
+        empty = [uid for uid, dq in _rate_buckets.items() if not dq]
+        for uid in empty:
+            del _rate_buckets[uid]
+        if stale_keys or stale_sessions or empty:
+            logger.debug("Cleanup: %d cache, %d sessions, %d buckets evicted",
+                         len(stale_keys), len(stale_sessions), len(empty))
+
 
 
 async def _get_dfs_labs() -> "DataForSEOLabs | None":
@@ -110,6 +151,7 @@ class UserSession:
 
     # Cached admin flag — resolved once per session
     is_admin: Optional[bool] = None
+    _created_at: float = field(default_factory=time.monotonic)
 
     # Per-ASIN Israel shipping verification results (populated by background checks).
     # True = confirmed ships to Israel, False = confirmed does NOT ship.
@@ -259,7 +301,7 @@ def compare_keyboard(results: list[ProviderResult]) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
-async def results_keyboard(session: UserSession, affiliate_tag: Optional[str]) -> InlineKeyboardMarkup:
+async def results_keyboard(session: UserSession, affiliate_tag: Optional[str], user_id: int = 0) -> InlineKeyboardMarkup:
     """
     Photo-carousel keyboard: one Shop button for the current product,
     ◀ N/Total ▶ navigation, filter toggle, and optional Try differently.
@@ -272,7 +314,7 @@ async def results_keyboard(session: UserSession, affiliate_tag: Optional[str]) -
 
     # ── Shop button ────────────────────────────────────────────────────────────
     if item:
-        long_url = item.affiliate_url(affiliate_tag)
+        long_url = item.affiliate_url(affiliate_tag, subtag=f"tg_{user_id}" if user_id else None)
         url_map  = await url_shortener.shorten_many([long_url])
         shop_url = url_map.get(long_url, long_url)
         rows.append([InlineKeyboardButton("🛒  Shop on Amazon", url=shop_url)])
@@ -405,8 +447,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         parse_mode="MarkdownV2",
     )
     photo_file = await context.bot.get_file(photo.file_id)
-    image_bytes = bytes(await photo_file.download_as_bytearray())
-
+    raw_bytes = bytes(await photo_file.download_as_bytearray())
+    image_bytes = _compress_image(raw_bytes)
     session.image_bytes = image_bytes
 
     # Check dedup cache to avoid re-analyzing the same photo within TTL
@@ -736,7 +778,7 @@ def _spawn_background_check(
 async def _verify_price_async(
     bot, chat_id: int, msg_id: int,
     item, session: UserSession, page_snap: int,
-    affiliate_tag: str | None,
+    affiliate_tag: str | None, user_id: int = 0,
 ) -> None:
     """
     Background coroutine: fetch price history then edit the caption.
@@ -768,7 +810,7 @@ async def _verify_price_async(
             israel_verified = israel_result,
             price_history   = ph,
         )
-        keyboard = await results_keyboard(session, affiliate_tag)
+        keyboard = await results_keyboard(session, affiliate_tag, user_id=user_id)
         try:
             await bot.edit_message_caption(
                 chat_id      = chat_id,
@@ -786,7 +828,7 @@ async def _verify_price_async(
 async def _verify_israel_async(
     bot, chat_id: int, msg_id: int,
     item, session: UserSession, page_snap: int,
-    affiliate_tag: str | None,
+    affiliate_tag: str | None, user_id: int = 0,
 ) -> None:
     """
     Background coroutine: checks Israel shipping via the proxy,
@@ -829,7 +871,7 @@ async def _verify_israel_async(
             israel_verified = result,
             price_history   = ph,
         )
-        keyboard = await results_keyboard(session, affiliate_tag)
+        keyboard = await results_keyboard(session, affiliate_tag, user_id=user_id)
         try:
             await bot.edit_message_caption(
                 chat_id      = chat_id,
@@ -996,7 +1038,8 @@ async def _render_results(query, context, session: UserSession) -> None:
         provider_name= session.chosen_result.provider_name if session.chosen_result else None,
         affiliate_tag= affiliate_tag,
     )
-    keyboard = await results_keyboard(session, affiliate_tag)
+    uid = query.from_user.id
+    keyboard = await results_keyboard(session, affiliate_tag, user_id=uid)
     image_url = item.image_url or _PLACEHOLDER_IMG
 
     # ── First render: text msg → send new photo, delete old msg ───────────────
@@ -1018,12 +1061,12 @@ async def _render_results(query, context, session: UserSession) -> None:
             # Kick off background checks (non-blocking)
             _spawn_background_check(
                 _verify_israel_async(context.bot, query.message.chat_id, session.results_msg_id,
-                                     item, session, session.page, affiliate_tag),
+                                     item, session, session.page, affiliate_tag, user_id=uid),
                 context, session, chat_id=query.message.chat_id,
             )
             _spawn_background_check(
                 _verify_price_async(context.bot, query.message.chat_id, session.results_msg_id,
-                                    item, session, session.page, affiliate_tag),
+                                    item, session, session.page, affiliate_tag, user_id=uid),
                 context, session, chat_id=query.message.chat_id,
             )
             return
@@ -1045,12 +1088,12 @@ async def _render_results(query, context, session: UserSession) -> None:
             # Kick off background checks (non-blocking)
             _spawn_background_check(
                 _verify_israel_async(context.bot, query.message.chat_id, session.results_msg_id,
-                                     item, session, session.page, affiliate_tag),
+                                     item, session, session.page, affiliate_tag, user_id=uid),
                 context, session, chat_id=query.message.chat_id,
             )
             _spawn_background_check(
                 _verify_price_async(context.bot, query.message.chat_id, session.results_msg_id,
-                                    item, session, session.page, affiliate_tag),
+                                    item, session, session.page, affiliate_tag, user_id=uid),
                 context, session, chat_id=query.message.chat_id,
             )
             return
@@ -1151,6 +1194,7 @@ async def handle_text_search(update: Update, context: ContextTypes.DEFAULT_TYPE)
 # ── App factory ────────────────────────────────────────────────────────────────
 
 async def _post_init(application: Application) -> None:
+    asyncio.create_task(_periodic_cleanup())
     await db.init_db()
     if config.ADMIN_IDS:
         await db.seed_admins(config.ADMIN_IDS)

@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install Python dependencies (locked versions for reproducible builds)
 COPY requirements.txt requirements.lock ./
-RUN pip install --no-cache-dir -r requirements.lock
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Install Chromium browser + all its system library dependencies
 # (~350 MB; runs inside the image so no host browser needed)

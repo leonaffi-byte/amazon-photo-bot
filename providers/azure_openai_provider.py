@@ -29,6 +29,7 @@ Pricing: same per-token rate as direct OpenAI, billed to your Azure subscription
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 import time
@@ -100,7 +101,7 @@ class AzureOpenAIProvider(VisionProvider):
 
         t0 = time.monotonic()
 
-        response = await self._client.chat.completions.create(
+        response = await asyncio.wait_for(self._client.chat.completions.create(
             model=self._deployment,   # Azure uses deployment name, not model name
             max_tokens=768,
             temperature=0,
@@ -120,7 +121,7 @@ class AzureOpenAIProvider(VisionProvider):
                     ],
                 },
             ],
-        )
+        ), timeout=45)
 
         latency_ms    = int((time.monotonic() - t0) * 1000)
         raw           = response.choices[0].message.content or ""

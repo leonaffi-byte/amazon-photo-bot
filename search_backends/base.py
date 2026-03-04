@@ -41,7 +41,7 @@ class AmazonItem:
 
     # ── Affiliate URL ──────────────────────────────────────────────────────────
 
-    def affiliate_url(self, tag: Optional[str]) -> str:
+    def affiliate_url(self, tag: Optional[str], subtag: Optional[str] = None) -> str:
         """
         Build an Amazon product URL.
         If an affiliate tag is provided, it's embedded as ?tag=... so every click
@@ -51,7 +51,10 @@ class AmazonItem:
         """
         base = f"https://www.amazon.com/dp/{self.asin}"
         if tag:
-            return f"{base}?tag={tag}&linkCode=ogi&th=1&psc=1"
+            url = f"{base}?tag={tag}&linkCode=ogi&th=1&psc=1"
+            if subtag:
+                url += f"&ascsubtag={subtag}"
+            return url
         return base
 
     # ── Israel delivery helpers ────────────────────────────────────────────────

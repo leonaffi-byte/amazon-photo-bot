@@ -14,6 +14,7 @@ Why Claude is a useful second opinion:
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import time
 import logging
@@ -58,7 +59,7 @@ class AnthropicProvider(VisionProvider):
 
         media_type = detect_media_type(image_bytes)
 
-        message = await self._client.messages.create(
+        message = await asyncio.wait_for(self._client.messages.create(
             model=self.model_id,
             max_tokens=768,
             system=SYSTEM_PROMPT,
@@ -78,7 +79,7 @@ class AnthropicProvider(VisionProvider):
                     ],
                 }
             ],
-        )
+        ), timeout=45)
 
         latency_ms = int((time.monotonic() - t0) * 1000)
         raw = message.content[0].text

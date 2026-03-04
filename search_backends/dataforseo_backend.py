@@ -109,8 +109,9 @@ class DataForSEOBackend(SearchBackend):
             **({"offset": offset} if offset > 0 else {}),
         }]
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30))
+        async with self._session.post(
                 LIVE_URL,
                 headers = self._headers,
                 json    = payload,

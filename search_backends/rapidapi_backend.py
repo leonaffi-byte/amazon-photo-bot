@@ -45,6 +45,7 @@ class RapidAPIBackend(SearchBackend):
 
     def __init__(self, api_key: str) -> None:
         self._key = api_key
+        self._session: Optional[aiohttp.ClientSession] = None
         self._headers = {
             "X-RapidAPI-Key":  api_key,
             "X-RapidAPI-Host": RAPIDAPI_HOST,
