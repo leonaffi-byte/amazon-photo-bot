@@ -1,0 +1,53 @@
+{
+  "choose_language": "בחרו את השפה שלכם:",
+  "lang_set": "השפה הוגדרה לעברית.",
+  "welcome": "ברוכים הבאים! שלחו לי תמונה של כל מוצר ואמצא אותו באמזון.",
+  "help": "שלחו לי תמונה של מוצר ואזהה אותו ואמצא אותו באמזון.\n\nאפשר גם לשלוח הודעת טקסט כדי לחפש לפי מילות מפתח.\n\nפקודות:\n/start - הפעלת הבוט\n/lang - שינוי שפה\n/help - הצגת הודעה זו",
+
+  "loading_vision": "מנתח את התמונה שלך...",
+  "loading_search": "מחפש באמזון...",
+  "loading_similar": "מחפש מוצרים דומים...",
+
+  "id_title": "מוצר",
+  "id_brand": "מותג",
+  "id_category": "קטגוריה",
+  "id_features": "תכונות עיקריות",
+  "id_confidence": "רמת ודאות",
+  "id_search_query": "שאילתת חיפוש",
+
+  "confidence_high": "גבוהה",
+  "confidence_medium": "בינונית",
+  "confidence_low": "נמוכה",
+
+  "filter_ask": "להציג מוצרים שנשלחים לישראל?",
+  "filter_all": "כל המוצרים",
+  "filter_israel": "משלוח לישראל",
+
+  "product_price": "מחיר",
+  "product_rating": "דירוג",
+  "product_reviews": "ביקורות",
+  "product_prime": "Prime",
+  "product_sold_by": "נמכר על ידי",
+  "product_israel_checking": "בודק משלוח לישראל...",
+  "product_israel_yes": "נשלח לישראל",
+  "product_israel_no": "לא נשלח לישראל",
+  "product_israel_free": "משלוח חינם לישראל",
+  "product_counter": "{current}/{total}",
+
+  "btn_shop": "קנו באמזון",
+  "btn_prev": "הקודם",
+  "btn_next": "הבא",
+  "btn_filter_toggle": "החלפת סינון",
+  "btn_try_different": "נסו תמונה אחרת",
+  "btn_similar": "מצא דומים",
+  "btn_related": "קשור: {keyword}",
+
+  "err_no_results": "לא נמצאו מוצרים. נסו תמונה אחרת או מילות חיפוש אחרות.",
+  "err_no_photo": "אנא שלחו תמונה של מוצר.",
+  "err_rate_limit": "יותר מדי בקשות. אנא המתינו רגע ונסו שוב.",
+  "err_analysis_failed": "לא הצלחתי לנתח את התמונה. נסו שוב עם תמונה ברורה יותר.",
+  "err_search_failed": "החיפוש נכשל. אנא נסו שוב מאוחר יותר.",
+  "err_generic": "משהו השתבש. אנא נסו שוב.",
+
+  "text_search_prompt": "מחפש \"{query}\"..."
+}

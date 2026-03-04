@@ -1,0 +1,53 @@
+{
+  "choose_language": "Выберите язык:",
+  "lang_set": "Язык изменён на русский.",
+  "welcome": "Добро пожаловать! Отправьте мне фото любого товара, и я найду его на Amazon.",
+  "help": "Отправьте мне фото товара — я определю, что это, и найду на Amazon.\n\nМожно также отправить текст для поиска по ключевым словам.\n\nКоманды:\n/start - Запустить бота\n/lang - Сменить язык\n/help - Показать эту справку",
+
+  "loading_vision": "Анализирую фото...",
+  "loading_search": "Ищу на Amazon...",
+  "loading_similar": "Ищу похожие товары...",
+
+  "id_title": "Товар",
+  "id_brand": "Бренд",
+  "id_category": "Категория",
+  "id_features": "Основные характеристики",
+  "id_confidence": "Уверенность",
+  "id_search_query": "Поисковый запрос",
+
+  "confidence_high": "Высокая",
+  "confidence_medium": "Средняя",
+  "confidence_low": "Низкая",
+
+  "filter_ask": "Показать товары с доставкой в Израиль?",
+  "filter_all": "Все товары",
+  "filter_israel": "С доставкой в Израиль",
+
+  "product_price": "Цена",
+  "product_rating": "Рейтинг",
+  "product_reviews": "Отзывы",
+  "product_prime": "Prime",
+  "product_sold_by": "Продавец",
+  "product_israel_checking": "Проверяю доставку в Израиль...",
+  "product_israel_yes": "Доставка в Израиль",
+  "product_israel_no": "Не доставляется в Израиль",
+  "product_israel_free": "Бесплатная доставка в Израиль",
+  "product_counter": "{current}/{total}",
+
+  "btn_shop": "Купить на Amazon",
+  "btn_prev": "Назад",
+  "btn_next": "Вперёд",
+  "btn_filter_toggle": "Переключить фильтр",
+  "btn_try_different": "Попробовать другое фото",
+  "btn_similar": "Найти похожие",
+  "btn_related": "Похожее: {keyword}",
+
+  "err_no_results": "Товары не найдены. Попробуйте другое фото или поисковый запрос.",
+  "err_no_photo": "Пожалуйста, отправьте фото товара.",
+  "err_rate_limit": "Слишком много запросов. Подождите немного и попробуйте снова.",
+  "err_analysis_failed": "Не удалось распознать фото. Попробуйте отправить более чёткое изображение.",
+  "err_search_failed": "Ошибка поиска. Попробуйте позже.",
+  "err_generic": "Что-то пошло не так. Попробуйте ещё раз.",
+
+  "text_search_prompt": "Ищу \"{query}\"..."
+}
