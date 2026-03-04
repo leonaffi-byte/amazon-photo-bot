@@ -52,6 +52,46 @@ class DataForSEOBackend(SearchBackend):
     def name(self) -> str:
         return "DataForSEO / Amazon SERP"
 
+    async def is_available(self) -> bool:
+        """
+        Check if the Amazon SERP endpoint is enabled on this account.
+        Makes a minimal 1-item probe call — returns True only on status 20000.
+        Result is cached for the lifetime of this instance.
+        """
+        if hasattr(self, "_available"):
+            return self._available  # type: ignore[return-value]
+
+        probe = [{
+            "keyword":       "test",
+            "location_code": LOCATION_US,
+            "language_code": LANGUAGE_EN,
+            "device":        "desktop",
+            "depth":         1,
+        }]
+        try:
+            async with aiohttp.ClientSession() as s:
+                async with s.post(
+                    LIVE_URL,
+                    headers = self._headers,
+                    json    = probe,
+                    timeout = aiohttp.ClientTimeout(total=10),
+                ) as resp:
+                    data = await resp.json()
+            task  = (data.get("tasks") or [{}])[0]
+            ok    = task.get("status_code") == 20000
+            self._available = ok
+            if not ok:
+                logger.warning(
+                    "DataForSEO Amazon SERP not available (code %s: %s). "
+                    "Enable it at app.dataforseo.com → API → SERP → Amazon.",
+                    task.get("status_code"), task.get("status_message"),
+                )
+        except Exception as exc:
+            logger.warning("DataForSEO availability check failed: %s", exc)
+            self._available = False
+
+        return self._available  # type: ignore[return-value]
+
     async def search(self, query: str, max_results: int = 20, page: int = 1) -> list[AmazonItem]:
         """
         Search Amazon via DataForSEO live endpoint (~$0.003/call).

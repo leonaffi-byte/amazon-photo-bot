@@ -94,7 +94,14 @@ async def _build_backend() -> SearchBackend:
                 "SEARCH_BACKEND=dataforseo but DataForSEO keys are not set.\n"
                 "Add dataforseo_login + dataforseo_password via /admin → 🔑 API Keys."
             )
-        return _make_dataforseo(dataforseo_login, dataforseo_password)
+        backend = _make_dataforseo(dataforseo_login, dataforseo_password)
+        if not await backend.is_available():
+            raise RuntimeError(
+                "DataForSEO Amazon SERP endpoint is not enabled on your account.\n"
+                "Go to app.dataforseo.com → API → SERP → Amazon to activate it.\n"
+                "Your account has credits but lacks access to this specific endpoint."
+            )
+        return backend
 
     if mode == "playwright":
         logger.info("Using Playwright / Amazon Direct Scraper backend")
@@ -110,8 +117,11 @@ async def _build_backend() -> SearchBackend:
         logger.info("Auto-selected RapidAPI backend")
         return _make_rapidapi(rapidapi_key)
     if has_dataforseo:
-        logger.info("Auto-selected DataForSEO backend")
-        return _make_dataforseo(dataforseo_login, dataforseo_password)
+        backend = _make_dataforseo(dataforseo_login, dataforseo_password)
+        if await backend.is_available():
+            logger.info("Auto-selected DataForSEO backend")
+            return backend
+        logger.info("DataForSEO Amazon SERP not enabled on this account — skipping")
 
     # Last resort: Playwright — no API key needed, just Chromium
     logger.info("No API keys found — falling back to Playwright direct scraper (free)")
