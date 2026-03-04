@@ -12,8 +12,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt requirements.lock ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Chromium browser + all its system library dependencies
-# (~350 MB; runs inside the image so no host browser needed)
+# Install Chromium to a shared path accessible by all users.
+# Without this, `playwright install` puts browsers under ~/.cache/ms-playwright
+# which differs between root (build-time) and botuser (run-time).
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers
 RUN playwright install --with-deps chromium
 
 # Copy source code

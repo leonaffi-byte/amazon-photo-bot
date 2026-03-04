@@ -71,19 +71,15 @@ class AmazonItem:
           3. is_prime → high-confidence proxy for FBA (~97% of Prime items are FBA)
 
         Deliberately NOT included:
-          • "FREE delivery …" text from US search results — this is US domestic
-            delivery, completely unrelated to whether the item ships to Israel.
+          • free_delivery_likely — "FREE delivery" text from US search results
+            is US domestic delivery, unrelated to whether the item ships to Israel.
+            Including it causes many 3P domestic-only items to pass the filter.
           • Price-only signals — a cheap 3P item still doesn't ship to Israel.
         """
-        # free_delivery_likely: ANY item showing "FREE delivery" in search.
-        # Includes some 3P domestic-only items, but catches the many FBA items
-        # that RapidAPI returns without the "shipped by Amazon" phrase.
-        # Israel verification (Playwright) overrides this heuristic when available.
         return (
             self.is_sold_by_amazon
             or self.is_amazon_fulfilled
             or self.is_prime
-            or self.free_delivery_likely
         )
 
     @property
