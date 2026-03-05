@@ -854,11 +854,11 @@ class BotCore:
             if not await self._is_admin(user_id):
                 return
             import log_group
-            log_group.start_listening(user_id)
+            log_group.start_listening(int(user_id))
             await self.adapter.send_text(
                 chat_id,
-                "OK, now add me to a group and send any message there. "
-                "I will capture that group as the log group."
+                "OK, now add me to a group and send any message there\. "
+                "I will capture that group as the log group\."
             )
     async def handle_photo(
         self,
