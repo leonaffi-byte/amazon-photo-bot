@@ -83,7 +83,7 @@ async def get_price_history(asin: str) -> Optional[PriceHistory]:
         try:
             await db.set_price_cache(asin, result)
         except Exception as exc:
-            logger.debug("Price cache write error: %s", exc)
+            logger.info("Price cache write error: %s", exc)
 
     return result
 
@@ -151,11 +151,11 @@ async def _fetch_rendered_html(url: str, timeout_ms: int = 15_000) -> Optional[s
                     await browser.close()
 
                     if html:
-                        logger.debug("Fetched %s via %s (%d chars)", url[:50], label, len(html))
+                        logger.info("Fetched %s via %s (%d chars)", url[:50], label, len(html))
                         return html
-                    logger.debug("Empty HTML via %s — trying next proxy", label)
+                    logger.info("Empty HTML via %s — trying next proxy", label)
                 except Exception as exc:
-                    logger.debug("Playwright fetch via %s failed: %s — trying next", label, exc)
+                    logger.info("Playwright fetch via %s failed: %s — trying next", label, exc)
                     try:
                         await browser.close()
                     except Exception:
@@ -163,7 +163,7 @@ async def _fetch_rendered_html(url: str, timeout_ms: int = 15_000) -> Optional[s
 
         return None
     except Exception as exc:
-        logger.debug("Playwright fetch failed for %s: %s", url, exc)
+        logger.info("Playwright fetch failed for %s: %s", url, exc)
         return None
 
 
@@ -208,7 +208,7 @@ def _parse_ccc_html(asin: str, html: str) -> Optional[PriceHistory]:
             prices = _extract_stats_fullpage(soup)
 
         if not prices:
-            logger.debug("CCC: no price data found for %s", asin)
+            logger.info("CCC: no price data found for %s", asin)
             return None
 
         ph = PriceHistory(
@@ -330,24 +330,24 @@ async def _from_keepa(asin: str) -> Optional[PriceHistory]:
                     await browser.close()
 
                     if captured:
-                        logger.debug("Keepa XHR captured via %s", label)
+                        logger.info("Keepa XHR captured via %s", label)
                         break
-                    logger.debug("Keepa: no XHR via %s — trying next proxy", label)
+                    logger.info("Keepa: no XHR via %s — trying next proxy", label)
                 except Exception as exc:
-                    logger.debug("Keepa via %s failed: %s", label, exc)
+                    logger.info("Keepa via %s failed: %s", label, exc)
                     try:
                         await browser.close()
                     except Exception:
                         pass
 
         if not captured:
-            logger.debug("Keepa: no XHR captured for %s", asin)
+            logger.info("Keepa: no XHR captured for %s", asin)
             return None
 
         return _parse_keepa_response(asin, captured[0])
 
     except Exception as exc:
-        logger.debug("Keepa scrape failed for %s: %s", asin, exc)
+        logger.info("Keepa scrape failed for %s: %s", asin, exc)
         return None
 
 

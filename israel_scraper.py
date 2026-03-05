@@ -157,7 +157,7 @@ async def check_shipping(asin: str) -> IsraelShippingResult:
         import database as db
         cached = await db.get_israel_cache(asin)
         if cached:
-            logger.debug("Israel cache hit for %s", asin)
+            logger.info("Israel cache hit for %s", asin)
             return cached
     except Exception as exc:
         logger.warning("Israel cache read failed: %s", exc)
@@ -173,7 +173,7 @@ async def check_shipping(asin: str) -> IsraelShippingResult:
             recovery_timeout=120.0,   # proxies may need longer recovery
             success_threshold=2,
         )
-        logger.debug("Israel check: trying %s for %s", label, asin)
+        logger.info("Israel check: trying %s for %s", label, asin)
         try:
             result = await cb.call(_scrape_or_raise(asin, proxy_url))
         except Exception as exc:
@@ -279,7 +279,7 @@ async def _scrape(asin: str, proxy_url: str) -> IsraelShippingResult:
                 await asyncio.sleep(0.8)
 
                 # ── Step 3: Product page ───────────────────────────────────
-                logger.debug("Israel check: loading dp/%s", asin)
+                logger.info("Israel check: loading dp/%s", asin)
                 await page.goto(
                     f"https://www.amazon.com/dp/{asin}",
                     timeout    = 25_000,
@@ -306,7 +306,7 @@ async def _scrape(asin: str, proxy_url: str) -> IsraelShippingResult:
                     pass  # Parse whatever is there
 
                 html = await page.content()
-                logger.debug("Israel check: page loaded for %s (%d bytes)", asin, len(html))
+                logger.info("Israel check: page loaded for %s (%d bytes)", asin, len(html))
                 return _parse_html(asin, html)
 
             finally:
@@ -340,7 +340,7 @@ async def _set_delivery_israel(page) -> None:
         """), timeout=10)
 
         if not csrf:
-            logger.debug("No CSRF token on Amazon homepage — trying UI click")
+            logger.info("No CSRF token on Amazon homepage — trying UI click")
             await _set_delivery_israel_via_ui(page)
             return
 
@@ -376,10 +376,10 @@ async def _set_delivery_israel(page) -> None:
             """,
             [csrf],
         ), timeout=15)
-        logger.debug("Delivery-to-IL API returned HTTP %s for %s", status, "homepage")
+        logger.info("Delivery-to-IL API returned HTTP %s for %s", status, "homepage")
 
     except Exception as exc:
-        logger.debug("_set_delivery_israel failed: %s", exc)
+        logger.info("_set_delivery_israel failed: %s", exc)
 
 
 async def _set_delivery_israel_via_ui(page) -> None:
@@ -409,10 +409,10 @@ async def _set_delivery_israel_via_ui(page) -> None:
             'input.a-button-input[aria-labelledby*="GLUXSave"]',
             timeout = 4_000,
         )
-        logger.debug("Delivery set to IL via UI click")
+        logger.info("Delivery set to IL via UI click")
 
     except Exception as exc:
-        logger.debug("UI location change failed (non-fatal): %s", exc)
+        logger.info("UI location change failed (non-fatal): %s", exc)
 
 
 async def _is_captcha_page(page) -> bool:
