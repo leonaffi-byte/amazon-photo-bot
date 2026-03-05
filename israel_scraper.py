@@ -253,7 +253,7 @@ async def _scrape(asin: str, proxy_url: str) -> IsraelShippingResult:
 
             try:
                 # ── Step 1: Amazon homepage — cookies + CSRF ───────────────
-                logger.debug("Israel check: loading amazon.com for %s", asin)
+                logger.info("Israel check: loading amazon.com for %s", asin)
                 try:
                     await page.goto(
                         "https://www.amazon.com",

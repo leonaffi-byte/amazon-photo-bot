@@ -69,10 +69,10 @@ async def get_price_history(asin: str) -> Optional[PriceHistory]:
     try:
         cached = await db.get_price_cache(asin)
         if cached:
-            logger.debug("Price cache hit for %s", asin)
+            logger.info("Price cache hit for %s", asin)
             return cached
     except Exception as exc:
-        logger.debug("Price cache read error: %s", exc)
+        logger.info("Price cache read error: %s", exc)
 
     result = (
         await _from_camelcamelcamel(asin)

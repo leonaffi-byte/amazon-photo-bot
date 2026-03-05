@@ -469,7 +469,9 @@ class BotCore:
     ) -> None:
         """Kick off Israel verification and price history checks."""
         if not session.results_msg_ref:
+            logger.info("Skipping background checks: no results_msg_ref")
             return
+        logger.info("Starting background enrichment for ASIN %s", item.asin)
         page_snap = session.page
         self._spawn_task(
             self._verify_israel_async(
@@ -494,13 +496,17 @@ class BotCore:
         """Background: check Israel shipping via scraper, then edit caption."""
         try:
             import israel_scraper
-            if not await israel_scraper.is_configured():
+            configured = await israel_scraper.is_configured()
+            logger.info("Israel scraper configured: %s", configured)
+            if not configured:
                 return
 
+            logger.info("Starting Israel check for ASIN %s", item.asin)
             result = await asyncio.wait_for(
                 israel_scraper.check_shipping(item.asin),
                 timeout=14.0,
             )
+            logger.info("Israel check result: verified=%s, ships=%s, note=%s", result.verified, result.ships_to_israel, result.note)
             if not result.verified:
                 return
 
@@ -519,7 +525,7 @@ class BotCore:
         except asyncio.TimeoutError:
             pass
         except Exception as exc:
-            logger.debug("Israel async verify failed: %s", exc)
+            logger.info("Israel async verify failed: %s", exc)
 
     async def _verify_price_async(
         self,
@@ -533,7 +539,9 @@ class BotCore:
         """Background: fetch price history then edit the caption."""
         try:
             import price_history as ph_mod
+            logger.info("Starting price history check for ASIN %s", item.asin)
             ph = await ph_mod.get_price_history(item.asin)
+            logger.info("Price history result: %s", ph)
             if not ph:
                 return
 
@@ -547,7 +555,7 @@ class BotCore:
                 chat_id, session, item, page_snap, lang, user_id,
             )
         except Exception as exc:
-            logger.debug("Price history async fetch failed: %s", exc)
+            logger.info("Price history async fetch failed: %s", exc)
 
     async def _update_caption_after_enrichment(
         self,
