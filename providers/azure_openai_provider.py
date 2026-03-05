@@ -130,22 +130,27 @@ class AzureOpenAIProvider(VisionProvider):
         output_tokens = usage.completion_tokens if usage else 150
 
         data = parse_json_response(raw, self.full_name)
+        products = data["products"]
+        first = products[0]
+        bbox_raw = first.get("bbox")
+        bbox = tuple(bbox_raw) if bbox_raw and len(bbox_raw) == 4 else None
         cost = self.estimate_cost(input_tokens, output_tokens)
 
         return ProviderResult(
-            provider_name       = self.full_name,
-            model_id            = self._deployment,
-            product_name        = data.get("product_name", "Unknown"),
-            brand               = data.get("brand"),
-            category            = data.get("category", "All"),
-            key_features        = _extract_features(data),
-            amazon_search_query = sanitize_query(data.get("amazon_search_query", "")),
-            alternative_query   = sanitize_query(data.get("alternative_query",
-                                           data.get("amazon_search_query", ""))),
-            confidence          = data.get("confidence", "medium"),
-            notes               = data.get("notes", ""),
-            latency_ms          = latency_ms,
-            input_tokens        = input_tokens,
-            output_tokens       = output_tokens,
-            cost_usd            = cost,
+            provider_name=self.full_name,
+            model_id=self._deployment,
+            product_name=first.get("product_name", "Unknown"),
+            brand=first.get("brand"),
+            category=first.get("category", "All"),
+            key_features=_extract_features(first),
+            amazon_search_query=sanitize_query(first.get("amazon_search_query", "")),
+            alternative_query=sanitize_query(first.get("alternative_query", first.get("amazon_search_query", ""))),
+            confidence=first.get("confidence", "medium"),
+            notes=first.get("notes", ""),
+            latency_ms=latency_ms,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cost_usd=cost,
+            bbox=bbox,
+            products_raw=products,
         )

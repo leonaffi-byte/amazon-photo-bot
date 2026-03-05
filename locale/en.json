@@ -50,5 +50,7 @@
   "err_photo_too_large": "Photo is too large. Please send a smaller image.",
   "err_no_results_filter": "No products match this filter. Try toggling.",
   "err_translation_failed": "Translation failed, searching with original text.",
-  "filter_ask_text": "Filter results?"
+  "filter_ask_text": "Filter results?",
+  "pick_product": "I found {count} products in your photo. Which one do you want to search for?",
+  "pick_product_hint": "Tip: Circle a product or add a caption to search it directly."
 }

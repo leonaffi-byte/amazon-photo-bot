@@ -48,6 +48,7 @@ CB_TRY_DIFFERENTLY = "nav:try"        # re-search using next provider result
 CB_SIMILAR         = "dfs:similar:"   # + asin  — show competitor products
 CB_RELATED         = "dfs:related:"   # + keyword — run search for related term
 CB_LANG_PREFIX     = "lang:"          # + language code
+CB_PICK_PRODUCT    = "pick:"           # + product index
 
 # Placeholder image when a product has no photo URL
 _PLACEHOLDER_IMG = "https://placehold.co/600x400/FF9900/FFF.png?text=Amazon"
@@ -83,6 +84,7 @@ class UserSession:
     chosen_result: Optional[ProviderResult]    = None
     product_info: Optional[ProductInfo]        = None
     chosen_provider_idx: int = 0               # index into all_provider_results
+    all_detected_products: list = field(default_factory=list)  # list[ProductInfo] when multi-product
 
     all_items: list[AmazonItem]      = field(default_factory=list)
     filtered_items: list[AmazonItem] = field(default_factory=list)
@@ -965,10 +967,41 @@ class BotCore:
             await self.adapter.edit_text(loading_ref, text=card_text, buttons=compare_buttons)
             return
 
+        # Check if multiple products detected
+        detected_products = winner.to_product_info_list()
+
+        if len(detected_products) > 1 and not context_hint:
+            # Multi-product: annotate image and show picker
+            session.all_detected_products = detected_products
+            from image_annotator import annotate_products
+            annotated_bytes = annotate_products(image_bytes, detected_products)
+
+            picker_text = fmt.product_picker(detected_products)
+            picker_buttons: list[list[Button]] = []
+            for i, p in enumerate(detected_products):
+                short_name = p.product_name[:30]
+                picker_buttons.append([Button(
+                    label=f"{i + 1}: {short_name}",
+                    callback_data=f"{CB_PICK_PRODUCT}{i}",
+                )])
+
+            # Delete loading message, send annotated photo with picker
+            try:
+                await self.adapter.delete_message(loading_ref)
+            except Exception:
+                pass
+            await self.adapter.send_photo(
+                chat_id,
+                image=annotated_bytes,
+                caption=picker_text,
+                buttons=picker_buttons,
+            )
+            return
+
+        # Single product (or user provided hint) -- normal flow
         session.chosen_result = winner
         session.product_info = winner.to_product_info()
 
-        # Show identification card with filter keyboard
         card_text = fmt.identification_card(winner, is_admin=is_admin)
         filter_buttons = self._filter_buttons(lang)
         await self.adapter.edit_text(loading_ref, text=card_text, buttons=filter_buttons)
@@ -1019,6 +1052,49 @@ class BotCore:
             lang = chosen_lang
             fmt = self._fmt(lang)
             await self.adapter.send_text(chat_id, fmt.welcome())
+            return
+
+        # ── Product picker (multi-product) ───────────────────────────────
+        if data.startswith(CB_PICK_PRODUCT):
+            try:
+                idx = int(data[len(CB_PICK_PRODUCT):])
+                chosen = session.all_detected_products[idx]
+            except (ValueError, IndexError):
+                await self.adapter.send_text(chat_id, fmt.error("err_generic"))
+                return
+
+            session.product_info = chosen
+            # Build a ProviderResult for the identification card
+            if session.all_provider_results:
+                winner = session.all_provider_results[session.chosen_provider_idx] if session.chosen_provider_idx < len(session.all_provider_results) else session.all_provider_results[0]
+                winner_copy = ProviderResult(
+                    provider_name=winner.provider_name,
+                    model_id=winner.model_id,
+                    product_name=chosen.product_name,
+                    brand=chosen.brand,
+                    category=chosen.category,
+                    key_features=chosen.key_features,
+                    amazon_search_query=chosen.amazon_search_query,
+                    alternative_query=chosen.alternative_query,
+                    confidence=chosen.confidence,
+                    notes=chosen.notes,
+                    latency_ms=winner.latency_ms,
+                    input_tokens=winner.input_tokens,
+                    output_tokens=winner.output_tokens,
+                    cost_usd=winner.cost_usd,
+                )
+                session.chosen_result = winner_copy
+            else:
+                session.chosen_result = None
+
+            is_admin = await self._is_admin(user_id)
+            if session.chosen_result:
+                card_text = fmt.identification_card(session.chosen_result, is_admin=is_admin)
+            else:
+                card_text = chosen.product_name
+
+            filter_buttons = self._filter_buttons(lang)
+            await self.adapter.send_text(chat_id, card_text, buttons=filter_buttons)
             return
 
         # ── Noop page indicator tap ───────────────────────────────────────

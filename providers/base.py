@@ -48,33 +48,42 @@ def _extract_features(data: dict) -> list[str]:
 # ── Prompt (shared across all providers) ──────────────────────────────────────
 
 SYSTEM_PROMPT = """You are an expert product identification assistant.
-Analyse the product photo and return ONLY a valid JSON object — no markdown, no prose.
+Analyse the product photo and return ONLY valid JSON — no markdown, no prose.
 
-JSON schema (all fields required unless marked optional):
+Return a JSON object with a "products" array. Each element uses this schema:
 {
-  "product_name":          "concise name — brand + model if visible",
-  "brand":                 "brand name or null",
-  "category":              "Amazon browse category (e.g. Electronics, Kitchen)",
-  "key_features":          ["up to 5 most distinctive features"],
-  "amazon_search_query":   "≤100-char optimised Amazon keyword search string",
-  "alternative_query":     "broader fallback search if main query fails",
-  "confidence":            "high | medium | low",
-  "notes":                 "brief note on identification quality"
+  "products": [
+    {
+      "product_name":          "concise name — brand + model if visible",
+      "brand":                 "brand name or null",
+      "category":              "Amazon browse category (e.g. Electronics, Kitchen)",
+      "key_features":          ["up to 5 most distinctive features"],
+      "amazon_search_query":   "≤100-char optimised Amazon keyword search string",
+      "alternative_query":     "broader fallback search if main query fails",
+      "confidence":            "high | medium | low",
+      "notes":                 "brief note on identification quality",
+      "bbox":                  [x_percent, y_percent, width_percent, height_percent]
+    }
+  ]
 }
 
 Rules:
+- If the photo contains ONE product, return exactly one element in "products"
+- If the photo contains MULTIPLE distinct products, return one element per product (up to 6)
+- bbox: approximate bounding box as percentages (0-100) of image width/height. [x, y] is the top-left corner.
 - amazon_search_query: most specific terms first, include model# if visible
 - If brand unknown, omit it from search query to avoid zero results
 - key_features: focus on what distinguishes this from similar products
 - If a person is wearing or holding the product, describe ONLY the product — ignore the person entirely
 - Never refuse: if the photo shows a person, identify the clothing/accessory/item they are wearing
+- If the user has drawn a circle, arrow, highlight, or annotation on the image, identify ONLY the highlighted/circled product and return just that one element
 """
 
 USER_PROMPT = (
-    "Analyse this product photo and return the JSON. "
+    "Analyse this product photo and return the JSON with a \"products\" array. "
     "Focus ONLY on the PRODUCT or ITEM itself (clothing, accessory, gadget, object) — "
     "not on any person who may appear in the photo. "
-    "Identify what the item is so a shopper can find it on Amazon."
+    "Identify what each item is so a shopper can find it on Amazon."
 )
 
 
@@ -107,6 +116,8 @@ class ProviderResult:
     input_tokens: int
     output_tokens: int
     cost_usd: float             # estimated cost
+    bbox: Optional[tuple[float, float, float, float]] = None  # (x%, y%, w%, h%)
+    products_raw: list[dict] = field(default_factory=list)
 
     # internal quality score for ranking (higher = better)
     quality_score: float = field(init=False)
@@ -139,36 +150,80 @@ class ProviderResult:
             alternative_query=self.alternative_query,
             confidence=self.confidence,
             notes=f"[{self.provider_name}] {self.notes}",
+            bbox=self.bbox,
         )
+
+    def to_product_info_list(self) -> list:
+        """Convert all detected products to ProductInfo list."""
+        from image_analyzer import ProductInfo
+        if not self.products_raw:
+            return [self.to_product_info()]
+        result = []
+        for p in self.products_raw:
+            bbox_raw = p.get("bbox")
+            bbox = tuple(bbox_raw) if bbox_raw and len(bbox_raw) == 4 else None
+            result.append(ProductInfo(
+                product_name=p.get("product_name", "Unknown Product"),
+                brand=p.get("brand"),
+                category=p.get("category", ""),
+                key_features=p.get("key_features", [])[:5],
+                amazon_search_query=p.get("amazon_search_query", ""),
+                alternative_query=p.get("alternative_query", ""),
+                confidence=p.get("confidence", "medium"),
+                notes=f"[{self.provider_name}] {p.get('notes', '')}",
+                bbox=bbox,
+            ))
+        return result
 
 
 def parse_json_response(raw: str, provider_name: str) -> dict:
     """
     Parse JSON from a model response, handling markdown fences gracefully.
+    Supports both single-object and {"products": [...]} multi-product format.
+    Always returns a dict with a "products" key containing a list.
     Raises ValueError on parse failure.
     """
     text = raw.strip()
+    parsed = None
+
     # Try 1: Direct parse
     try:
-        return json.loads(text)
+        parsed = json.loads(text)
     except json.JSONDecodeError:
         pass
+
     # Try 2: Extract from markdown fence
-    fence_match = _re.search(r"```(?:json)?\s*\n?([\s\S]+?)\n?```", text)
-    if fence_match:
-        try:
-            return json.loads(fence_match.group(1).strip())
-        except json.JSONDecodeError:
-            pass
+    if parsed is None:
+        fence_match = _re.search(r"```(?:json)?\s*\n?([\s\S]+?)\n?```", text)
+        if fence_match:
+            try:
+                parsed = json.loads(fence_match.group(1).strip())
+            except json.JSONDecodeError:
+                pass
+
     # Try 3: Find first {...} block
-    brace_match = _re.search(r"\{[\s\S]+\}", text)
-    if brace_match:
-        try:
-            return json.loads(brace_match.group(0))
-        except json.JSONDecodeError:
-            pass
-    logger.error("[%s] Non-JSON response: %s", provider_name, raw[:300])
-    raise ValueError(f"[{provider_name}] JSON parse error: could not extract valid JSON")
+    if parsed is None:
+        brace_match = _re.search(r"\{[\s\S]+\}", text)
+        if brace_match:
+            try:
+                parsed = json.loads(brace_match.group(0))
+            except json.JSONDecodeError:
+                pass
+
+    if parsed is None:
+        logger.error("[%s] Non-JSON response: %s", provider_name, raw[:300])
+        raise ValueError(f"[{provider_name}] JSON parse error: could not extract valid JSON")
+
+    # Normalize to {"products": [...]} format
+    if isinstance(parsed, list):
+        return {"products": parsed}
+    if isinstance(parsed, dict):
+        if "products" in parsed and isinstance(parsed["products"], list):
+            return parsed
+        # Single product dict (backward compat) — wrap in products array
+        return {"products": [parsed]}
+
+    raise ValueError(f"[{provider_name}] Unexpected JSON type: {type(parsed)}")
 
 
 # ── Abstract base ──────────────────────────────────────────────────────────────

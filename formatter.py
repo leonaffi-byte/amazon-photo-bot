@@ -144,6 +144,18 @@ class Formatter:
         """Prompt for the language selection menu."""
         return self._esc(t("choose_language", lang=self.lang))
 
+    def product_picker(self, products: list) -> str:
+        """Format the multi-product picker message."""
+        from image_analyzer import ProductInfo
+        count = len(products)
+        lines = [self._esc(t("pick_product", lang=self.lang, count=count))]
+        lines.append("")
+        for i, p in enumerate(products):
+            name = p.product_name if isinstance(p, ProductInfo) else str(p)
+            lines.append(f"{i + 1}\\\\. {self._bold(self._esc(name))}")
+        lines.append("")
+        lines.append(self._italic(self._esc(t("pick_product_hint", lang=self.lang))))
+        return "\n".join(lines)
     def text_search_loading(self, query: str) -> str:
         """Loading message for text-based search."""
         return self._esc(t("text_search_prompt", lang=self.lang, query=query))
