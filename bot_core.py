@@ -992,7 +992,7 @@ class BotCore:
                 pass
             await self.adapter.send_photo(
                 chat_id,
-                photo=annotated_bytes,
+                image=annotated_bytes,
                 caption=picker_text,
                 buttons=picker_buttons,
             )
