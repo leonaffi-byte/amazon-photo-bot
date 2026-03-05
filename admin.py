@@ -1155,21 +1155,14 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         import config as _cfg
         lg_id = _cfg.LOG_GROUP_CHAT_ID
         if lg_id:
-            status_text = f"📋 *Log Group*
-
-Current group ID: `{e(str(lg_id))}`
-
-Choose an action:"
+            status_text = f"📋 *Log Group*\n\nCurrent group ID: `{e(str(lg_id))}`\n\nChoose an action:"
             kb = InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔄  Change Group", callback_data=f"{P}lg_set")],
                 [InlineKeyboardButton("❌  Remove Group", callback_data=f"{P}lg_remove")],
                 [InlineKeyboardButton("◀  Back", callback_data=CB_PANEL)],
             ])
         else:
-            status_text = "📋 *Log Group*
-
-No log group configured\.
-Set one to receive bot action logs\."
+            status_text = "📋 *Log Group*\n\nNo log group configured\\.\nSet one to receive bot action logs\\."
             kb = InlineKeyboardMarkup([
                 [InlineKeyboardButton("➕  Set Log Group", callback_data=f"{P}lg_set")],
                 [InlineKeyboardButton("◀  Back", callback_data=CB_PANEL)],
@@ -1180,9 +1173,8 @@ Set one to receive bot action logs\."
         import log_group as _lg
         _lg.start_listening(q.from_user.id)
         await q.edit_message_text(
-            "📋 Add me to a group and send any message there\.
-"
-            "I will capture that group as the log group\.",
+            "📋 Add me to a group and send any message there\\.\n"
+            "I will capture that group as the log group\\.",
             parse_mode="MarkdownV2",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("◀  Cancel", callback_data=CB_LOGGROUP)],
