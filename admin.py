@@ -71,6 +71,8 @@ CB_TAG_NONE   = f"{P}tag_none"
 CB_KEY_SET    = f"{P}key_set:"    # + key_name
 CB_KEY_DEL    = f"{P}key_del:"    # + key_name
 CB_KEY_DELOK  = f"{P}key_delok:"  # + key_name
+CB_KEY_GROUP  = f"{P}key_grp:"    # + group_name
+CB_KEY_TEST   = f"{P}key_tst:"    # + group_name
 
 # Admins
 CB_ADM_INV    = f"{P}adm_inv"
@@ -362,26 +364,243 @@ _KEY_LABELS = {
 }
 
 
+# Groups for the admin panel display
+_API_GROUPS = [
+    {"name": "openai",       "label": "🤖 OpenAI",       "keys": ["openai_api_key"]},
+    {"name": "anthropic",    "label": "🤖 Anthropic",     "keys": ["anthropic_api_key"]},
+    {"name": "google",       "label": "🤖 Google",        "keys": ["google_api_key"]},
+    {"name": "groq",         "label": "🤖 Groq",          "keys": ["groq_api_key"]},
+    {"name": "openrouter",   "label": "🤖 OpenRouter",    "keys": ["openrouter_api_key"]},
+    {"name": "azure",        "label": "\u2601\ufe0f Azure OpenAI",   "keys": ["azure_openai_key", "azure_openai_endpoint", "azure_openai_deployment"]},
+    {"name": "dataforseo",   "label": "🛒 DataForSEO",    "keys": ["dataforseo_login", "dataforseo_password"]},
+    {"name": "amazon_paapi", "label": "🛒 Amazon PA-API", "keys": ["amazon_access_key", "amazon_secret_key", "amazon_associate_tag"]},
+    {"name": "decodo",       "label": "🔄 Decodo Proxy",  "keys": ["decodo_user", "decodo_password", "decodo_port"]},
+    {"name": "rapidapi",     "label": "🛒 RapidAPI",      "keys": ["rapidapi_key"]},
+    {"name": "capsolver",    "label": "🤖 CapSolver",     "keys": ["capsolver_api_key"]},
+    {"name": "israel_proxy", "label": "🇮🇱 Israel Proxy",  "keys": ["israel_proxy_url"]},
+    {"name": "bitly",        "label": "🔗 Bit.ly",        "keys": ["bitly_token"]},
+]
+
+
+def _group_status(all_keys: dict, keys: list[str]) -> str:
+    set_count = sum(1 for k in keys if all_keys.get(k))
+    if set_count == len(keys):
+        return "\u2705"
+    if set_count > 0:
+        return "\u26a0\ufe0f"
+    return "\u274c"
+
+
 async def _keys_content() -> tuple[str, InlineKeyboardMarkup]:
     all_keys = await key_store.get_all_keys()
     lines = [
-        f"🔑 *API KEYS*\n{st.DIV}\n",
+        f"\U0001f511 *API KEYS*\n{st.DIV}\n",
         f"_Keys set here override your \\.env file\\._\n",
-        f"{st.SDIV}\n",
     ]
     rows = []
-    for key_name, (label, desc) in _KEY_LABELS.items():
-        val    = all_keys.get(key_name)
-        masked = e(key_store.mask(val))
-        lines.append(f"*{e(label)}*\n  {masked}\n  _{e(desc)}_\n")
-        btn_row = [InlineKeyboardButton(f"✏️  {label}", callback_data=f"{CB_KEY_SET}{key_name}")]
-        if val:
-            btn_row.append(InlineKeyboardButton("🗑", callback_data=f"{CB_KEY_DEL}{key_name}"))
-        rows.append(btn_row)
+    for group in _API_GROUPS:
+        gname = group["name"]
+        label = group["label"]
+        keys  = group["keys"]
+        status = _group_status(all_keys, keys)
 
-    rows.append([InlineKeyboardButton("◀  Back", callback_data=CB_PANEL)])
+        if len(keys) == 1:
+            key_name = keys[0]
+            val = all_keys.get(key_name)
+            masked = e(key_store.mask(val))
+            lines.append(f"{status} *{e(label)}*  {masked}")
+            btn_row = [
+                InlineKeyboardButton(f"\u270f\ufe0f {label}", callback_data=f"{CB_KEY_SET}{key_name}"),
+                InlineKeyboardButton("\U0001f9ea", callback_data=f"{CB_KEY_TEST}{gname}"),
+            ]
+            if val:
+                btn_row.append(InlineKeyboardButton("\U0001f5d1", callback_data=f"{CB_KEY_DEL}{key_name}"))
+            rows.append(btn_row)
+        else:
+            set_count = sum(1 for k in keys if all_keys.get(k))
+            lines.append(f"{status} *{e(label)}*  \\({set_count}/{len(keys)} fields\\)")
+            rows.append([
+                InlineKeyboardButton(f"\u2699\ufe0f {label}", callback_data=f"{CB_KEY_GROUP}{gname}"),
+                InlineKeyboardButton("\U0001f9ea", callback_data=f"{CB_KEY_TEST}{gname}"),
+            ])
+
+    rows.append([InlineKeyboardButton("\u25c0  Back", callback_data=CB_PANEL)])
     return "\n".join(lines), InlineKeyboardMarkup(rows)
 
+
+async def _group_content(group_name: str) -> tuple[str, InlineKeyboardMarkup]:
+    group = next((g for g in _API_GROUPS if g["name"] == group_name), None)
+    if not group:
+        return "Group not found\.", InlineKeyboardMarkup([[InlineKeyboardButton("\u25c0 Back", callback_data=CB_KEYS)]])
+
+    all_keys = await key_store.get_all_keys()
+    label = group["label"]
+    lines = [f"\u2699\ufe0f *{e(label)}*\n{st.DIV}\n"]
+    rows = []
+    for key_name in group["keys"]:
+        kl, desc = _KEY_LABELS.get(key_name, (key_name, ""))
+        val = all_keys.get(key_name)
+        masked = e(key_store.mask(val))
+        lines.append(f"*{e(kl)}*\n  {masked}\n  _{e(desc)}_\n")
+        btn_row = [InlineKeyboardButton(f"\u270f\ufe0f {kl}", callback_data=f"{CB_KEY_SET}{key_name}")]
+        if val:
+            btn_row.append(InlineKeyboardButton("\U0001f5d1", callback_data=f"{CB_KEY_DEL}{key_name}"))
+        rows.append(btn_row)
+
+    rows.append([
+        InlineKeyboardButton("\U0001f9ea Test", callback_data=f"{CB_KEY_TEST}{group_name}"),
+        InlineKeyboardButton("\u25c0 Back", callback_data=CB_KEYS),
+    ])
+    return "\n".join(lines), InlineKeyboardMarkup(rows)
+
+
+async def _test_api(group_name: str) -> tuple[bool, str]:
+    import aiohttp
+    import time as _time
+    start = _time.monotonic()
+    try:
+        timeout = aiohttp.ClientTimeout(total=10)
+        async with aiohttp.ClientSession(timeout=timeout) as s:
+            if group_name == "openai":
+                key = await key_store.get("openai_api_key")
+                if not key: return False, "Key not set"
+                async with s.get("https://api.openai.com/v1/models",
+                                 headers={"Authorization": f"Bearer {key}"}) as r:
+                    elapsed = _time.monotonic() - start
+                    if r.status == 200: return True, f"OK \\({elapsed:.1f}s\\)"
+                    return False, f"HTTP {r.status}"
+
+            elif group_name == "anthropic":
+                key = await key_store.get("anthropic_api_key")
+                if not key: return False, "Key not set"
+                async with s.get("https://api.anthropic.com/v1/models",
+                                 headers={"x-api-key": key, "anthropic-version": "2023-06-01"}) as r:
+                    elapsed = _time.monotonic() - start
+                    if r.status == 200: return True, f"OK \\({elapsed:.1f}s\\)"
+                    return False, f"HTTP {r.status}"
+
+            elif group_name == "google":
+                key = await key_store.get("google_api_key")
+                if not key: return False, "Key not set"
+                async with s.get(f"https://generativelanguage.googleapis.com/v1/models?key={key}") as r:
+                    elapsed = _time.monotonic() - start
+                    if r.status == 200: return True, f"OK \\({elapsed:.1f}s\\)"
+                    return False, f"HTTP {r.status}"
+
+            elif group_name == "groq":
+                key = await key_store.get("groq_api_key")
+                if not key: return False, "Key not set"
+                async with s.get("https://api.groq.com/openai/v1/models",
+                                 headers={"Authorization": f"Bearer {key}"}) as r:
+                    elapsed = _time.monotonic() - start
+                    if r.status == 200: return True, f"OK \\({elapsed:.1f}s\\)"
+                    return False, f"HTTP {r.status}"
+
+            elif group_name == "openrouter":
+                key = await key_store.get("openrouter_api_key")
+                if not key: return False, "Key not set"
+                async with s.get("https://openrouter.ai/api/v1/models",
+                                 headers={"Authorization": f"Bearer {key}"}) as r:
+                    elapsed = _time.monotonic() - start
+                    if r.status == 200: return True, f"OK \\({elapsed:.1f}s\\)"
+                    return False, f"HTTP {r.status}"
+
+            elif group_name == "azure":
+                key = await key_store.get("azure_openai_key")
+                endpoint = await key_store.get("azure_openai_endpoint")
+                if not all([key, endpoint]):
+                    missing = []
+                    if not key: missing.append("key")
+                    if not endpoint: missing.append("endpoint")
+                    return False, f"Missing: {', '.join(missing)}"
+                url = f"{endpoint.rstrip('/')}/openai/models?api-version=2024-02-01"
+                async with s.get(url, headers={"api-key": key}) as r:
+                    elapsed = _time.monotonic() - start
+                    if r.status == 200: return True, f"OK \\({elapsed:.1f}s\\)"
+                    return False, f"HTTP {r.status}"
+
+            elif group_name == "dataforseo":
+                login = await key_store.get("dataforseo_login")
+                password = await key_store.get("dataforseo_password")
+                if not all([login, password]): return False, "Login or password not set"
+                import base64
+                auth = base64.b64encode(f"{login}:{password}".encode()).decode()
+                async with s.get("https://api.dataforseo.com/v3/appendix/user_data",
+                                 headers={"Authorization": f"Basic {auth}"}) as r:
+                    elapsed = _time.monotonic() - start
+                    if r.status == 200: return True, f"OK \\({elapsed:.1f}s\\)"
+                    return False, f"HTTP {r.status}"
+
+            elif group_name == "rapidapi":
+                key = await key_store.get("rapidapi_key")
+                if not key: return False, "Key not set"
+                async with s.get("https://real-time-amazon-data.p.rapidapi.com/search",
+                                 params={"query": "test", "country": "US"},
+                                 headers={"X-RapidAPI-Key": key,
+                                          "X-RapidAPI-Host": "real-time-amazon-data.p.rapidapi.com"}) as r:
+                    elapsed = _time.monotonic() - start
+                    if r.status == 200: return True, f"OK \\({elapsed:.1f}s\\)"
+                    return False, f"HTTP {r.status}"
+
+            elif group_name == "amazon_paapi":
+                ak = await key_store.get("amazon_access_key")
+                sk = await key_store.get("amazon_secret_key")
+                tag = await key_store.get("amazon_associate_tag")
+                if not all([ak, sk, tag]):
+                    missing = []
+                    if not ak: missing.append("access key")
+                    if not sk: missing.append("secret key")
+                    if not tag: missing.append("tag")
+                    return False, f"Missing: {', '.join(missing)}"
+                return True, "All 3 fields set \\(signature test skipped\\)"
+
+            elif group_name == "capsolver":
+                key = await key_store.get("capsolver_api_key")
+                if not key: return False, "Key not set"
+                async with s.post("https://api.capsolver.com/getBalance",
+                                  json={"clientKey": key}) as r:
+                    elapsed = _time.monotonic() - start
+                    data = await r.json()
+                    if data.get("errorId", 1) == 0:
+                        bal = data.get("balance", "?")
+                        return True, f"OK \\(${bal}\\) \\({elapsed:.1f}s\\)"
+                    return False, str(data.get("errorDescription", f"HTTP {r.status}"))[:60]
+
+            elif group_name == "decodo":
+                user = await key_store.get("decodo_user")
+                pwd  = await key_store.get("decodo_password")
+                if not all([user, pwd]): return False, "Username or password not set"
+                port = await key_store.get("decodo_port") or "7000"
+                proxy = f"http://{user}:{pwd}@gate.decodo.com:{port}"
+                async with s.get("https://ip.decodo.com/json", proxy=proxy) as r:
+                    elapsed = _time.monotonic() - start
+                    if r.status == 200:
+                        data = await r.json()
+                        ip = data.get("ip", "?")
+                        return True, f"OK \\(IP: {ip}\\) \\({elapsed:.1f}s\\)"
+                    return False, f"HTTP {r.status}"
+
+            elif group_name == "israel_proxy":
+                url = await key_store.get("israel_proxy_url")
+                if not url: return False, "URL not set"
+                async with s.get("https://httpbin.org/ip", proxy=url) as r:
+                    elapsed = _time.monotonic() - start
+                    if r.status == 200: return True, f"OK \\({elapsed:.1f}s\\)"
+                    return False, f"HTTP {r.status}"
+
+            elif group_name == "bitly":
+                token = await key_store.get("bitly_token")
+                if not token: return False, "Token not set"
+                async with s.get("https://api-ssl.bitly.com/v4/user",
+                                 headers={"Authorization": f"Bearer {token}"}) as r:
+                    elapsed = _time.monotonic() - start
+                    if r.status == 200: return True, f"OK \\({elapsed:.1f}s\\)"
+                    return False, f"HTTP {r.status}"
+
+            else:
+                return False, "Unknown API group"
+    except Exception as exc:
+        return False, e(str(exc)[:80])
 
 # Set-key conversation
 async def _key_set_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -795,6 +1014,22 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     elif data == CB_KEYS:
         text, kb = await _keys_content()
         await q.edit_message_text(text, parse_mode="MarkdownV2", reply_markup=kb)
+
+    elif data.startswith(CB_KEY_GROUP):
+        group_name = data[len(CB_KEY_GROUP):]
+        text, kb = await _group_content(group_name)
+        await q.edit_message_text(text, parse_mode="MarkdownV2", reply_markup=kb)
+
+    elif data.startswith(CB_KEY_TEST):
+        group_name = data[len(CB_KEY_TEST):]
+        group = next((g for g in _API_GROUPS if g["name"] == group_name), None)
+        label = group["label"] if group else group_name
+        await q.edit_message_text(f"\U0001f9ea Testing *{e(label)}*\\.\\.\\.", parse_mode="MarkdownV2")
+        ok, msg = await _test_api(group_name)
+        emoji = "\u2705" if ok else "\u274c"
+        result_text = f"{emoji} *{e(label)}*: {msg}"
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("\u25c0 Back", callback_data=CB_KEYS)]])
+        await q.edit_message_text(result_text, parse_mode="MarkdownV2", reply_markup=kb)
 
     elif data.startswith(CB_KEY_DEL) and not data.startswith(CB_KEY_DELOK):
         key_name = data[len(CB_KEY_DEL):]
