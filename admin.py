@@ -86,6 +86,7 @@ CB_BACK_PANEL = f"{P}panel"
 
 # Shortener
 CB_SHORTENER     = f"{P}shortener"
+CB_LOGGROUP      = f"{P}loggroup"
 CB_SHORT_DEL     = f"{P}short_del:"    # + code
 CB_SHORT_DELOK   = f"{P}short_delok:"  # + code
 
@@ -179,7 +180,8 @@ async def _panel_content() -> tuple[str, InlineKeyboardMarkup]:
             InlineKeyboardButton("📊  Stats",         callback_data=CB_STATS),
         ],
         [
-            InlineKeyboardButton("👥  Admins",  callback_data=CB_ADMINS),
+            InlineKeyboardButton("👥  Admins",    callback_data=CB_ADMINS),
+            InlineKeyboardButton("📋  Log Group", callback_data=CB_LOGGROUP),
         ],
     ])
     return text, kb
@@ -1148,6 +1150,58 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await q.answer("Unknown setting.", show_alert=True)
 
     # ── Shortener ──────────────────────────────────────────────────────────────
+    elif data == CB_LOGGROUP:
+        import log_group as _lg
+        import config as _cfg
+        lg_id = _cfg.LOG_GROUP_CHAT_ID
+        if lg_id:
+            status_text = f"📋 *Log Group*
+
+Current group ID: `{e(str(lg_id))}`
+
+Choose an action:"
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔄  Change Group", callback_data=f"{P}lg_set")],
+                [InlineKeyboardButton("❌  Remove Group", callback_data=f"{P}lg_remove")],
+                [InlineKeyboardButton("◀  Back", callback_data=CB_PANEL)],
+            ])
+        else:
+            status_text = "📋 *Log Group*
+
+No log group configured\.
+Set one to receive bot action logs\."
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("➕  Set Log Group", callback_data=f"{P}lg_set")],
+                [InlineKeyboardButton("◀  Back", callback_data=CB_PANEL)],
+            ])
+        await q.edit_message_text(status_text, parse_mode="MarkdownV2", reply_markup=kb)
+
+    elif data == f"{P}lg_set":
+        import log_group as _lg
+        _lg.start_listening(q.from_user.id)
+        await q.edit_message_text(
+            "📋 Add me to a group and send any message there\.
+"
+            "I will capture that group as the log group\.",
+            parse_mode="MarkdownV2",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("◀  Cancel", callback_data=CB_LOGGROUP)],
+            ]),
+        )
+
+    elif data == f"{P}lg_remove":
+        import log_group as _lg
+        import config as _cfg
+        _cfg.LOG_GROUP_CHAT_ID = ""
+        try:
+            loop = __import__("asyncio").get_running_loop()
+            loop.create_task(_lg._save_to_db(""))
+        except Exception:
+            pass
+        await q.answer("Log group removed.", show_alert=True)
+        text, kb = await _panel_content()
+        await q.edit_message_text(text, parse_mode="MarkdownV2", reply_markup=kb)
+
     elif data == CB_SHORTENER:
         text, kb = await _shortener_content()
         await q.edit_message_text(text, parse_mode="MarkdownV2", reply_markup=kb)
