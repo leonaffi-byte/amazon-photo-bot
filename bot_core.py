@@ -324,9 +324,9 @@ class BotCore:
 
         # ── Filter toggle ─────────────────────────────────────────────────
         if session.israel_only:
-            toggle_label = t("btn_show_all", lang=lang)
+            toggle_label = t("filter_all", lang=lang)
         else:
-            toggle_label = t("btn_free_delivery", lang=lang)
+            toggle_label = t("filter_israel", lang=lang)
         rows.append([Button(label=toggle_label, callback_data=CB_CHANGE_FILTER)])
 
         # ── Try differently ───────────────────────────────────────────────
@@ -338,7 +338,7 @@ class BotCore:
                 next_name = session.all_provider_results[next_idx].provider_name
                 label = f"\U0001f504 Try {next_name} ({current}/{total_providers})"
             else:
-                label = t("btn_try_differently", lang=lang, current=current, total=total_providers)
+                label = t("btn_try_different", lang=lang)
             rows.append([Button(label=label, callback_data=CB_TRY_DIFFERENTLY)])
 
         # ── Similar products (DFS Labs) ───────────────────────────────────
@@ -376,7 +376,7 @@ class BotCore:
         total = len(session.filtered_items)
 
         if not item:
-            await self.adapter.send_text(chat_id, fmt.error("error_no_results"))
+            await self.adapter.send_text(chat_id, fmt.error("err_no_results"))
             return
 
         # Build short URL
@@ -634,7 +634,7 @@ class BotCore:
                 session.product_info, max_results=config.MAX_RESULTS,
             )
         except RuntimeError:
-            err_text = fmt.error("error_no_backend")
+            err_text = fmt.error("err_search_failed")
             if loading_msg_ref:
                 await self.adapter.edit_text(loading_msg_ref, text=err_text)
             else:
@@ -642,7 +642,7 @@ class BotCore:
             return
         except Exception as exc:
             logger.error("Amazon search failed: %s", exc)
-            err_text = fmt.error("error_search_failed")
+            err_text = fmt.error("err_search_failed")
             if loading_msg_ref:
                 await self.adapter.edit_text(loading_msg_ref, text=err_text)
             else:
@@ -671,7 +671,7 @@ class BotCore:
             await db.increment_tag_search_count(active_tag)
 
         if not session.filtered_items:
-            err_text = fmt.error("error_no_results")
+            err_text = fmt.error("err_no_results")
             if loading_msg_ref:
                 await self.adapter.edit_text(loading_msg_ref, text=err_text)
             else:
@@ -712,7 +712,7 @@ class BotCore:
             rows = [buttons_flat[i:i + 2] for i in range(0, len(buttons_flat), 2)]
             await self.adapter.send_text(
                 chat_id,
-                t("related_searches", lang=lang),
+                t("btn_similar", lang=lang),
                 buttons=rows,
             )
         except Exception as exc:
@@ -734,7 +734,7 @@ class BotCore:
         fmt = self._fmt(lang)
         labs = await self._get_dfs_labs()
         if not labs:
-            await self.adapter.send_text(chat_id, fmt.error("error_dfs_not_configured"))
+            await self.adapter.send_text(chat_id, fmt.error("err_generic"))
             return
 
         if msg_ref:
@@ -746,12 +746,12 @@ class BotCore:
         try:
             competitor_asins = await labs.get_competitors(asin, limit=20)
             if not competitor_asins:
-                await self.adapter.send_text(chat_id, fmt.error("error_no_similar"))
+                await self.adapter.send_text(chat_id, fmt.error("err_no_results"))
                 return
 
             enriched = await labs.enrich_many(competitor_asins[:12], concurrency=4)
             if not enriched:
-                await self.adapter.send_text(chat_id, fmt.error("error_no_similar"))
+                await self.adapter.send_text(chat_id, fmt.error("err_no_results"))
                 return
 
             new_items: list[AmazonItem] = []
@@ -775,7 +775,7 @@ class BotCore:
             session.apply_filter(session.israel_only)
 
             if not session.filtered_items:
-                await self.adapter.send_text(chat_id, fmt.error("error_no_results"))
+                await self.adapter.send_text(chat_id, fmt.error("err_no_results"))
                 return
 
             await self._render_product(
@@ -784,7 +784,7 @@ class BotCore:
             )
         except Exception as exc:
             logger.error("Similar products failed: %s", exc)
-            await self.adapter.send_text(chat_id, fmt.error("error_similar_failed"))
+            await self.adapter.send_text(chat_id, fmt.error("err_search_failed"))
 
     # ═══════════════════════════════════════════════════════════════════════
     #  PUBLIC ENTRY POINTS — called by platform adapters
@@ -823,7 +823,7 @@ class BotCore:
             try:
                 providers = await get_providers()
             except Exception:
-                await self.adapter.send_text(chat_id, fmt.error("error_no_providers"))
+                await self.adapter.send_text(chat_id, fmt.error("err_generic"))
                 return
             try:
                 sb = await backend_name()
@@ -855,7 +855,7 @@ class BotCore:
         user_key = f"{platform}:{uid}"
         # get_chat_id may be provided by adapters; fall back to user id
         if hasattr(self.adapter, "get_chat_id"):
-            chat_id = str(self.adapter.get_user_id(event))
+            chat_id = str(self.adapter.get_chat_id(event))
         else:
             chat_id = str(uid)
         cid = new_correlation_id()
@@ -873,7 +873,7 @@ class BotCore:
         # Rate limit
         limited, max_req, window = await self._is_rate_limited(user_id)
         if limited:
-            await self.adapter.send_text(chat_id, fmt.error("error_rate_limited"))
+            await self.adapter.send_text(chat_id, fmt.error("err_rate_limit"))
             return
 
         session = self._new_session(user_key)
@@ -886,7 +886,7 @@ class BotCore:
             n_providers = 0
 
         if n_providers == 0:
-            await self.adapter.send_text(chat_id, fmt.error("error_no_providers"))
+            await self.adapter.send_text(chat_id, fmt.error("err_generic"))
             return
 
         # Download and compress photo
@@ -894,11 +894,11 @@ class BotCore:
             raw_bytes = await self.adapter.download_photo(event)
         except Exception as exc:
             logger.error("Photo download failed: %s", exc)
-            await self.adapter.send_text(chat_id, fmt.error("error_analysis_failed"))
+            await self.adapter.send_text(chat_id, fmt.error("err_analysis_failed"))
             return
 
         if len(raw_bytes) > _MAX_PHOTO_BYTES:
-            await self.adapter.send_text(chat_id, fmt.error("error_photo_too_large"))
+            await self.adapter.send_text(chat_id, fmt.error("err_generic"))
             return
 
         # Handle optional caption / context hint
@@ -936,11 +936,11 @@ class BotCore:
                 if cache_key:
                     self._analysis_cache[cache_key] = (time.monotonic(), winner, all_results)
             except RuntimeError:
-                await self.adapter.edit_text(loading_ref, text=fmt.error("error_no_providers"))
+                await self.adapter.edit_text(loading_ref, text=fmt.error("err_generic"))
                 return
             except Exception as exc:
                 logger.error("Vision analysis failed: %s", exc)
-                await self.adapter.edit_text(loading_ref, text=fmt.error("error_analysis_failed"))
+                await self.adapter.edit_text(loading_ref, text=fmt.error("err_analysis_failed"))
                 return
 
         session.all_provider_results = all_results
@@ -958,7 +958,7 @@ class BotCore:
                     callback_data=f"{CB_USE_RESULT}{i}",
                 )])
             compare_buttons.append([Button(
-                label=t("btn_use_best", lang=lang),
+                label="⭐ Best",
                 callback_data=f"{CB_USE_RESULT}0",
             )])
             card_text = fmt.identification_card(winner, is_admin=is_admin)
@@ -977,11 +977,11 @@ class BotCore:
         """Build the Israel filter / show-all keyboard."""
         return [
             [Button(
-                label=t("btn_filter_israel", lang=lang),
+                label=t("filter_israel", lang=lang),
                 callback_data=CB_FILTER_YES,
             )],
             [Button(
-                label=t("btn_filter_all", lang=lang),
+                label=t("filter_all", lang=lang),
                 callback_data=CB_FILTER_NO,
             )],
         ]
@@ -1058,7 +1058,7 @@ class BotCore:
                 items = await search_amazon(session.product_info, max_results=config.MAX_RESULTS)
             except Exception as exc:
                 logger.error("Related keyword search failed: %s", exc)
-                await self.adapter.send_text(chat_id, fmt.error("error_search_failed"))
+                await self.adapter.send_text(chat_id, fmt.error("err_search_failed"))
                 return
 
             session.all_items = items
@@ -1066,7 +1066,7 @@ class BotCore:
             session.apply_filter(session.israel_only)
 
             if not session.filtered_items:
-                await self.adapter.send_text(chat_id, fmt.error("error_no_results"))
+                await self.adapter.send_text(chat_id, fmt.error("err_no_results"))
                 return
 
             await self._render_product(
@@ -1081,7 +1081,7 @@ class BotCore:
                 idx = int(data[len(CB_USE_RESULT):])
                 chosen = session.all_provider_results[idx]
             except (ValueError, IndexError):
-                await self.adapter.send_text(chat_id, fmt.error("error_session_expired"))
+                await self.adapter.send_text(chat_id, fmt.error("err_generic"))
                 return
             session.chosen_result = chosen
             session.chosen_provider_idx = idx
@@ -1098,7 +1098,7 @@ class BotCore:
         # ── Filter chosen -> search Amazon ────────────────────────────────
         if data in (CB_FILTER_YES, CB_FILTER_NO):
             if not session.product_info:
-                await self.adapter.send_text(chat_id, fmt.error("error_session_expired"))
+                await self.adapter.send_text(chat_id, fmt.error("err_generic"))
                 return
             israel_only = data == CB_FILTER_YES
             await self._search_and_render(
@@ -1112,13 +1112,13 @@ class BotCore:
             session.apply_filter(not session.israel_only)
             if not session.filtered_items:
                 toggle_label = (
-                    t("btn_show_all", lang=lang)
+                    t("filter_all", lang=lang)
                     if session.israel_only
-                    else t("btn_free_delivery", lang=lang)
+                    else t("filter_israel", lang=lang)
                 )
                 buttons = [[Button(label=toggle_label, callback_data=CB_CHANGE_FILTER)]]
                 await self.adapter.send_text(
-                    chat_id, fmt.error("error_no_results_filter"), buttons=buttons,
+                    chat_id, fmt.error("err_no_results"), buttons=buttons,
                 )
                 return
             await self._render_product(
@@ -1147,7 +1147,7 @@ class BotCore:
                 new_items = await search_amazon(session.product_info, max_results=config.MAX_RESULTS)
             except Exception as exc:
                 logger.error("Try-differently search failed: %s", exc)
-                await self.adapter.send_text(chat_id, fmt.error("error_search_failed"))
+                await self.adapter.send_text(chat_id, fmt.error("err_search_failed"))
                 return
 
             session.all_items = new_items
@@ -1156,7 +1156,7 @@ class BotCore:
             session.apply_filter(session.israel_only)
 
             if not session.filtered_items:
-                await self.adapter.send_text(chat_id, fmt.error("error_no_results"))
+                await self.adapter.send_text(chat_id, fmt.error("err_no_results"))
                 return
 
             await self._render_product(
@@ -1186,7 +1186,7 @@ class BotCore:
                         try:
                             await self.adapter.edit_text(
                                 msg_ref,
-                                text=t("loading_more", lang=lang),
+                                text=fmt.loading_search(),
                             )
                         except Exception:
                             pass
@@ -1241,7 +1241,7 @@ class BotCore:
         # Rate limit
         limited, max_req, window = await self._is_rate_limited(user_id)
         if limited:
-            await self.adapter.send_text(chat_id, fmt.error("error_rate_limited"))
+            await self.adapter.send_text(chat_id, fmt.error("err_rate_limit"))
             return
 
         session = self._new_session(user_key)
@@ -1259,7 +1259,7 @@ class BotCore:
             english, refined_query = text, text
             try:
                 await self.adapter.edit_text(
-                    loading_ref, text=fmt.error("error_translation_failed"),
+                    loading_ref, text=fmt.error("err_generic"),
                 )
             except Exception:
                 pass
@@ -1280,6 +1280,6 @@ class BotCore:
         filter_buttons = self._filter_buttons(lang)
         await self.adapter.send_text(
             chat_id,
-            t("choose_filter", lang=lang),
+            t("filter_ask", lang=lang),
             buttons=filter_buttons,
         )

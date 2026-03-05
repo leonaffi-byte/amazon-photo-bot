@@ -3,26 +3,21 @@
   "lang_set": "Language set to English.",
   "welcome": "Welcome! Send me a photo of any product and I'll find it on Amazon.",
   "help": "Send me a photo of a product and I'll identify it and find it on Amazon.\n\nYou can also send a text message to search by keywords.\n\nCommands:\n/start - Start the bot\n/lang - Change language\n/help - Show this message",
-
   "loading_vision": "Analyzing your photo...",
   "loading_search": "Searching Amazon...",
   "loading_similar": "Looking for similar products...",
-
   "id_title": "Product",
   "id_brand": "Brand",
   "id_category": "Category",
   "id_features": "Key Features",
   "id_confidence": "Confidence",
   "id_search_query": "Search Query",
-
   "confidence_high": "High",
   "confidence_medium": "Medium",
   "confidence_low": "Low",
-
   "filter_ask": "Show products available in Israel?",
   "filter_all": "All Products",
   "filter_israel": "Ships to Israel",
-
   "product_price": "Price",
   "product_rating": "Rating",
   "product_reviews": "Reviews",
@@ -33,7 +28,6 @@
   "product_israel_no": "Does not ship to Israel",
   "product_israel_free": "Free shipping to Israel",
   "product_counter": "{current}/{total}",
-
   "btn_shop": "Buy on Amazon",
   "btn_prev": "Previous",
   "btn_next": "Next",
@@ -41,13 +35,20 @@
   "btn_try_different": "Try Different Photo",
   "btn_similar": "Find Similar",
   "btn_related": "Related: {keyword}",
-
   "err_no_results": "No products found. Try a different photo or search term.",
   "err_no_photo": "Please send a photo of a product.",
   "err_rate_limit": "Too many requests. Please wait a moment and try again.",
   "err_analysis_failed": "Could not analyze the photo. Please try again with a clearer image.",
   "err_search_failed": "Search failed. Please try again later.",
   "err_generic": "Something went wrong. Please try again.",
-
-  "text_search_prompt": "Searching for \"{query}\"..."
+  "text_search_prompt": "Searching for \"{query}\"...",
+  "loading_more": "Loading more products...",
+  "related_searches": "Related searches:",
+  "btn_use_best": "Use Best Match",
+  "err_session_expired": "Session expired. Please send a new photo.",
+  "err_no_backend": "Search service unavailable. Please try again later.",
+  "err_photo_too_large": "Photo is too large. Please send a smaller image.",
+  "err_no_results_filter": "No products match this filter. Try toggling.",
+  "err_translation_failed": "Translation failed, searching with original text.",
+  "filter_ask_text": "Filter results?"
 }

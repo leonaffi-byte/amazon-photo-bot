@@ -189,19 +189,19 @@ class Formatter:
         )
         lines.append(
             conf_emoji + " "
-            + t("id_confidence", lang=self.lang) + ": "
+            + self._esc(t("id_confidence", lang=self.lang)) + ": "
             + self._bold(self._esc(conf_label))
         )
         lines.append("")
 
         if features:
-            lines.append(self._bold(t("id_features", lang=self.lang)))
+            lines.append(self._bold(self._esc(t("id_features", lang=self.lang))))
             for feat in features:
                 lines.append("  \u25b8 " + self._esc(feat))
             lines.append("")
 
         lines.append(
-            "\U0001f50e " + t("id_search_query", lang=self.lang)
+            "\U0001f50e " + self._esc(t("id_search_query", lang=self.lang))
             + ": " + self._esc(search_query)
         )
 
