@@ -270,7 +270,7 @@ class Formatter:
             stars = self._stars(rating)
             rating_part = self._esc(stars) + " " + self._esc(f"{rating}")
             if review_count:
-                rating_part += " (" + self._esc(self._format_reviews(review_count)) + ")"
+                rating_part += " \(" + self._esc(self._format_reviews(review_count)) + "\)"
         else:
             rating_part = "-"
         rating_line = "\u2b50 " + rating_part
