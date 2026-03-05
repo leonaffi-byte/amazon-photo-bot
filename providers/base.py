@@ -116,6 +116,8 @@ class ProviderResult:
     input_tokens: int
     output_tokens: int
     cost_usd: float             # estimated cost
+    bbox: Optional[tuple[float, float, float, float]] = None  # (x%, y%, w%, h%)
+    products_raw: list[dict] = field(default_factory=list)
 
     # internal quality score for ranking (higher = better)
     quality_score: float = field(init=False)
@@ -148,36 +150,80 @@ class ProviderResult:
             alternative_query=self.alternative_query,
             confidence=self.confidence,
             notes=f"[{self.provider_name}] {self.notes}",
+            bbox=self.bbox,
         )
+
+    def to_product_info_list(self) -> list:
+        """Convert all detected products to ProductInfo list."""
+        from image_analyzer import ProductInfo
+        if not self.products_raw:
+            return [self.to_product_info()]
+        result = []
+        for p in self.products_raw:
+            bbox_raw = p.get("bbox")
+            bbox = tuple(bbox_raw) if bbox_raw and len(bbox_raw) == 4 else None
+            result.append(ProductInfo(
+                product_name=p.get("product_name", "Unknown Product"),
+                brand=p.get("brand"),
+                category=p.get("category", ""),
+                key_features=p.get("key_features", [])[:5],
+                amazon_search_query=p.get("amazon_search_query", ""),
+                alternative_query=p.get("alternative_query", ""),
+                confidence=p.get("confidence", "medium"),
+                notes=f"[{self.provider_name}] {p.get('notes', '')}",
+                bbox=bbox,
+            ))
+        return result
 
 
 def parse_json_response(raw: str, provider_name: str) -> dict:
     """
     Parse JSON from a model response, handling markdown fences gracefully.
+    Supports both single-object and {"products": [...]} multi-product format.
+    Always returns a dict with a "products" key containing a list.
     Raises ValueError on parse failure.
     """
     text = raw.strip()
+    parsed = None
+
     # Try 1: Direct parse
     try:
-        return json.loads(text)
+        parsed = json.loads(text)
     except json.JSONDecodeError:
         pass
+
     # Try 2: Extract from markdown fence
-    fence_match = _re.search(r"```(?:json)?\s*\n?([\s\S]+?)\n?```", text)
-    if fence_match:
-        try:
-            return json.loads(fence_match.group(1).strip())
-        except json.JSONDecodeError:
-            pass
+    if parsed is None:
+        fence_match = _re.search(r"```(?:json)?\s*\n?([\s\S]+?)\n?```", text)
+        if fence_match:
+            try:
+                parsed = json.loads(fence_match.group(1).strip())
+            except json.JSONDecodeError:
+                pass
+
     # Try 3: Find first {...} block
-    brace_match = _re.search(r"\{[\s\S]+\}", text)
-    if brace_match:
-        try:
-            return json.loads(brace_match.group(0))
-        except json.JSONDecodeError:
-            pass
-    logger.error("[%s] Non-JSON response: %s", provider_name, raw[:300])
-    raise ValueError(f"[{provider_name}] JSON parse error: could not extract valid JSON")
+    if parsed is None:
+        brace_match = _re.search(r"\{[\s\S]+\}", text)
+        if brace_match:
+            try:
+                parsed = json.loads(brace_match.group(0))
+            except json.JSONDecodeError:
+                pass
+
+    if parsed is None:
+        logger.error("[%s] Non-JSON response: %s", provider_name, raw[:300])
+        raise ValueError(f"[{provider_name}] JSON parse error: could not extract valid JSON")
+
+    # Normalize to {"products": [...]} format
+    if isinstance(parsed, list):
+        return {"products": parsed}
+    if isinstance(parsed, dict):
+        if "products" in parsed and isinstance(parsed["products"], list):
+            return parsed
+        # Single product dict (backward compat) — wrap in products array
+        return {"products": [parsed]}
+
+    raise ValueError(f"[{provider_name}] Unexpected JSON type: {type(parsed)}")
 
 
 # ── Abstract base ──────────────────────────────────────────────────────────────
