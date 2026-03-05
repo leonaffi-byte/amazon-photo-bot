@@ -25,6 +25,7 @@ if not TELEGRAM_BOT_TOKEN:
 
 # Comma-separated Telegram user IDs that have admin access, e.g. "123456789,987654321"
 # Get your ID by messaging @userinfobot on Telegram
+LOG_GROUP_CHAT_ID: str = os.getenv("LOG_GROUP_CHAT_ID", "")
 ADMIN_IDS: set[int] = {
     int(x.strip())
     for x in os.getenv("ADMIN_IDS", "").split(",")

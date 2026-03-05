@@ -191,6 +191,8 @@ async def run() -> None:
     if tg_adapter is not None:
         import notifications
         notifications.init(tg_adapter._app)
+        import log_group
+        log_group.init(tg_adapter._app)
 
     # -- Start webhook server for webhook-based adapters -------------------
     webhook_adapters = [a for a in adapters if hasattr(a, "handle_webhook")]

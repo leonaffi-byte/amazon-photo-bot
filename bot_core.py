@@ -34,6 +34,7 @@ from amazon_search import AmazonItem, search_amazon, backend_name
 from translator import detect_language, translate_and_refine
 from metrics import REQUESTS_TOTAL
 from dataforseo_labs import DataForSEOLabs
+import log_group
 
 logger = logging.getLogger(__name__)
 
@@ -507,6 +508,7 @@ class BotCore:
                 return
 
             session._last_israel_result = result
+            await log_group.log("🇮🇱", f"Israel check: {result.note}")
 
             if result.ships_to_israel is not None:
                 session.record_israel_result(item.asin, result.ships_to_israel)
@@ -539,6 +541,7 @@ class BotCore:
                 return
 
             session._last_price_history = ph
+            await log_group.log("📉", f"Price history: current=${ph.current}, avg90=${ph.avg_90d}, ATL=${ph.low_all_time}\n{ph.deal_label}")
 
             await self._update_caption_after_enrichment(
                 chat_id, session, item, page_snap, lang, user_id,
@@ -660,6 +663,7 @@ class BotCore:
             return
 
         session.all_items = all_items
+        await log_group.log("🔍", f"Search: '{session.product_info.amazon_search_query}'\nResults: {len(session.all_items)} items")
         session.amazon_page = 1
         session.more_available = len(all_items) >= config.MAX_RESULTS
         session.results_msg_ref = None
@@ -870,6 +874,7 @@ class BotCore:
             chat_id = str(uid)
         cid = new_correlation_id()
         logger.info("Photo received from %s [cid=%s]", user_key, cid)
+        await log_group.log("📸", f"Photo from user {user_id}\nCaption: {context_hint or 'none'}")
 
         await db.ensure_user(user_key, platform)
 
@@ -954,6 +959,9 @@ class BotCore:
                 return
 
         session.all_provider_results = all_results
+        provider_info = ", ".join(f"{r.provider_name} ({r.confidence}, {r.cost_str})" for r in all_results)
+        product_names = ", ".join(r.product_name for r in all_results[:3])
+        await log_group.log("🤖", f"Analysis done: {len(all_results)} providers\n{provider_info}\nTop product: {product_names}")
         session.chosen_provider_idx = 0
 
         is_admin = await self._is_admin(user_id)
@@ -981,6 +989,8 @@ class BotCore:
         if len(detected_products) > 1 and not context_hint:
             # Multi-product: annotate image and show picker
             session.all_detected_products = detected_products
+            names = ", ".join(p.product_name for p in detected_products)
+            await log_group.log("🔢", f"Multi-product: {len(detected_products)} items detected\n{names}")
             from image_annotator import annotate_products
             annotated_bytes = annotate_products(image_bytes, detected_products)
 
@@ -1067,6 +1077,7 @@ class BotCore:
             try:
                 idx = int(data[len(CB_PICK_PRODUCT):])
                 chosen = session.all_detected_products[idx]
+                await log_group.log("👆", f"User {user_id} picked: {chosen.product_name}")
             except (ValueError, IndexError):
                 await self.adapter.send_text(chat_id, fmt.error("err_generic"))
                 return
