@@ -996,6 +996,7 @@ class BotCore:
 
         # Check if multiple products detected
         detected_products = winner.to_product_info_list()
+        logger.info("Detected %d product(s) from %s", len(detected_products), winner.provider)
 
         if len(detected_products) > 1 and not context_hint:
             # Multi-product: annotate image and show picker
