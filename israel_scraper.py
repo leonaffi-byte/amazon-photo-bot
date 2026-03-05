@@ -254,11 +254,16 @@ async def _scrape(asin: str, proxy_url: str) -> IsraelShippingResult:
             try:
                 # ── Step 1: Amazon homepage — cookies + CSRF ───────────────
                 logger.debug("Israel check: loading amazon.com for %s", asin)
-                await page.goto(
-                    "https://www.amazon.com",
-                    timeout    = 20_000,
-                    wait_until = "domcontentloaded",
-                )
+                try:
+                    await page.goto(
+                        "https://www.amazon.com",
+                        timeout    = 20_000,
+                        wait_until = "domcontentloaded",
+                    )
+                except Exception as nav_exc:
+                    if "closed" in str(nav_exc).lower():
+                        return _unverified(asin, "Browser closed during navigation")
+                    raise
 
                 if await _is_captcha_page(page):
                     logger.warning("CAPTCHA on Amazon homepage for ASIN %s — trying solver", asin)

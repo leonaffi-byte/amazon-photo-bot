@@ -272,7 +272,14 @@ class BotCore:
         try:
             task = asyncio.create_task(coro)
             self._background_tasks.add(task)
-            task.add_done_callback(self._background_tasks.discard)
+            def _on_done(t):
+                self._background_tasks.discard(t)
+                if t.cancelled():
+                    return
+                exc = t.exception()
+                if exc:
+                    logger.debug("Background task failed: %s", exc)
+            task.add_done_callback(_on_done)
         except Exception:
             pass
 
