@@ -12,7 +12,7 @@ Proxy priority (auto-selected, no code changes needed when switching)
      → Best reliability: Amazon never sees the same IP twice
      → ~$3.50/GB  ·  register at decodo.com
      → Proxy URL built automatically:
-        http://USER-country-IL:PASS@gate.decodo.com:7000
+        http://user-USER-country-il:PASS@gate.decodo.com:7000
 
 2. WireGuard / custom proxy  (israel_proxy_url in /admin)
      → Your own Israeli exit node — single static IP
@@ -122,7 +122,7 @@ async def _get_ordered_proxy_urls() -> list[str]:
     if user and pw:
         raw_port = (await key_store.get("decodo_port") or "").strip()
         port = raw_port if raw_port.isdigit() else "7000"
-        urls.append(f"http://{user}-country-IL:{pw}@gate.decodo.com:{port}")
+        urls.append(f"http://user-{user}-country-il:{pw}@gate.decodo.com:{port}")
 
     wg = (await key_store.get("israel_proxy_url") or "").strip()
     if wg:
