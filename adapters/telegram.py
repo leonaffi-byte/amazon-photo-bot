@@ -7,6 +7,7 @@ import logging
 from typing import Any, Callable, Awaitable
 
 from telegram import (
+    BotCommand,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     InputMediaPhoto,
@@ -95,6 +96,14 @@ class TelegramAdapter(PlatformAdapter):
         await app.initialize()
         await app.start()
         await app.updater.start_polling(drop_pending_updates=True)
+
+        # Set bot command menu
+        await app.bot.set_my_commands([
+            BotCommand("start", "Start the bot"),
+            BotCommand("help", "Show help"),
+            BotCommand("language", "Change language"),
+            BotCommand("admin", "Open admin panel"),
+        ])
 
         logger.info("TelegramAdapter started (polling)")
 
