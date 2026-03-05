@@ -291,15 +291,14 @@ class Formatter:
             avg_90d = getattr(price_history, "avg_90d", None)
             low_all_time = getattr(price_history, "low_all_time", None)
             if avg_90d is not None:
-                ph_parts.append(self._esc(f"90d avg: "))
+                ph_parts.append(self._esc(f"90d avg: ${avg_90d:.2f}"))
             if low_all_time is not None:
-                ph_parts.append(self._esc(f"Low: "))
+                ph_parts.append(self._esc(f"Low: ${low_all_time:.2f}"))
             if ph_parts:
-                price_hist_line = "📉 " + " \| ".join(ph_parts)
+                price_hist_line = "\U0001f4c9 " + " \| ".join(ph_parts)
                 deal_label = getattr(price_history, "deal_label", "")
                 if deal_label:
-                    price_hist_line += "
-   " + self._esc(deal_label)
+                    price_hist_line += "\n   " + self._esc(deal_label)
 
         # Israel shipping status
         israel_line = ""
