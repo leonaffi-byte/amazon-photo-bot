@@ -75,7 +75,8 @@ async def get_price_history(asin: str) -> Optional[PriceHistory]:
         logger.info("Price cache read error: %s", exc)
 
     result = (
-        await _from_camelcamelcamel(asin)
+        await _from_brightdata_ccc(asin)
+        or await _from_camelcamelcamel(asin)
         or await _from_keepa(asin)
     )
 
@@ -164,6 +165,60 @@ async def _fetch_rendered_html(url: str, timeout_ms: int = 15_000) -> Optional[s
         return None
     except Exception as exc:
         logger.info("Playwright fetch failed for %s: %s", url, exc)
+        return None
+
+
+# ── Backend 0: Bright Data + CamelCamelCamel (no Playwright) ─────────────────
+
+async def _from_brightdata_ccc(asin: str) -> Optional[PriceHistory]:
+    """
+    Fetch CamelCamelCamel via Bright Data Web Unlocker API (no Playwright needed).
+    Web Unlocker handles Cloudflare bypass server-side. ~2-3s, $0.0015/req.
+    """
+    import key_store
+    token = await key_store.get("brightdata_api_token")
+    if not token:
+        return None
+
+    zone = await key_store.get("brightdata_zone") or "unlocker"
+    url = _CCC_URL.format(asin=asin)
+
+    try:
+        import aiohttp
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "zone": zone,
+            "url": url,
+            "format": "raw",
+        }
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://api.brightdata.com/request",
+                headers=headers,
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as resp:
+                if resp.status != 200:
+                    logger.info("BrightData CCC HTTP %d for %s", resp.status, asin)
+                    return None
+                html = await resp.text()
+
+        if not html or len(html) < 500:
+            logger.info("BrightData CCC: empty/short response for %s", asin)
+            return None
+
+        result = _parse_ccc_html(asin, html)
+        if result:
+            result.source = "camelcamelcamel (brightdata)"
+            logger.info("BrightData CCC price for %s: current=%s ATL=%s",
+                        asin, result.current, result.low_all_time)
+        return result
+
+    except Exception as exc:
+        logger.info("BrightData CCC failed for %s: %s", asin, exc)
         return None
 
 

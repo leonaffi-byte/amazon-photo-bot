@@ -153,6 +153,74 @@ async def _build_providers() -> dict[str, VisionProvider]:
             else:
                 logger.info("Skipped provider groq/%s (disabled by %s)", model, env_flag)
 
+    # ── Mistral (Pixtral 12B — cheap vision) ─────────────────────────────────
+    mistral_key = await key_store.get("mistral_api_key")
+    if mistral_key:
+        from providers.mistral_provider import MistralProvider
+        for model, env_flag in [
+            ("pixtral-12b-2409", "ENABLE_MISTRAL_PIXTRAL_12B"),
+        ]:
+            if _model_enabled(env_flag):
+                try:
+                    p = MistralProvider(mistral_key, model)
+                    providers[p.full_name] = p
+                    logger.info("Loaded provider: %s", p.full_name)
+                except Exception as exc:
+                    logger.warning("Could not load mistral/%s: %s", model, exc)
+            else:
+                logger.info("Skipped provider mistral/%s (disabled by %s)", model, env_flag)
+
+    # ── SambaNova (Llama 4 Maverick — FREE) ──────────────────────────────────
+    sambanova_key = await key_store.get("sambanova_api_key")
+    if sambanova_key:
+        from providers.sambanova_provider import SambaNovaProvider
+        for model, env_flag in [
+            ("Meta-Llama-4-Maverick-17B-128E-Instruct", "ENABLE_SAMBANOVA_MAVERICK"),
+        ]:
+            if _model_enabled(env_flag):
+                try:
+                    p = SambaNovaProvider(sambanova_key, model)
+                    providers[p.full_name] = p
+                    logger.info("Loaded provider: %s", p.full_name)
+                except Exception as exc:
+                    logger.warning("Could not load sambanova/%s: %s", model, exc)
+            else:
+                logger.info("Skipped provider sambanova/%s (disabled by %s)", model, env_flag)
+
+    # ── Together AI (Llama 4 Maverick — cheap) ───────────────────────────────
+    together_key = await key_store.get("together_api_key")
+    if together_key:
+        from providers.together_provider import TogetherProvider
+        for model, env_flag in [
+            ("meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8", "ENABLE_TOGETHER_MAVERICK"),
+        ]:
+            if _model_enabled(env_flag):
+                try:
+                    p = TogetherProvider(together_key, model)
+                    providers[p.full_name] = p
+                    logger.info("Loaded provider: %s", p.full_name)
+                except Exception as exc:
+                    logger.warning("Could not load together/%s: %s", model, exc)
+            else:
+                logger.info("Skipped provider together/%s (disabled by %s)", model, env_flag)
+
+    # ── Fireworks AI (Qwen2.5-VL — high quality, cheap) ──────────────────────
+    fireworks_key = await key_store.get("fireworks_api_key")
+    if fireworks_key:
+        from providers.fireworks_provider import FireworksProvider
+        for model, env_flag in [
+            ("accounts/fireworks/models/qwen2-vl-72b-instruct", "ENABLE_FIREWORKS_QWEN_VL"),
+        ]:
+            if _model_enabled(env_flag):
+                try:
+                    p = FireworksProvider(fireworks_key, model)
+                    providers[p.full_name] = p
+                    logger.info("Loaded provider: %s", p.full_name)
+                except Exception as exc:
+                    logger.warning("Could not load fireworks/%s: %s", model, exc)
+            else:
+                logger.info("Skipped provider fireworks/%s (disabled by %s)", model, env_flag)
+
     # ── Azure OpenAI (GPT-4o on Azure infrastructure) ────────────────────────
     azure_key        = await key_store.get("azure_openai_key")
     azure_endpoint   = await key_store.get("azure_openai_endpoint")

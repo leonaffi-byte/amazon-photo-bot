@@ -84,8 +84,11 @@ async def _get_fallback_backend(current: "SearchBackend") -> "Optional[SearchBac
         fb = _make_dataforseo(dataforseo_login, dataforseo_password)
         if await fb.is_available():
             return fb
-    if "playwright" not in current_name:
-        return _make_playwright()
+    if "bright" not in current_name:
+        bd_token = await key_store.get("brightdata_api_token")
+        bd_zone  = await key_store.get("brightdata_zone") or "unlocker"
+        if bd_token:
+            return _make_brightdata(bd_token, bd_zone)
     return None
 
 
@@ -165,9 +168,22 @@ async def _build_backend() -> SearchBackend:
             return backend
         logger.info("DataForSEO Amazon SERP not enabled on this account — skipping")
 
-    # Last resort: Playwright — no API key needed, just Chromium
-    logger.info("No API keys found — falling back to Playwright direct scraper (free)")
-    return _make_playwright()
+    # Bright Data Web Unlocker
+    bd_token = await key_store.get("brightdata_api_token")
+    bd_zone  = await key_store.get("brightdata_zone") or "unlocker"
+    if bd_token:
+        logger.info("Auto-selected Bright Data Web Unlocker backend")
+        return _make_brightdata(bd_token, bd_zone)
+
+    # Last resort: raise error (Playwright disabled)
+    raise RuntimeError(
+        "No search API keys found and Playwright is disabled.\n"
+        "Add at least one key via /admin → 🔑 API Keys:\n"
+        "  • RapidAPI key\n"
+        "  • DataForSEO login + password\n"
+        "  • Amazon PA-API keys\n"
+        "  • Bright Data token"
+    )
 
 
 def _make_paapi(access: str, secret: str, tag: str) -> SearchBackend:
@@ -191,6 +207,11 @@ def _make_dataforseo(login: str, password: str) -> SearchBackend:
 def _make_playwright() -> SearchBackend:
     from search_backends.playwright_backend import PlaywrightBackend
     return PlaywrightBackend()
+
+
+def _make_brightdata(token: str, zone: str) -> SearchBackend:
+    from search_backends.brightdata_backend import BrightDataBackend
+    return BrightDataBackend(api_token=token, zone=zone)
 
 
 # ── Public search function ─────────────────────────────────────────────────────

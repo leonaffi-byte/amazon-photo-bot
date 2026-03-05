@@ -124,6 +124,16 @@ async def _get_ordered_proxy_urls() -> list[str]:
         port = raw_port if raw_port.isdigit() else "7000"
         urls.append(f"http://user-{user}-country-il:{pw}@gate.decodo.com:{port}")
 
+    # Bright Data residential proxy (rotating Israeli IPs via superproxy)
+    bd_customer = (await key_store.get("brightdata_customer_id") or "").strip()
+    bd_zone     = (await key_store.get("brightdata_zone") or "unlocker").strip()
+    bd_token    = (await key_store.get("brightdata_api_token") or "").strip()
+    if bd_customer and bd_token:
+        urls.append(
+            f"http://brd-customer-{bd_customer}-zone-{bd_zone}-country-il"
+            f":{bd_token}@brd.superproxy.io:33335"
+        )
+
     wg = (await key_store.get("israel_proxy_url") or "").strip()
     if wg:
         urls.append(wg)

@@ -347,6 +347,10 @@ _KEY_LABELS = {
     "anthropic_api_key":    ("🤖 Anthropic",         "Used for Claude vision"),
     "google_api_key":       ("🤖 Google",            "Used for Gemini vision"),
     "groq_api_key":         ("🤖 Groq",              "Llama vision (free at console.groq.com)"),
+    "mistral_api_key":      ("🤖 Mistral",           "Pixtral 12B vision (api.mistral.ai)"),
+    "sambanova_api_key":    ("🤖 SambaNova",         "Llama 4 Maverick FREE (cloud.sambanova.ai)"),
+    "together_api_key":     ("🤖 Together AI",       "Llama 4 Maverick (api.together.xyz)"),
+    "fireworks_api_key":    ("🤖 Fireworks AI",      "Qwen2.5-VL (fireworks.ai)"),
     "openrouter_api_key":   ("🤖 OpenRouter",        "100+ vision models via one API (openrouter.ai)"),
     "azure_openai_key":     ("☁️ Azure OpenAI Key",    "Azure portal → resource → Keys and Endpoint → KEY 1"),
     "azure_openai_endpoint":("☁️ Azure Endpoint",      "https://YOUR-RESOURCE.openai.azure.com/"),
@@ -363,6 +367,9 @@ _KEY_LABELS = {
     "amazon_secret_key":    ("🛒 Amazon Secret Key",   "PA-API (optional)"),
     "amazon_associate_tag": ("🛒 Associate Tag",       "PA-API affiliate tag (optional)"),
     "bitly_token":          ("🔗 bit.ly Token",      "URL shortener — free at bitly.com (optional)"),
+    "brightdata_api_token": ("🌐 Bright Data Token",  "Web Unlocker API — scraping at brightdata.com"),
+    "brightdata_zone":      ("🌐 Bright Data Zone",   "Web Unlocker zone name (default: unlocker)"),
+    "brightdata_customer_id": ("🌐 Bright Data CID",  "Customer ID for proxy (from dashboard URL)"),
 }
 
 
@@ -373,6 +380,10 @@ _API_GROUPS = [
     {"name": "google",       "label": "🤖 Google",        "keys": ["google_api_key"]},
     {"name": "groq",         "label": "🤖 Groq",          "keys": ["groq_api_key"]},
     {"name": "openrouter",   "label": "🤖 OpenRouter",    "keys": ["openrouter_api_key"]},
+    {"name": "mistral",      "label": "🤖 Mistral",       "keys": ["mistral_api_key"]},
+    {"name": "sambanova",    "label": "🤖 SambaNova",     "keys": ["sambanova_api_key"]},
+    {"name": "together",     "label": "🤖 Together AI",   "keys": ["together_api_key"]},
+    {"name": "fireworks",    "label": "🤖 Fireworks AI",  "keys": ["fireworks_api_key"]},
     {"name": "azure",        "label": "\u2601\ufe0f Azure OpenAI",   "keys": ["azure_openai_key", "azure_openai_endpoint", "azure_openai_deployment"]},
     {"name": "dataforseo",   "label": "🛒 DataForSEO",    "keys": ["dataforseo_login", "dataforseo_password"]},
     {"name": "amazon_paapi", "label": "🛒 Amazon PA-API", "keys": ["amazon_access_key", "amazon_secret_key", "amazon_associate_tag"]},
@@ -381,6 +392,7 @@ _API_GROUPS = [
     {"name": "capsolver",    "label": "🤖 CapSolver",     "keys": ["capsolver_api_key"]},
     {"name": "israel_proxy", "label": "🇮🇱 Israel Proxy",  "keys": ["israel_proxy_url"]},
     {"name": "bitly",        "label": "🔗 Bit.ly",        "keys": ["bitly_token"]},
+    {"name": "brightdata",   "label": "🌐 Bright Data",   "keys": ["brightdata_api_token", "brightdata_zone", "brightdata_customer_id"]},
 ]
 
 
@@ -597,6 +609,54 @@ async def _test_api(group_name: str) -> tuple[bool, str]:
                                  headers={"Authorization": f"Bearer {token}"}) as r:
                     elapsed = _time.monotonic() - start
                     if r.status == 200: return True, f"OK ({elapsed:.1f}s)"
+                    return False, f"HTTP {r.status}"
+
+            elif group_name == "mistral":
+                key = await key_store.get("mistral_api_key")
+                if not key: return False, "Key not set"
+                async with s.get("https://api.mistral.ai/v1/models",
+                                 headers={"Authorization": f"Bearer {key}"}) as r:
+                    elapsed = _time.monotonic() - start
+                    if r.status == 200: return True, f"OK ({elapsed:.1f}s)"
+                    return False, f"HTTP {r.status}"
+
+            elif group_name == "sambanova":
+                key = await key_store.get("sambanova_api_key")
+                if not key: return False, "Key not set"
+                async with s.get("https://api.sambanova.ai/v1/models",
+                                 headers={"Authorization": f"Bearer {key}"}) as r:
+                    elapsed = _time.monotonic() - start
+                    if r.status == 200: return True, f"OK ({elapsed:.1f}s)"
+                    return False, f"HTTP {r.status}"
+
+            elif group_name == "together":
+                key = await key_store.get("together_api_key")
+                if not key: return False, "Key not set"
+                async with s.get("https://api.together.xyz/v1/models",
+                                 headers={"Authorization": f"Bearer {key}"}) as r:
+                    elapsed = _time.monotonic() - start
+                    if r.status == 200: return True, f"OK ({elapsed:.1f}s)"
+                    return False, f"HTTP {r.status}"
+
+            elif group_name == "fireworks":
+                key = await key_store.get("fireworks_api_key")
+                if not key: return False, "Key not set"
+                async with s.get("https://api.fireworks.ai/inference/v1/models",
+                                 headers={"Authorization": f"Bearer {key}"}) as r:
+                    elapsed = _time.monotonic() - start
+                    if r.status == 200: return True, f"OK ({elapsed:.1f}s)"
+                    return False, f"HTTP {r.status}"
+
+            elif group_name == "brightdata":
+                token = await key_store.get("brightdata_api_token")
+                zone = await key_store.get("brightdata_zone") or "unlocker"
+                if not token: return False, "Token not set"
+                async with s.get(
+                    f"https://api.brightdata.com/zone/route_ips?zone={zone}",
+                    headers={"Authorization": f"Bearer {token}"},
+                ) as r:
+                    elapsed = _time.monotonic() - start
+                    if r.status == 200: return True, f"OK \u2014 zone '{zone}' ({elapsed:.1f}s)"
                     return False, f"HTTP {r.status}"
 
             else:
