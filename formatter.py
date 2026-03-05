@@ -126,31 +126,31 @@ class Formatter:
 
     def welcome(self) -> str:
         """Welcome message."""
-        return t("welcome", lang=self.lang)
+        return self._esc(t("welcome", lang=self.lang))
 
     def help_text(self) -> str:
         """Help / how-to-use message."""
-        return t("help", lang=self.lang)
+        return self._esc(t("help", lang=self.lang))
 
     def loading_vision(self) -> str:
         """Loading message for photo analysis (hourglass emoji)."""
-        return "\u231b " + t("loading_vision", lang=self.lang)
+        return "\u231b " + self._esc(t("loading_vision", lang=self.lang))
 
     def loading_search(self) -> str:
         """Loading message for Amazon search (magnifying glass emoji)."""
-        return "\U0001f50d " + t("loading_search", lang=self.lang)
+        return "\U0001f50d " + self._esc(t("loading_search", lang=self.lang))
 
     def language_picker(self) -> str:
         """Prompt for the language selection menu."""
-        return t("choose_language", lang=self.lang)
+        return self._esc(t("choose_language", lang=self.lang))
 
     def text_search_loading(self, query: str) -> str:
         """Loading message for text-based search."""
-        return t("text_search_prompt", lang=self.lang, query=query)
+        return self._esc(t("text_search_prompt", lang=self.lang, query=query))
 
     def error(self, key: str) -> str:
         """Warning emoji + translated error by key."""
-        return "\u26a0\ufe0f " + t(key, lang=self.lang)
+        return "\u26a0\ufe0f " + self._esc(t(key, lang=self.lang))
 
     # -- Identification card ---------------------------------------------------
 
