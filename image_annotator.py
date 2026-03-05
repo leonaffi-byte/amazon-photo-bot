@@ -1,12 +1,11 @@
-"""Annotate product images with numbered colored overlays."""
+"""Annotate product images with numbered labels."""
 from __future__ import annotations
 
 import io
-import math
 from PIL import Image, ImageDraw, ImageFont
 from image_analyzer import ProductInfo
 
-# Color cycle for overlays (RGB)
+# Color cycle for labels (RGB)
 _COLORS = [
     (220, 50, 50),    # red
     (50, 100, 220),   # blue
@@ -16,27 +15,27 @@ _COLORS = [
     (0, 180, 180),    # teal
 ]
 
-_OVERLAY_ALPHA = 77       # ~30% opacity (0-255)
-_BADGE_RADIUS = 16
-_FONT_SIZE = 20
+_BADGE_RADIUS = 18
+_FONT_SIZE = 22
 
 
 def annotate_products(
     image_bytes: bytes,
     products: list[ProductInfo],
 ) -> bytes:
-    """Draw semi-transparent colored overlays on each product region.
+    """Place numbered circle badges on the image for each detected product.
+
+    Uses bbox center if available, otherwise distributes labels evenly.
 
     Args:
         image_bytes: JPEG/PNG image bytes.
-        products: List of ProductInfo with bbox fields set.
+        products: List of ProductInfo with optional bbox fields.
 
     Returns:
         Annotated JPEG image bytes.
     """
     img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
-    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
-    draw_overlay = ImageDraw.Draw(overlay)
+    draw = ImageDraw.Draw(img)
     w, h = img.size
 
     try:
@@ -46,54 +45,49 @@ def annotate_products(
     except (OSError, IOError):
         font = ImageFont.load_default()
 
-    badge_positions = []
-
+    n = len(products)
     for i, product in enumerate(products):
-        if not product.bbox:
-            continue
-
         color = _COLORS[i % len(_COLORS)]
-        bx, by, bw, bh = product.bbox
 
-        # Convert percentages to pixels
-        x1 = max(0, int(bx / 100 * w))
-        y1 = max(0, int(by / 100 * h))
-        x2 = min(w, int((bx + bw) / 100 * w))
-        y2 = min(h, int((by + bh) / 100 * h))
+        # Determine badge position
+        if product.bbox and _is_valid_bbox(product.bbox):
+            bx, by, bw, bh = product.bbox
+            cx = int((bx + bw / 2) / 100 * w)
+            cy = int((by + bh / 2) / 100 * h)
+        else:
+            # Distribute labels evenly across the image
+            cols = min(n, 3)
+            row = i // cols
+            col = i % cols
+            rows = (n + cols - 1) // cols
+            cx = int(w * (col + 0.5) / cols)
+            cy = int(h * (row + 0.5) / rows)
 
-        # Draw semi-transparent fill
-        fill_color = color + (_OVERLAY_ALPHA,)
-        draw_overlay.rectangle([x1, y1, x2, y2], fill=fill_color)
-
-        # Also draw a thin border for definition
-        border_color = color + (180,)
-        draw_overlay.rectangle([x1, y1, x2, y2], outline=border_color, width=2)
-
-        # Calculate badge center position
-        cx = (x1 + x2) // 2
-        cy = (y1 + y2) // 2
-        badge_positions.append((i, cx, cy, color))
-
-    # Composite overlay onto original
-    img = Image.alpha_composite(img, overlay)
-
-    # Draw badges on top (fully opaque)
-    draw_final = ImageDraw.Draw(img)
-    for i, cx, cy, color in badge_positions:
+        # Clamp to image bounds with padding
         r = _BADGE_RADIUS
-        # Draw filled circle badge
-        draw_final.ellipse(
-            [cx - r, cy - r, cx + r, cy + r],
-            fill=color + (240,),
-            outline=(255, 255, 255, 255),
-            width=2,
+        cx = max(r + 2, min(w - r - 2, cx))
+        cy = max(r + 2, min(h - r - 2, cy))
+
+        # Draw shadow
+        draw.ellipse(
+            [cx - r + 2, cy - r + 2, cx + r + 2, cy + r + 2],
+            fill=(0, 0, 0, 100),
         )
+
+        # Draw filled circle badge
+        draw.ellipse(
+            [cx - r, cy - r, cx + r, cy + r],
+            fill=color + (230,),
+            outline=(255, 255, 255, 255),
+            width=3,
+        )
+
         # Draw number
         label = str(i + 1)
         bbox = font.getbbox(label)
         tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-        draw_final.text(
-            (cx - tw // 2, cy - th // 2 - 1),
+        draw.text(
+            (cx - tw // 2, cy - th // 2 - 2),
             label,
             fill=(255, 255, 255, 255),
             font=font,
@@ -104,3 +98,15 @@ def annotate_products(
     buf = io.BytesIO()
     img_rgb.save(buf, format="JPEG", quality=85)
     return buf.getvalue()
+
+
+def _is_valid_bbox(bbox: tuple) -> bool:
+    """Check if bbox is meaningful (not covering nearly the entire image)."""
+    x, y, w, h = bbox
+    # Reject if it covers more than 80% of the image in either dimension
+    if w > 80 or h > 80:
+        return False
+    # Reject if too small
+    if w < 3 or h < 3:
+        return False
+    return True
