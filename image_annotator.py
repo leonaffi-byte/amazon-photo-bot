@@ -1,4 +1,4 @@
-"""Annotate product images with numbered labels."""
+"""Annotate product images with a numbered product legend strip."""
 from __future__ import annotations
 
 import io
@@ -15,98 +15,115 @@ _COLORS = [
     (0, 180, 180),    # teal
 ]
 
-_BADGE_RADIUS = 18
-_FONT_SIZE = 22
+_BADGE_RADIUS = 16
+_FONT_SIZE = 18
+_STRIP_HEIGHT = 44
+_STRIP_PADDING = 10
+_NAME_FONT_SIZE = 15
 
 
 def annotate_products(
     image_bytes: bytes,
     products: list[ProductInfo],
 ) -> bytes:
-    """Place numbered circle badges on the image for each detected product.
+    """Add a numbered product legend strip at the bottom of the image.
 
-    Uses bbox center if available, otherwise distributes labels evenly.
+    Each product gets a colored circle with its number and a truncated name.
+    This avoids relying on unreliable AI-generated bounding boxes.
 
     Args:
         image_bytes: JPEG/PNG image bytes.
-        products: List of ProductInfo with optional bbox fields.
+        products: List of ProductInfo.
 
     Returns:
         Annotated JPEG image bytes.
     """
-    img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
-    draw = ImageDraw.Draw(img)
+    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     w, h = img.size
 
+    n = len(products)
+    if n <= 1:
+        # Single product — no annotation needed
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=85)
+        return buf.getvalue()
+
+    # Load fonts
     try:
-        font = ImageFont.truetype(
+        badge_font = ImageFont.truetype(
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", _FONT_SIZE
         )
-    except (OSError, IOError):
-        font = ImageFont.load_default()
-
-    n = len(products)
-    for i, product in enumerate(products):
-        color = _COLORS[i % len(_COLORS)]
-
-        # Determine badge position
-        if product.bbox and _is_valid_bbox(product.bbox):
-            bx, by, bw, bh = product.bbox
-            cx = int((bx + bw / 2) / 100 * w)
-            cy = int((by + bh / 2) / 100 * h)
-        else:
-            # Distribute labels evenly across the image
-            cols = min(n, 3)
-            row = i // cols
-            col = i % cols
-            rows = (n + cols - 1) // cols
-            cx = int(w * (col + 0.5) / cols)
-            cy = int(h * (row + 0.5) / rows)
-
-        # Clamp to image bounds with padding
-        r = _BADGE_RADIUS
-        cx = max(r + 2, min(w - r - 2, cx))
-        cy = max(r + 2, min(h - r - 2, cy))
-
-        # Draw shadow
-        draw.ellipse(
-            [cx - r + 2, cy - r + 2, cx + r + 2, cy + r + 2],
-            fill=(0, 0, 0, 100),
+        name_font = ImageFont.truetype(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", _NAME_FONT_SIZE
         )
+    except (OSError, IOError):
+        badge_font = ImageFont.load_default()
+        name_font = badge_font
 
-        # Draw filled circle badge
+    # Calculate strip height based on number of products
+    row_height = _STRIP_HEIGHT
+    max_per_row = max(1, w // 200)  # roughly 200px per item
+    rows = (n + max_per_row - 1) // max_per_row
+    total_strip_h = rows * row_height + _STRIP_PADDING
+
+    # Create new image with strip at bottom
+    new_h = h + total_strip_h
+    canvas = Image.new("RGB", (w, new_h), (30, 30, 30))
+    canvas.paste(img, (0, 0))
+
+    draw = ImageDraw.Draw(canvas)
+
+    # Draw each product entry in the strip
+    for i, product in enumerate(products):
+        row = i // max_per_row
+        col = i % max_per_row
+        items_in_row = min(max_per_row, n - row * max_per_row)
+        cell_w = w // items_in_row
+
+        x_start = col * cell_w + _STRIP_PADDING
+        y_center = h + row * row_height + row_height // 2 + _STRIP_PADDING // 2
+
+        color = _COLORS[i % len(_COLORS)]
+        r = _BADGE_RADIUS
+
+        # Draw circle badge
+        cx = x_start + r
+        cy = y_center
         draw.ellipse(
             [cx - r, cy - r, cx + r, cy + r],
-            fill=color + (230,),
-            outline=(255, 255, 255, 255),
-            width=3,
+            fill=color,
+            outline=(255, 255, 255),
+            width=2,
         )
 
         # Draw number
         label = str(i + 1)
-        bbox = font.getbbox(label)
+        bbox = badge_font.getbbox(label)
         tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
         draw.text(
-            (cx - tw // 2, cy - th // 2 - 2),
+            (cx - tw // 2, cy - th // 2 - 1),
             label,
-            fill=(255, 255, 255, 255),
-            font=font,
+            fill=(255, 255, 255),
+            font=badge_font,
         )
 
-    # Convert back to RGB for JPEG output
-    img_rgb = img.convert("RGB")
+        # Draw truncated product name
+        name = product.product_name if isinstance(product, ProductInfo) else str(product)
+        max_name_w = cell_w - 2 * r - 3 * _STRIP_PADDING
+        # Truncate name to fit
+        display_name = name
+        while name_font.getlength(display_name) > max_name_w and len(display_name) > 5:
+            display_name = display_name[:-2] + "…"
+
+        text_x = cx + r + _STRIP_PADDING
+        text_y = cy - _NAME_FONT_SIZE // 2
+        draw.text(
+            (text_x, text_y),
+            display_name,
+            fill=(240, 240, 240),
+            font=name_font,
+        )
+
     buf = io.BytesIO()
-    img_rgb.save(buf, format="JPEG", quality=85)
+    canvas.save(buf, format="JPEG", quality=85)
     return buf.getvalue()
-
-
-def _is_valid_bbox(bbox: tuple) -> bool:
-    """Check if bbox is meaningful (not covering nearly the entire image)."""
-    x, y, w, h = bbox
-    # Reject if it covers more than 80% of the image in either dimension
-    if w > 80 or h > 80:
-        return False
-    # Reject if too small
-    if w < 3 or h < 3:
-        return False
-    return True
