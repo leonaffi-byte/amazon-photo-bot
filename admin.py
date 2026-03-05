@@ -469,7 +469,7 @@ async def _test_api(group_name: str) -> tuple[bool, str]:
                 async with s.get("https://api.openai.com/v1/models",
                                  headers={"Authorization": f"Bearer {key}"}) as r:
                     elapsed = _time.monotonic() - start
-                    if r.status == 200: return True, f"OK \\({elapsed:.1f}s\\)"
+                    if r.status == 200: return True, f"OK ({elapsed:.1f}s)"
                     return False, f"HTTP {r.status}"
 
             elif group_name == "anthropic":
@@ -478,7 +478,7 @@ async def _test_api(group_name: str) -> tuple[bool, str]:
                 async with s.get("https://api.anthropic.com/v1/models",
                                  headers={"x-api-key": key, "anthropic-version": "2023-06-01"}) as r:
                     elapsed = _time.monotonic() - start
-                    if r.status == 200: return True, f"OK \\({elapsed:.1f}s\\)"
+                    if r.status == 200: return True, f"OK ({elapsed:.1f}s)"
                     return False, f"HTTP {r.status}"
 
             elif group_name == "google":
@@ -486,7 +486,7 @@ async def _test_api(group_name: str) -> tuple[bool, str]:
                 if not key: return False, "Key not set"
                 async with s.get(f"https://generativelanguage.googleapis.com/v1/models?key={key}") as r:
                     elapsed = _time.monotonic() - start
-                    if r.status == 200: return True, f"OK \\({elapsed:.1f}s\\)"
+                    if r.status == 200: return True, f"OK ({elapsed:.1f}s)"
                     return False, f"HTTP {r.status}"
 
             elif group_name == "groq":
@@ -495,7 +495,7 @@ async def _test_api(group_name: str) -> tuple[bool, str]:
                 async with s.get("https://api.groq.com/openai/v1/models",
                                  headers={"Authorization": f"Bearer {key}"}) as r:
                     elapsed = _time.monotonic() - start
-                    if r.status == 200: return True, f"OK \\({elapsed:.1f}s\\)"
+                    if r.status == 200: return True, f"OK ({elapsed:.1f}s)"
                     return False, f"HTTP {r.status}"
 
             elif group_name == "openrouter":
@@ -504,7 +504,7 @@ async def _test_api(group_name: str) -> tuple[bool, str]:
                 async with s.get("https://openrouter.ai/api/v1/models",
                                  headers={"Authorization": f"Bearer {key}"}) as r:
                     elapsed = _time.monotonic() - start
-                    if r.status == 200: return True, f"OK \\({elapsed:.1f}s\\)"
+                    if r.status == 200: return True, f"OK ({elapsed:.1f}s)"
                     return False, f"HTTP {r.status}"
 
             elif group_name == "azure":
@@ -518,7 +518,7 @@ async def _test_api(group_name: str) -> tuple[bool, str]:
                 url = f"{endpoint.rstrip('/')}/openai/models?api-version=2024-02-01"
                 async with s.get(url, headers={"api-key": key}) as r:
                     elapsed = _time.monotonic() - start
-                    if r.status == 200: return True, f"OK \\({elapsed:.1f}s\\)"
+                    if r.status == 200: return True, f"OK ({elapsed:.1f}s)"
                     return False, f"HTTP {r.status}"
 
             elif group_name == "dataforseo":
@@ -530,7 +530,7 @@ async def _test_api(group_name: str) -> tuple[bool, str]:
                 async with s.get("https://api.dataforseo.com/v3/appendix/user_data",
                                  headers={"Authorization": f"Basic {auth}"}) as r:
                     elapsed = _time.monotonic() - start
-                    if r.status == 200: return True, f"OK \\({elapsed:.1f}s\\)"
+                    if r.status == 200: return True, f"OK ({elapsed:.1f}s)"
                     return False, f"HTTP {r.status}"
 
             elif group_name == "rapidapi":
@@ -541,7 +541,7 @@ async def _test_api(group_name: str) -> tuple[bool, str]:
                                  headers={"X-RapidAPI-Key": key,
                                           "X-RapidAPI-Host": "real-time-amazon-data.p.rapidapi.com"}) as r:
                     elapsed = _time.monotonic() - start
-                    if r.status == 200: return True, f"OK \\({elapsed:.1f}s\\)"
+                    if r.status == 200: return True, f"OK ({elapsed:.1f}s)"
                     return False, f"HTTP {r.status}"
 
             elif group_name == "amazon_paapi":
@@ -554,7 +554,7 @@ async def _test_api(group_name: str) -> tuple[bool, str]:
                     if not sk: missing.append("secret key")
                     if not tag: missing.append("tag")
                     return False, f"Missing: {', '.join(missing)}"
-                return True, "All 3 fields set \\(signature test skipped\\)"
+                return True, "All 3 fields set (signature test skipped)"
 
             elif group_name == "capsolver":
                 key = await key_store.get("capsolver_api_key")
@@ -565,7 +565,7 @@ async def _test_api(group_name: str) -> tuple[bool, str]:
                     data = await r.json()
                     if data.get("errorId", 1) == 0:
                         bal = data.get("balance", "?")
-                        return True, f"OK \\(${bal}\\) \\({elapsed:.1f}s\\)"
+                        return True, f"OK (${bal}) ({elapsed:.1f}s)"
                     return False, str(data.get("errorDescription", f"HTTP {r.status}"))[:60]
 
             elif group_name == "decodo":
@@ -579,7 +579,7 @@ async def _test_api(group_name: str) -> tuple[bool, str]:
                     if r.status == 200:
                         data = await r.json()
                         ip = data.get("ip", "?")
-                        return True, f"OK \\(IP: {ip}\\) \\({elapsed:.1f}s\\)"
+                        return True, f"OK (IP: {ip}) ({elapsed:.1f}s)"
                     return False, f"HTTP {r.status}"
 
             elif group_name == "israel_proxy":
@@ -587,7 +587,7 @@ async def _test_api(group_name: str) -> tuple[bool, str]:
                 if not url: return False, "URL not set"
                 async with s.get("https://httpbin.org/ip", proxy=url) as r:
                     elapsed = _time.monotonic() - start
-                    if r.status == 200: return True, f"OK \\({elapsed:.1f}s\\)"
+                    if r.status == 200: return True, f"OK ({elapsed:.1f}s)"
                     return False, f"HTTP {r.status}"
 
             elif group_name == "bitly":
@@ -596,7 +596,7 @@ async def _test_api(group_name: str) -> tuple[bool, str]:
                 async with s.get("https://api-ssl.bitly.com/v4/user",
                                  headers={"Authorization": f"Bearer {token}"}) as r:
                     elapsed = _time.monotonic() - start
-                    if r.status == 200: return True, f"OK \\({elapsed:.1f}s\\)"
+                    if r.status == 200: return True, f"OK ({elapsed:.1f}s)"
                     return False, f"HTTP {r.status}"
 
             else:
@@ -1029,7 +1029,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await q.edit_message_text(f"\U0001f9ea Testing *{e(label)}*\\.\\.\\.", parse_mode="MarkdownV2")
         ok, msg = await _test_api(group_name)
         emoji = "\u2705" if ok else "\u274c"
-        result_text = f"{emoji} *{e(label)}*: {msg}"
+        result_text = f"{emoji} *{e(label)}*\: {e(msg)}"
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("\u25c0 Back", callback_data=CB_KEYS)]])
         await q.edit_message_text(result_text, parse_mode="MarkdownV2", reply_markup=kb)
 
