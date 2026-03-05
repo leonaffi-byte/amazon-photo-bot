@@ -109,6 +109,40 @@ _EXTRACT_JS = """
 """
 
 
+
+async def _get_us_proxy_cfg() -> dict | None:
+    """Build a Playwright proxy config dict using Decodo with country-us.
+
+    Returns None if Decodo credentials are not configured in key_store.
+    """
+    import urllib.parse as _up
+    try:
+        import key_store
+    except ImportError:
+        return None
+
+    user = (await key_store.get("decodo_user") or "").strip()
+    pw   = (await key_store.get("decodo_password") or "").strip()
+    if not user or not pw:
+        logger.debug("[Playwright] Decodo credentials not configured — running without proxy")
+        return None
+
+    raw_port = (await key_store.get("decodo_port") or "").strip()
+    port = int(raw_port) if raw_port.isdigit() else 7000
+
+    proxy_url = f"http://user-{user}-country-us:{pw}@gate.decodo.com:{port}"
+    logger.info("[Playwright] Using Decodo US proxy (gate.decodo.com:%d)", port)
+
+    # Split into Playwright's proxy config format
+    p = _up.urlparse(proxy_url)
+    cfg: dict = {"server": f"{p.scheme}://{p.hostname}:{p.port}"}
+    if p.username:
+        cfg["username"] = _up.unquote(p.username)
+    if p.password:
+        cfg["password"] = _up.unquote(p.password)
+    return cfg
+
+
 class PlaywrightBackend(SearchBackend):
     """
     Scrape Amazon.com search results via headless Chromium.
@@ -129,10 +163,9 @@ class PlaywrightBackend(SearchBackend):
         max_results: int = 20,
         page: int = 1,
     ) -> list[AmazonItem]:
-        from israel_scraper import _get_proxy_url
-        proxy_url = await _get_proxy_url()
-        # proxy_url may be None — Playwright still works without a proxy,
-        # just without Israel-specific delivery context
+        proxy_cfg = await _get_us_proxy_cfg()
+        # proxy_cfg may be None — Playwright still works without a proxy,
+        # but Amazon often blocks headless browsers without one
 
         try:
             from playwright.async_api import async_playwright, TimeoutError as PWTimeout
@@ -148,8 +181,8 @@ class PlaywrightBackend(SearchBackend):
                         "--disable-blink-features=AutomationControlled",
                     ],
                 }
-                if proxy_url:
-                    launch_args["proxy"] = {"server": proxy_url}
+                if proxy_cfg:
+                    launch_args["proxy"] = proxy_cfg
 
                 browser = await pw.chromium.launch(**launch_args)
                 context = await browser.new_context(
