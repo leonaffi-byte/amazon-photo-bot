@@ -586,6 +586,7 @@ class BotCore:
             total=total,
             short_url=short_url,
             israel_status=israel_status,
+            price_history=session._last_price_history,
             is_admin=session.is_admin,
         )
         buttons = await self._build_nav_buttons(session, lang, user_id=user_id)

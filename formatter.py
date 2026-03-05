@@ -242,6 +242,7 @@ class Formatter:
         total: int,
         short_url: str | None = None,
         israel_status: str | None = None,
+        price_history=None,
         is_admin: bool = False,
     ) -> str:
         """Format a single Amazon product caption.
@@ -283,6 +284,23 @@ class Formatter:
             badges.append(t("product_sold_by", lang=self.lang) + " Amazon")
         badge_line = "  ".join(badges) if badges else ""
 
+        # Price history
+        price_hist_line = ""
+        if price_history:
+            ph_parts = []
+            avg_90d = getattr(price_history, "avg_90d", None)
+            low_all_time = getattr(price_history, "low_all_time", None)
+            if avg_90d is not None:
+                ph_parts.append(self._esc(f"90d avg: "))
+            if low_all_time is not None:
+                ph_parts.append(self._esc(f"Low: "))
+            if ph_parts:
+                price_hist_line = "📉 " + " \| ".join(ph_parts)
+                deal_label = getattr(price_history, "deal_label", "")
+                if deal_label:
+                    price_hist_line += "
+   " + self._esc(deal_label)
+
         # Israel shipping status
         israel_line = ""
         if israel_status == "yes":
@@ -318,6 +336,8 @@ class Formatter:
         parts = [title, "", price_line + "  " + rating_line]
         if badge_line:
             parts.append(badge_line)
+        if price_hist_line:
+            parts.append(price_hist_line)
         if israel_line:
             parts.append(israel_line)
         if shop_line:
