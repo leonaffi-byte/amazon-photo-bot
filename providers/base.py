@@ -71,7 +71,7 @@ Rules:
 - If the photo contains ONE product, return exactly one element in "products"
 - If the photo contains MULTIPLE distinct products, return one element per product (up to 6)
 - bbox: approximate bounding box as percentages (0-100) of image width/height. [x, y] is the top-left corner.
-- amazon_search_query: most specific terms first, include model# if visible
+- amazon_search_query: most specific terms first, include model# if visible. ALWAYS include the dominant color of the product (e.g. "black leather jacket", "navy blue dress", "brown plaid shirt"). Color is critical for accurate Amazon results.
 - If brand unknown, omit it from search query to avoid zero results
 - key_features: focus on what distinguishes this from similar products
 - If a person is wearing or holding the product, describe ONLY the product — ignore the person entirely
