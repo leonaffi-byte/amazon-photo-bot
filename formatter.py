@@ -152,7 +152,7 @@ class Formatter:
         lines.append("")
         for i, p in enumerate(products):
             name = p.product_name if isinstance(p, ProductInfo) else str(p)
-            lines.append(f"{i + 1}\\\\. {self._bold(self._esc(name))}")
+            lines.append(f"{i + 1}\. {self._bold(self._esc(name))}")
         lines.append("")
         lines.append(self._italic(self._esc(t("pick_product_hint", lang=self.lang))))
         return "\n".join(lines)
