@@ -19,6 +19,7 @@ class ProductInfo:
     alternative_query: str
     confidence: str       # high | medium | low
     notes: str            # includes provider name in compare/best mode
+    bbox: Optional[tuple[float, float, float, float]] = None  # (x%, y%, w%, h%)
 
     def __post_init__(self):
         if not self.product_name:
