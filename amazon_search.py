@@ -63,6 +63,32 @@ async def backend_name() -> str:
         return "not configured"
 
 
+async def _get_fallback_backend(current: "SearchBackend") -> "Optional[SearchBackend]":
+    """Get next available backend after the current one fails."""
+    import key_store
+    rapidapi_key       = await key_store.get("rapidapi_key")
+    amazon_access      = await key_store.get("amazon_access_key")
+    amazon_secret      = await key_store.get("amazon_secret_key")
+    amazon_tag         = await key_store.get("amazon_associate_tag")
+    dataforseo_login   = await key_store.get("dataforseo_login")
+    dataforseo_password= await key_store.get("dataforseo_password")
+
+    current_name = current.name.lower()
+
+    # Try backends in order, skipping the current one
+    if "paapi" not in current_name and bool(amazon_access and amazon_secret and amazon_tag):
+        return _make_paapi(amazon_access, amazon_secret, amazon_tag)
+    if "rapidapi" not in current_name and bool(rapidapi_key):
+        return _make_rapidapi(rapidapi_key)
+    if "dataforseo" not in current_name and bool(dataforseo_login and dataforseo_password):
+        fb = _make_dataforseo(dataforseo_login, dataforseo_password)
+        if await fb.is_available():
+            return fb
+    if "playwright" not in current_name:
+        return _make_playwright()
+    return None
+
+
 async def _build_backend() -> SearchBackend:
     """
     Build the search backend using keys from key_store (DB → .env fallback).
@@ -200,10 +226,28 @@ async def search_amazon(
     primary_query = _clean_query(product.amazon_search_query)
     alt_query = _clean_query(product.alternative_query)
 
+    # Wrap backend search with automatic fallback on quota/rate errors
+    async def _search_with_fallback(query: str, max_res: int, pg: int = 1) -> list:
+        nonlocal backend
+        try:
+            return await backend.search(query, max_res, page=pg)
+        except Exception as exc:
+            exc_str = str(exc).lower()
+            if "429" in exc_str or "quota" in exc_str or "rate" in exc_str or "limit" in exc_str:
+                logger.warning("Backend %s quota exceeded, trying fallback...", backend.name)
+                fb = await _get_fallback_backend(backend)
+                if fb:
+                    logger.info("Falling back to %s", fb.name)
+                    backend = fb
+                    global _backend
+                    _backend = fb
+                    return await fb.search(query, max_res, page=pg)
+            raise
+
     if page > 1:
         # Lazy-load: fetch a specific Amazon results page directly (no fallback needed)
         try:
-            items = await backend.search(primary_query, max_results, page=page)
+            items = await _search_with_fallback(primary_query, max_results, pg=page)
             for item in items:
                 seen[item.asin] = item
             logger.info("[%s] Page %d '%s' → %d items", backend.name, page, primary_query, len(seen))
@@ -212,7 +256,7 @@ async def search_amazon(
     else:
         # Primary query
         try:
-            items = await backend.search(primary_query, max_results)
+            items = await _search_with_fallback(primary_query, max_results)
             for item in items:
                 seen[item.asin] = item
             logger.info("[%s] Primary '%s' → %d results", backend.name, primary_query, len(seen))
@@ -222,7 +266,7 @@ async def search_amazon(
         # Fallback if too few results — small delay to avoid burst rate-limiting
         if len(seen) < 3 and alt_query != primary_query:
             try:
-                items = await backend.search(alt_query, max_results)
+                items = await _search_with_fallback(alt_query, max_results)
                 for item in items:
                     if item.asin not in seen:
                         seen[item.asin] = item
