@@ -76,6 +76,7 @@ Rules:
 - key_features: focus on what distinguishes this from similar products
 - If a person is wearing or holding the product, describe ONLY the product — ignore the person entirely
 - Never refuse: if the photo shows a person, identify the clothing/accessory/item they are wearing
+- If the product is clothing, footwear, or accessories and appears gendered (e.g. worn by a woman, styled for women/men, or clearly designed for a specific gender), prefix amazon_search_query with "women's" or "men's". Infer gender from the model wearing it, the style, cut, or product design. When in doubt, include the gender prefix based on your best assessment.
 - If the user has drawn a circle, arrow, highlight, or annotation on the image, identify ONLY the highlighted/circled product and return just that one element
 """
 
