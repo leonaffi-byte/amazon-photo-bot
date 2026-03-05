@@ -95,7 +95,7 @@ class PlatformAdapter(ABC):
 
     def get_chat_id(self, event: Any) -> str:
         """Return the chat/conversation ID for the event. Defaults to user ID."""
-        return self.get_platform_user_id(event)
+        return self.get_user_id(event)
 
     # ── Outgoing: text ─────────────────────────────────────────────────────
 

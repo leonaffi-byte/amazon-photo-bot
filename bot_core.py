@@ -850,14 +850,14 @@ class BotCore:
         """
         REQUESTS_TOTAL.inc(labels={"type": "photo"})
         platform = self.adapter.platform_name
-        platform_uid = self.adapter.get_platform_user_id(event)
-        user_id = int(platform_uid) if platform_uid.isdigit() else 0
-        user_key = f"{platform}:{platform_uid}"
+        uid = self.adapter.get_user_id(event)
+        user_id = int(uid) if uid.isdigit() else 0
+        user_key = f"{platform}:{uid}"
         # get_chat_id may be provided by adapters; fall back to user id
         if hasattr(self.adapter, "get_chat_id"):
-            chat_id = str(self.adapter.get_chat_id(event))
+            chat_id = str(self.adapter.get_user_id(event))
         else:
-            chat_id = str(platform_uid)
+            chat_id = str(uid)
         cid = new_correlation_id()
         logger.info("Photo received from %s [cid=%s]", user_key, cid)
 
