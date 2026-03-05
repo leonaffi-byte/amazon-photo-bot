@@ -849,6 +849,17 @@ class BotCore:
             lines.append(f"Search backend: {sb}")
             await self.adapter.send_text(chat_id, "\n".join(lines))
 
+
+        elif command == "setloggroup":
+            if not await self._is_admin(user_id):
+                return
+            import log_group
+            log_group.start_listening(user_id)
+            await self.adapter.send_text(
+                chat_id,
+                "OK, now add me to a group and send any message there. "
+                "I will capture that group as the log group."
+            )
     async def handle_photo(
         self,
         event: Any,

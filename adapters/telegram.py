@@ -73,6 +73,7 @@ class TelegramAdapter(PlatformAdapter):
         app.add_handler(CommandHandler("help", self._handle_command))
         app.add_handler(CommandHandler("language", self._handle_command))
         app.add_handler(CommandHandler("providers", self._handle_command))
+        app.add_handler(CommandHandler("setloggroup", self._handle_command))
 
         # Photo handler
         app.add_handler(MessageHandler(filters.PHOTO, self._handle_photo))
@@ -84,6 +85,12 @@ class TelegramAdapter(PlatformAdapter):
         app.add_handler(MessageHandler(
             filters.TEXT & ~filters.COMMAND, self._handle_text
         ))
+
+        # Group message handler for log group setup (must be last)
+        app.add_handler(MessageHandler(
+            filters.ALL & (filters.ChatType.GROUP | filters.ChatType.SUPERGROUP),
+            self._handle_group_message,
+        ), group=1)  # group=1 so it runs in a separate handler group
 
         await app.initialize()
         await app.start()
@@ -102,6 +109,38 @@ class TelegramAdapter(PlatformAdapter):
         logger.info("TelegramAdapter stopped")
 
     # ── PTB handler wrappers (private) ─────────────────────────────────────
+
+    async def _handle_group_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Intercept group messages for log group setup."""
+        if not update.effective_chat or not update.effective_user:
+            return
+        chat_type = update.effective_chat.type
+        if chat_type not in ("group", "supergroup"):
+            return
+
+        user_id = update.effective_user.id
+        chat_id = str(update.effective_chat.id)
+
+        import log_group
+        if not log_group.is_listening(user_id):
+            return
+
+        log_group.stop_listening(user_id)
+        log_group.set_group(chat_id)
+
+        # Confirm in the group
+        await update.effective_chat.send_message(
+            "\u2705 This group is now the log group. All bot actions will be logged here."
+        )
+
+        # Also notify the admin privately
+        try:
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=f"\u2705 Log group set to: {update.effective_chat.title} (ID: {chat_id})"
+            )
+        except Exception:
+            pass
 
     async def _handle_photo(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
