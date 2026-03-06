@@ -24,17 +24,17 @@ logger = logging.getLogger(__name__)
 _SAMBANOVA_BASE_URL = "https://api.sambanova.ai/v1"
 
 _PRICING: dict[str, tuple[float, float]] = {
-    "Meta-Llama-4-Maverick-17B-128E-Instruct": (0.0, 0.0),
+    "Llama-4-Maverick-17B-128E-Instruct": (0.0, 0.0),
 }
 
 _DISPLAY_NAMES: dict[str, str] = {
-    "Meta-Llama-4-Maverick-17B-128E-Instruct": "llama-4-maverick",
+    "Llama-4-Maverick-17B-128E-Instruct": "llama-4-maverick",
 }
 
 
 class SambaNovaProvider(VisionProvider):
 
-    def __init__(self, api_key: str, model: str = "Meta-Llama-4-Maverick-17B-128E-Instruct"):
+    def __init__(self, api_key: str, model: str = "Llama-4-Maverick-17B-128E-Instruct"):
         self.name     = "sambanova"
         self.model_id = model
         self._client  = openai.AsyncOpenAI(

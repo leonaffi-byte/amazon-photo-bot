@@ -26,17 +26,17 @@ logger = logging.getLogger(__name__)
 _FIREWORKS_BASE_URL = "https://api.fireworks.ai/inference/v1"
 
 _PRICING: dict[str, tuple[float, float]] = {
-    "accounts/fireworks/models/qwen2-vl-72b-instruct": (0.0009, 0.0009),
+    "accounts/fireworks/models/glm-4p7": (0.0009, 0.0009),
 }
 
 _DISPLAY_NAMES: dict[str, str] = {
-    "accounts/fireworks/models/qwen2-vl-72b-instruct": "qwen2.5-vl-72b",
+    "accounts/fireworks/models/glm-4p7": "glm-4p7",
 }
 
 
 class FireworksProvider(VisionProvider):
 
-    def __init__(self, api_key: str, model: str = "accounts/fireworks/models/qwen2-vl-72b-instruct"):
+    def __init__(self, api_key: str, model: str = "accounts/fireworks/models/glm-4p7"):
         self.name     = "fireworks"
         self.model_id = model
         self._client  = openai.AsyncOpenAI(

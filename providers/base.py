@@ -177,6 +177,15 @@ class ProviderResult:
         return result
 
 
+def _fix_json(text: str) -> str:
+    """Fix common JSON issues from LLM outputs."""
+    # Remove trailing commas before } or ]
+    text = _re.sub(r",\s*([}\]])", r"\1", text)
+    # Fix unquoted keys (simple cases)
+    text = _re.sub(r"(\{|,)\s*(\w+)\s*:", r'\1 "\2":', text)
+    return text
+
+
 def parse_json_response(raw: str, provider_name: str) -> dict:
     """
     Parse JSON from a model response, handling markdown fences gracefully.
@@ -197,19 +206,35 @@ def parse_json_response(raw: str, provider_name: str) -> dict:
     if parsed is None:
         fence_match = _re.search(r"```(?:json)?\s*\n?([\s\S]+?)\n?```", text)
         if fence_match:
+            extracted = fence_match.group(1).strip()
             try:
-                parsed = json.loads(fence_match.group(1).strip())
+                parsed = json.loads(extracted)
             except json.JSONDecodeError:
-                pass
+                # Try with JSON fixes (trailing commas etc)
+                try:
+                    parsed = json.loads(_fix_json(extracted))
+                except json.JSONDecodeError:
+                    pass
 
     # Try 3: Find first {...} block
     if parsed is None:
         brace_match = _re.search(r"\{[\s\S]+\}", text)
         if brace_match:
+            candidate = brace_match.group(0)
             try:
-                parsed = json.loads(brace_match.group(0))
+                parsed = json.loads(candidate)
             except json.JSONDecodeError:
-                pass
+                try:
+                    parsed = json.loads(_fix_json(candidate))
+                except json.JSONDecodeError:
+                    pass
+
+    # Try 4: Apply fixes to full text
+    if parsed is None:
+        try:
+            parsed = json.loads(_fix_json(text))
+        except json.JSONDecodeError:
+            pass
 
     if parsed is None:
         logger.error("[%s] Non-JSON response: %s", provider_name, raw[:300])
@@ -221,7 +246,7 @@ def parse_json_response(raw: str, provider_name: str) -> dict:
     if isinstance(parsed, dict):
         if "products" in parsed and isinstance(parsed["products"], list):
             return parsed
-        # Single product dict (backward compat) — wrap in products array
+        # Single product dict — wrap in products array
         return {"products": [parsed]}
 
     raise ValueError(f"[{provider_name}] Unexpected JSON type: {type(parsed)}")

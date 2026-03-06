@@ -175,7 +175,7 @@ async def _build_providers() -> dict[str, VisionProvider]:
     if sambanova_key:
         from providers.sambanova_provider import SambaNovaProvider
         for model, env_flag in [
-            ("Meta-Llama-4-Maverick-17B-128E-Instruct", "ENABLE_SAMBANOVA_MAVERICK"),
+            ("Llama-4-Maverick-17B-128E-Instruct", "ENABLE_SAMBANOVA_MAVERICK"),
         ]:
             if _model_enabled(env_flag):
                 try:
@@ -204,22 +204,22 @@ async def _build_providers() -> dict[str, VisionProvider]:
             else:
                 logger.info("Skipped provider together/%s (disabled by %s)", model, env_flag)
 
-    # ── Fireworks AI (Qwen2.5-VL — high quality, cheap) ──────────────────────
-    fireworks_key = await key_store.get("fireworks_api_key")
-    if fireworks_key:
-        from providers.fireworks_provider import FireworksProvider
-        for model, env_flag in [
-            ("accounts/fireworks/models/qwen2-vl-72b-instruct", "ENABLE_FIREWORKS_QWEN_VL"),
-        ]:
-            if _model_enabled(env_flag):
-                try:
-                    p = FireworksProvider(fireworks_key, model)
-                    providers[p.full_name] = p
-                    logger.info("Loaded provider: %s", p.full_name)
-                except Exception as exc:
-                    logger.warning("Could not load fireworks/%s: %s", model, exc)
-            else:
-                logger.info("Skipped provider fireworks/%s (disabled by %s)", model, env_flag)
+    # ── Fireworks AI ── (disabled: no vision model on account) ──────────
+    #     fireworks_key = await key_store.get("fireworks_api_key")
+    #     if fireworks_key:
+    #         from providers.fireworks_provider import FireworksProvider
+    #         for model, env_flag in [
+    #             ("accounts/fireworks/models/glm-4p7", "ENABLE_FIREWORKS_GLM4"),
+    #         ]:
+    #             if _model_enabled(env_flag):
+    #                 try:
+    #                     p = FireworksProvider(fireworks_key, model)
+    #                     providers[p.full_name] = p
+    #                     logger.info("Loaded provider: %s", p.full_name)
+    #                 except Exception as exc:
+    #                     logger.warning("Could not load fireworks/%s: %s", model, exc)
+    #             else:
+    #                 logger.info("Skipped provider fireworks/%s (disabled by %s)", model, env_flag)
 
     # ── Azure OpenAI (GPT-4o on Azure infrastructure) ────────────────────────
     azure_key        = await key_store.get("azure_openai_key")
