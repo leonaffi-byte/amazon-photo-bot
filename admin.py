@@ -388,20 +388,20 @@ _API_GROUPS = [
     {"name": "azure",        "label": "\u2601\ufe0f Azure OpenAI",   "keys": ["azure_openai_key", "azure_openai_endpoint", "azure_openai_deployment"]},
     {"name": "dataforseo",   "label": "🛒 DataForSEO",    "keys": ["dataforseo_login", "dataforseo_password"]},
     {"name": "amazon_paapi", "label": "🛒 Amazon PA-API", "keys": ["amazon_access_key", "amazon_secret_key", "amazon_associate_tag"]},
-    {"name": "decodo",       "label": "🔄 Decodo Proxy",  "keys": ["decodo_user", "decodo_password", "decodo_port"]},
+    {"name": "decodo",       "label": "🔄 Decodo Proxy",  "keys": ["decodo_user", "decodo_password"], "optional": ["decodo_port"]},
     {"name": "rapidapi",     "label": "🛒 RapidAPI",      "keys": ["rapidapi_key"]},
     {"name": "capsolver",    "label": "🤖 CapSolver",     "keys": ["capsolver_api_key"]},
     {"name": "israel_proxy", "label": "🇮🇱 Israel Proxy",  "keys": ["israel_proxy_url"]},
     {"name": "bitly",        "label": "🔗 Bit.ly",        "keys": ["bitly_token"]},
-    {"name": "brightdata",   "label": "🌐 Bright Data",   "keys": ["brightdata_api_token", "brightdata_zone", "brightdata_customer_id"]},
+    {"name": "brightdata",   "label": "🌐 Bright Data",   "keys": ["brightdata_api_token"], "optional": ["brightdata_zone", "brightdata_customer_id"]},
 ]
 
 
-def _group_status(all_keys: dict, keys: list[str]) -> str:
-    set_count = sum(1 for k in keys if all_keys.get(k))
-    if set_count == len(keys):
+def _group_status(all_keys: dict, required: list[str], optional: list[str] | None = None) -> str:
+    req_set = sum(1 for k in required if all_keys.get(k))
+    if req_set == len(required):
         return "✅"
-    if set_count > 0:
+    if req_set > 0 or (optional and any(all_keys.get(k) for k in optional)):
         return "⚠️"
     return "⬜"
 
@@ -461,9 +461,11 @@ async def _keys_content() -> tuple[str, InlineKeyboardMarkup]:
                     btn_row.append(InlineKeyboardButton("🗑 Clear", callback_data=f"{CB_KEY_DEL}{key_name}"))
                 rows.append(btn_row)
             else:
-                set_count = sum(1 for k in keys if all_keys.get(k))
-                status = _group_status(all_keys, keys)
-                lines.append(f"  {status}  {e(label)}  \\({set_count}/{len(keys)} set\\)")
+                optional = group.get("optional", [])
+                all_group_keys = keys + optional
+                set_count = sum(1 for k in all_group_keys if all_keys.get(k))
+                status = _group_status(all_keys, keys, optional)
+                lines.append(f"  {status}  {e(label)}  \\({set_count}/{len(all_group_keys)} set\\)")
                 rows.append([
                     InlineKeyboardButton(f"⚙️  {label}", callback_data=f"{CB_KEY_GROUP}{gname}"),
                     InlineKeyboardButton("🧪 Test", callback_data=f"{CB_KEY_TEST}{gname}"),
@@ -476,22 +478,26 @@ async def _keys_content() -> tuple[str, InlineKeyboardMarkup]:
 async def _group_content(group_name: str) -> tuple[str, InlineKeyboardMarkup]:
     group = next((g for g in _API_GROUPS if g["name"] == group_name), None)
     if not group:
-        return "Group not found\.", InlineKeyboardMarkup([[InlineKeyboardButton("◀ Back", callback_data=CB_KEYS)]])
+        return "Group not found\\.", InlineKeyboardMarkup([[InlineKeyboardButton("◀ Back", callback_data=CB_KEYS)]])
 
     all_keys = await key_store.get_all_keys()
     label = group["label"]
+    optional = group.get("optional", [])
+    all_group_keys = group["keys"] + optional
     lines = [f"⚙️ *{e(label)}*\n{st.DIV}\n"]
     rows = []
-    for key_name in group["keys"]:
+    for key_name in all_group_keys:
         kl, desc = _KEY_LABELS.get(key_name, (key_name, ""))
+        is_optional = key_name in optional
         val = all_keys.get(key_name)
         _, src = await key_store.get_with_source(key_name)
         masked = e(key_store.mask(val))
+        opt_tag = " \\(optional\\)" if is_optional else ""
         if val:
             src_label = "📋 admin" if src == "db" else "📁 \\.env"
-            lines.append(f"✅ *{e(kl)}*\n  `{masked}`  _{src_label}_\n  _{e(desc)}_\n")
+            lines.append(f"✅ *{e(kl)}*{opt_tag}\n  `{masked}`  _{src_label}_\n  _{e(desc)}_\n")
         else:
-            lines.append(f"⬜ *{e(kl)}*  —  _not set_\n  _{e(desc)}_\n")
+            lines.append(f"⬜ *{e(kl)}*{opt_tag}  —  _not set_\n  _{e(desc)}_\n")
         btn_row = [InlineKeyboardButton(f"✏️ {kl}", callback_data=f"{CB_KEY_SET}{key_name}")]
         if val:
             btn_row.append(InlineKeyboardButton("\U0001f5d1", callback_data=f"{CB_KEY_DEL}{key_name}"))
@@ -1161,7 +1167,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await q.edit_message_text(f"\U0001f9ea Testing *{e(label)}*\\.\\.\\.", parse_mode="MarkdownV2")
         ok, msg = await _test_api(group_name)
         emoji = "\u2705" if ok else "\u274c"
-        result_text = f"{emoji} *{e(label)}*\: {e(msg)}"
+        result_text = f"{emoji} *{e(label)}*\\: {e(msg)}"
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("\u25c0 Back", callback_data=CB_KEYS)]])
         await q.edit_message_text(result_text, parse_mode="MarkdownV2", reply_markup=kb)
 
