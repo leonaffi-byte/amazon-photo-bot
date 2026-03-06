@@ -296,8 +296,12 @@ async def _scrape_or_raise(asin: str, proxy_url: str) -> IsraelShippingResult:
 
     This allows the circuit breaker to track failures properly, since
     _scrape itself never raises (it returns _unverified() instead).
+    Overall timeout of 90s prevents Playwright from hanging indefinitely.
     """
-    result = await _scrape(asin, proxy_url)
+    try:
+        result = await asyncio.wait_for(_scrape(asin, proxy_url), timeout=90)
+    except asyncio.TimeoutError:
+        raise _ScrapeFailedError("Playwright overall timeout (90s)")
     if not result.verified:
         raise _ScrapeFailedError(result.note)
     return result
