@@ -110,27 +110,26 @@ class TestGetAllKeys:
 # ── mask() ────────────────────────────────────────────────────────────────────
 
 class TestMask:
-    def test_none_shows_not_set(self):
-        assert "not set" in key_store.mask(None)
+    def test_none_shows_dash(self):
+        assert key_store.mask(None) == "—"
 
-    def test_empty_shows_not_set(self):
-        assert "not set" in key_store.mask("")
+    def test_empty_shows_dash(self):
+        assert key_store.mask("") == "—"
 
-    def test_short_key_shows_stars(self):
+    def test_short_key_shows_partial(self):
         result = key_store.mask("sk-ab")
-        assert "✅" in result
-        assert "****" in result
+        assert "sk" in result
+        assert "···" in result
 
     def test_long_key_shows_partial(self):
         result = key_store.mask("sk-1234567890abcdef")
-        assert "✅" in result
         # First 4 chars visible
         assert "sk-1" in result
         # Last 4 chars visible
         assert "cdef" in result
-        # Middle is masked
-        assert "***" in result
+        assert "···" in result
 
-    def test_exactly_8_chars_shows_stars(self):
+    def test_exactly_8_chars_shows_partial(self):
         result = key_store.mask("abcdefgh")
-        assert "****" in result
+        assert "ab" in result
+        assert "···" in result

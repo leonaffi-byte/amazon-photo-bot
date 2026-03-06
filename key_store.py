@@ -67,6 +67,10 @@ async def get_all_keys() -> dict[str, str | None]:
         "google_api_key",
         "groq_api_key",
         "openrouter_api_key",
+        "mistral_api_key",
+        "sambanova_api_key",
+        "together_api_key",
+        "fireworks_api_key",
         "azure_openai_key",
         "azure_openai_endpoint",
         "azure_openai_deployment",
@@ -82,6 +86,9 @@ async def get_all_keys() -> dict[str, str | None]:
         "amazon_secret_key",
         "amazon_associate_tag",
         "bitly_token",
+        "brightdata_api_token",
+        "brightdata_zone",
+        "brightdata_customer_id",
     ]
     result = {}
     for name in names:
@@ -92,7 +99,21 @@ async def get_all_keys() -> dict[str, str | None]:
 def mask(value: str | None) -> str:
     """Return a masked version safe to show in Telegram."""
     if not value:
-        return "❌ not set"
+        return "—"
     if len(value) <= 8:
-        return "✅ ****"
-    return f"✅ {value[:4]}{'*' * (len(value) - 8)}{value[-4:]}"
+        return f"{value[:2]}···"
+    return f"{value[:4]}···{value[-4:]}"
+
+
+async def get_with_source(key_name: str) -> tuple[str | None, str]:
+    """Return (value, source) where source is 'db', 'env', or 'none'."""
+    try:
+        db_val = await _get_db().get_api_key(key_name)
+        if db_val:
+            return db_val, "db"
+    except Exception:
+        pass
+    env_val = os.getenv(key_name.upper())
+    if env_val:
+        return env_val, "env"
+    return None, "none"

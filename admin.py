@@ -400,14 +400,29 @@ _API_GROUPS = [
 def _group_status(all_keys: dict, keys: list[str]) -> str:
     set_count = sum(1 for k in keys if all_keys.get(k))
     if set_count == len(keys):
-        return "\u2705"
+        return "✅"
     if set_count > 0:
-        return "\u26a0\ufe0f"
-    return "\u274c"
+        return "⚠️"
+    return "⬜"
 
 
 async def _keys_content() -> tuple[str, InlineKeyboardMarkup]:
     all_keys = await key_store.get_all_keys()
+
+    # Build source map: key_name -> "db" | "env" | "none"
+    sources: dict[str, str] = {}
+    for k in all_keys:
+        _, src = await key_store.get_with_source(k)
+        sources[k] = src
+
+    def _key_line(key_name: str, label: str) -> str:
+        val = all_keys.get(key_name)
+        src = sources.get(key_name, "none")
+        if not val:
+            return f"  ⬜  {e(label)}  —  _not set_"
+        masked = e(key_store.mask(val))
+        src_badge = "📋" if src == "db" else "📁"  # 📋=admin panel, 📁=.env file
+        return f"  ✅  {e(label)}  `{masked}`  {src_badge}"
 
     # Categorize groups
     _categories = [
@@ -418,7 +433,10 @@ async def _keys_content() -> tuple[str, InlineKeyboardMarkup]:
         ("🔧 *Other*", ["bitly", "brightdata"]),
     ]
 
-    lines = [f"🔑  *API KEYS*\n{st.DIV}\n"]
+    lines = [
+        f"🔑  *API KEYS*\n{st.DIV}\n",
+        f"📋 \\= set in admin panel  ·  📁 \\= from \\.env file\n",
+    ]
     rows = []
 
     for cat_label, group_names in _categories:
@@ -430,13 +448,11 @@ async def _keys_content() -> tuple[str, InlineKeyboardMarkup]:
             gname = group["name"]
             label = group["label"]
             keys  = group["keys"]
-            status = _group_status(all_keys, keys)
 
             if len(keys) == 1:
                 key_name = keys[0]
                 val = all_keys.get(key_name)
-                masked = e(key_store.mask(val))
-                lines.append(f"  {status}  {e(label)}  {masked}")
+                lines.append(_key_line(key_name, label))
                 btn_row = [
                     InlineKeyboardButton(f"✏️  {label}", callback_data=f"{CB_KEY_SET}{key_name}"),
                     InlineKeyboardButton("🧪 Test", callback_data=f"{CB_KEY_TEST}{gname}"),
@@ -446,6 +462,7 @@ async def _keys_content() -> tuple[str, InlineKeyboardMarkup]:
                 rows.append(btn_row)
             else:
                 set_count = sum(1 for k in keys if all_keys.get(k))
+                status = _group_status(all_keys, keys)
                 lines.append(f"  {status}  {e(label)}  \\({set_count}/{len(keys)} set\\)")
                 rows.append([
                     InlineKeyboardButton(f"⚙️  {label}", callback_data=f"{CB_KEY_GROUP}{gname}"),
@@ -459,18 +476,23 @@ async def _keys_content() -> tuple[str, InlineKeyboardMarkup]:
 async def _group_content(group_name: str) -> tuple[str, InlineKeyboardMarkup]:
     group = next((g for g in _API_GROUPS if g["name"] == group_name), None)
     if not group:
-        return "Group not found\.", InlineKeyboardMarkup([[InlineKeyboardButton("\u25c0 Back", callback_data=CB_KEYS)]])
+        return "Group not found\.", InlineKeyboardMarkup([[InlineKeyboardButton("◀ Back", callback_data=CB_KEYS)]])
 
     all_keys = await key_store.get_all_keys()
     label = group["label"]
-    lines = [f"\u2699\ufe0f *{e(label)}*\n{st.DIV}\n"]
+    lines = [f"⚙️ *{e(label)}*\n{st.DIV}\n"]
     rows = []
     for key_name in group["keys"]:
         kl, desc = _KEY_LABELS.get(key_name, (key_name, ""))
         val = all_keys.get(key_name)
+        _, src = await key_store.get_with_source(key_name)
         masked = e(key_store.mask(val))
-        lines.append(f"*{e(kl)}*\n  {masked}\n  _{e(desc)}_\n")
-        btn_row = [InlineKeyboardButton(f"\u270f\ufe0f {kl}", callback_data=f"{CB_KEY_SET}{key_name}")]
+        if val:
+            src_label = "📋 admin" if src == "db" else "📁 \\.env"
+            lines.append(f"✅ *{e(kl)}*\n  `{masked}`  _{src_label}_\n  _{e(desc)}_\n")
+        else:
+            lines.append(f"⬜ *{e(kl)}*  —  _not set_\n  _{e(desc)}_\n")
+        btn_row = [InlineKeyboardButton(f"✏️ {kl}", callback_data=f"{CB_KEY_SET}{key_name}")]
         if val:
             btn_row.append(InlineKeyboardButton("\U0001f5d1", callback_data=f"{CB_KEY_DEL}{key_name}"))
         rows.append(btn_row)
