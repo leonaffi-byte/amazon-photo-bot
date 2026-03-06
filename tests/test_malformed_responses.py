@@ -287,9 +287,13 @@ class TestGroqProviderErrors:
     @pytest.mark.asyncio
     async def test_groq_timeout_raises(self):
         """Request exceeding the 60s timeout raises asyncio.TimeoutError."""
-        from providers.groq_provider import GroqProvider
+        from providers.openai_compat_provider import OpenAICompatibleProvider
 
-        provider = GroqProvider(api_key="gsk-test")
+        provider = OpenAICompatibleProvider(
+            api_key="gsk-test",
+            base_url="https://api.groq.com/openai/v1",
+            name="groq", model="test-model",
+        )
 
         async def slow_call(*args, **kwargs):
             await asyncio.sleep(100)

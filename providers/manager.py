@@ -141,91 +141,49 @@ async def _build_providers() -> dict[str, VisionProvider]:
             else:
                 logger.info("Skipped provider google/%s (disabled by %s)", model, env_flag)
 
-    # ── Groq (Llama 4 Scout vision — very fast & cheap) ──────────────────────
-    groq_key = await key_store.get("groq_api_key")
-    if groq_key:
-        from providers.groq_provider import GroqProvider
-        for model, env_flag in [
-            # Llama 4 Scout is the only multimodal model currently on Groq
-            ("meta-llama/llama-4-scout-17b-16e-instruct", "ENABLE_GROQ_LLAMA4_SCOUT"),
-        ]:
-            if _model_enabled(env_flag):
-                try:
-                    p = GroqProvider(groq_key, model)
-                    providers[p.full_name] = p
-                    logger.info("Loaded provider: %s", p.full_name)
-                except Exception as exc:
-                    logger.warning("Could not load groq/%s: %s", model, exc)
-            else:
-                logger.info("Skipped provider groq/%s (disabled by %s)", model, env_flag)
+    # ── OpenAI-compatible providers (Groq, Mistral, SambaNova, Together) ─────
+    from providers.openai_compat_provider import OpenAICompatibleProvider
 
-    # ── Mistral (Pixtral 12B — cheap vision) ─────────────────────────────────
-    mistral_key = await key_store.get("mistral_api_key")
-    if mistral_key:
-        from providers.mistral_provider import MistralProvider
-        for model, env_flag in [
-            ("pixtral-12b-2409", "ENABLE_MISTRAL_PIXTRAL_12B"),
-        ]:
-            if _model_enabled(env_flag):
-                try:
-                    p = MistralProvider(mistral_key, model)
-                    providers[p.full_name] = p
-                    logger.info("Loaded provider: %s", p.full_name)
-                except Exception as exc:
-                    logger.warning("Could not load mistral/%s: %s", model, exc)
-            else:
-                logger.info("Skipped provider mistral/%s (disabled by %s)", model, env_flag)
+    _compat_configs: list[tuple[str, str, list[tuple]]] = [
+        # (key_store_key, base_url, [(model, env_flag, display_name, in_cost, out_cost, img_cost)])
+        ("groq_api_key", "https://api.groq.com/openai/v1", [
+            ("meta-llama/llama-4-scout-17b-16e-instruct", "ENABLE_GROQ_LLAMA4_SCOUT",
+             "llama-4-scout", 0.00011, 0.00034, 0.00006),
+        ]),
+        ("mistral_api_key", "https://api.mistral.ai/v1", [
+            ("pixtral-12b-2409", "ENABLE_MISTRAL_PIXTRAL_12B",
+             "pixtral-12b", 0.0001, 0.0001, 0.0),
+        ]),
+        ("sambanova_api_key", "https://api.sambanova.ai/v1", [
+            ("Llama-4-Maverick-17B-128E-Instruct", "ENABLE_SAMBANOVA_MAVERICK",
+             "llama-4-maverick", 0.0, 0.0, 0.0),
+        ]),
+        ("together_api_key", "https://api.together.xyz/v1", [
+            ("meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8", "ENABLE_TOGETHER_MAVERICK",
+             "llama-4-maverick", 0.00027, 0.00085, 0.0),
+        ]),
+    ]
 
-    # ── SambaNova (Llama 4 Maverick — FREE) ──────────────────────────────────
-    sambanova_key = await key_store.get("sambanova_api_key")
-    if sambanova_key:
-        from providers.sambanova_provider import SambaNovaProvider
-        for model, env_flag in [
-            ("Llama-4-Maverick-17B-128E-Instruct", "ENABLE_SAMBANOVA_MAVERICK"),
-        ]:
-            if _model_enabled(env_flag):
-                try:
-                    p = SambaNovaProvider(sambanova_key, model)
-                    providers[p.full_name] = p
-                    logger.info("Loaded provider: %s", p.full_name)
-                except Exception as exc:
-                    logger.warning("Could not load sambanova/%s: %s", model, exc)
-            else:
-                logger.info("Skipped provider sambanova/%s (disabled by %s)", model, env_flag)
-
-    # ── Together AI (Llama 4 Maverick — cheap) ───────────────────────────────
-    together_key = await key_store.get("together_api_key")
-    if together_key:
-        from providers.together_provider import TogetherProvider
-        for model, env_flag in [
-            ("meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8", "ENABLE_TOGETHER_MAVERICK"),
-        ]:
-            if _model_enabled(env_flag):
-                try:
-                    p = TogetherProvider(together_key, model)
-                    providers[p.full_name] = p
-                    logger.info("Loaded provider: %s", p.full_name)
-                except Exception as exc:
-                    logger.warning("Could not load together/%s: %s", model, exc)
-            else:
-                logger.info("Skipped provider together/%s (disabled by %s)", model, env_flag)
-
-    # ── Fireworks AI ── (disabled: no vision model on account) ──────────
-    #     fireworks_key = await key_store.get("fireworks_api_key")
-    #     if fireworks_key:
-    #         from providers.fireworks_provider import FireworksProvider
-    #         for model, env_flag in [
-    #             ("accounts/fireworks/models/glm-4p7", "ENABLE_FIREWORKS_GLM4"),
-    #         ]:
-    #             if _model_enabled(env_flag):
-    #                 try:
-    #                     p = FireworksProvider(fireworks_key, model)
-    #                     providers[p.full_name] = p
-    #                     logger.info("Loaded provider: %s", p.full_name)
-    #                 except Exception as exc:
-    #                     logger.warning("Could not load fireworks/%s: %s", model, exc)
-    #             else:
-    #                 logger.info("Skipped provider fireworks/%s (disabled by %s)", model, env_flag)
+    for key_name, base_url, models in _compat_configs:
+        api_key = await key_store.get(key_name)
+        if not api_key:
+            continue
+        provider_name = key_name.replace("_api_key", "")
+        for model, env_flag, display, in_cost, out_cost, img_cost in models:
+            if not _model_enabled(env_flag):
+                logger.info("Skipped provider %s/%s (disabled by %s)", provider_name, model, env_flag)
+                continue
+            try:
+                p = OpenAICompatibleProvider(
+                    api_key=api_key, base_url=base_url, name=provider_name,
+                    model=model, display_name=display,
+                    input_cost_per_1k=in_cost, output_cost_per_1k=out_cost,
+                    image_cost=img_cost,
+                )
+                providers[p.full_name] = p
+                logger.info("Loaded provider: %s", p.full_name)
+            except Exception as exc:
+                logger.warning("Could not load %s/%s: %s", provider_name, model, exc)
 
     # ── Azure OpenAI (GPT-4o on Azure infrastructure) ────────────────────────
     azure_key        = await key_store.get("azure_openai_key")

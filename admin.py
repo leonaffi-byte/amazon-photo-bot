@@ -24,6 +24,7 @@ Invite flow (the Telegram-native "OAuth"):
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Optional
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -43,6 +44,8 @@ import settings_store
 import style as st
 
 logger = logging.getLogger(__name__)
+
+_DEPLOY_TIME = datetime.now(timezone.utc)
 
 # ── Conversation states ────────────────────────────────────────────────────────
 (
@@ -162,6 +165,12 @@ async def _panel_content() -> tuple[str, InlineKeyboardMarkup]:
     short_status = f"`{e(_cfg.SHORTENER_BASE_URL)}`" if _cfg.SHORTENER_ENABLED and _cfg.SHORTENER_BASE_URL else "_disabled_"
 
     text += f"🔗  Shortener: {short_status}\n"
+
+    _uptime = datetime.now(timezone.utc) - _DEPLOY_TIME
+    _hours, _rem = divmod(int(_uptime.total_seconds()), 3600)
+    _mins = _rem // 60
+    _deploy_str = _DEPLOY_TIME.strftime("%Y\\-%m\\-%d %H:%M UTC")
+    text += f"🚀  Deployed: `{_deploy_str}` \\(up {_hours}h{_mins:02d}m\\)\n"
 
     kb = InlineKeyboardMarkup([
         [

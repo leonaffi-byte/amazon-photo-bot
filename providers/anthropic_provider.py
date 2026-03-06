@@ -23,10 +23,9 @@ import anthropic
 
 from typing import Optional
 from providers.base import (
-    SYSTEM_PROMPT, USER_PROMPT, build_user_prompt,
-    ProviderResult, VisionProvider, parse_json_response,
-    PROVIDER_TIMEOUT_SECONDS,
-    detect_media_type, sanitize_query, _extract_features,
+    SYSTEM_PROMPT, build_user_prompt,
+    ProviderResult, VisionProvider,
+    PROVIDER_TIMEOUT_SECONDS, detect_media_type,
 )
 
 logger = logging.getLogger(__name__)
@@ -90,28 +89,4 @@ class AnthropicProvider(VisionProvider):
         input_tokens = message.usage.input_tokens
         output_tokens = message.usage.output_tokens
 
-        data = parse_json_response(raw, self.full_name)
-        products = data["products"]
-        first = products[0]
-        bbox_raw = first.get("bbox")
-        bbox = tuple(bbox_raw) if bbox_raw and len(bbox_raw) == 4 else None
-        cost = self.estimate_cost(input_tokens, output_tokens)
-
-        return ProviderResult(
-            provider_name=self.full_name,
-            model_id=self.model_id,
-            product_name=first.get("product_name", "Unknown"),
-            brand=first.get("brand"),
-            category=first.get("category", "All"),
-            key_features=_extract_features(first),
-            amazon_search_query=sanitize_query(first.get("amazon_search_query", "")),
-            alternative_query=sanitize_query(first.get("alternative_query", first.get("amazon_search_query", ""))),
-            confidence=first.get("confidence", "medium"),
-            notes=first.get("notes", ""),
-            latency_ms=latency_ms,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            cost_usd=cost,
-            bbox=bbox,
-            products_raw=products,
-        )
+        return self._build_result(raw, latency_ms, input_tokens, output_tokens)
