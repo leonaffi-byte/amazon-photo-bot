@@ -659,7 +659,7 @@ async def _test_api(group_name: str) -> tuple[bool, str]:
                     if r.status == 200:
                         data = await r.json()
                         product = (data.get("plan") or {}).get("product", "unknown")
-                        return True, f"OK — zone '{zone}' ({product}) ({elapsed:.1f}s)"
+                        return True, f"OK, zone={zone} type={product} ({elapsed:.1f}s)"
                     return False, f"HTTP {r.status}"
 
             else:
