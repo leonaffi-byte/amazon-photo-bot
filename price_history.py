@@ -243,27 +243,26 @@ async def _from_camelcamelcamel(asin: str) -> Optional[PriceHistory]:
 def _parse_ccc_html(asin: str, html: str) -> Optional[PriceHistory]:
     """
     Parse CamelCamelCamel HTML.
-    CCC shows a stats table for each seller type (Amazon / New / Used).
-    We target the Amazon section first.
+    CCC shows a stats table:
+      Price Type | Lowest Ever | Highest Ever | Current | Average
+      Amazon     | $X / -      | $Y / -       | $Z / -  | $W / -
+      3rd Party  | ...
+    We prefer the Amazon row; fall back to 3rd Party New.
     """
     try:
         soup = BeautifulSoup(html, "html.parser")
 
-        # ── Strategy 1: find the Amazon-specific stats section ─────────────
-        # CCC wraps each chart in a div/section with id containing "amazon"
-        amazon_section = (
-            soup.find(id=re.compile(r"amazon", re.I))
-            or soup.find(class_=re.compile(r"amazon", re.I))
-        )
+        # Strategy 1: Parse the stats table directly
+        prices = _extract_stats_table(soup)
 
-        prices: dict[str, float] = {}
-
-        if amazon_section:
-            prices = _extract_stats_from_section(amazon_section)
-
-        # ── Strategy 2: scan entire page for labelled price rows ───────────
+        # Strategy 2: find Amazon-specific section
         if not prices:
-            prices = _extract_stats_fullpage(soup)
+            amazon_section = (
+                soup.find(id=re.compile(r"amazon", re.I))
+                or soup.find(class_=re.compile(r"amazon", re.I))
+            )
+            if amazon_section:
+                prices = _extract_stats_from_section(amazon_section)
 
         if not prices:
             logger.info("CCC: no price data found for %s", asin)
@@ -287,10 +286,83 @@ def _parse_ccc_html(asin: str, html: str) -> Optional[PriceHistory]:
         return None
 
 
+def _extract_stats_table(soup) -> dict[str, float]:
+    """
+    Parse CCC's stats table. Format:
+      Price Type | Lowest Ever | Highest Ever | Current | Average
+      Amazon     | $X / -      | $Y / -       | $Z / -  | $W / -
+      3rd Party New | ...
+    Prefer Amazon row, fall back to 3rd Party New.
+    """
+    for table in soup.find_all("table"):
+        text = table.get_text(" ", strip=True)
+        if "Current" not in text or "Lowest" not in text:
+            continue
+
+        rows = table.find_all("tr")
+        if len(rows) < 2:
+            continue
+
+        # Parse header to find column positions
+        headers = [th.get_text(strip=True).lower() for th in rows[0].find_all(["td", "th"])]
+        if not headers:
+            continue
+
+        col_map = {}
+        for idx, h in enumerate(headers):
+            if "lowest" in h: col_map["lowest"] = idx
+            elif "highest" in h: col_map["highest"] = idx
+            elif "current" in h: col_map["current"] = idx
+            elif "average" in h: col_map["average"] = idx
+
+        if not col_map:
+            continue
+
+        # Try Amazon row first, then 3rd Party New
+        for row in rows[1:]:
+            cells = [td.get_text(strip=True) for td in row.find_all(["td", "th"])]
+            if not cells:
+                continue
+
+            row_label = cells[0].lower()
+            is_amazon = "amazon" in row_label and "3rd" not in row_label
+            is_3p_new = "3rd" in row_label and "new" in row_label
+
+            if not (is_amazon or is_3p_new):
+                continue
+
+            prices = {}
+            for label, idx in col_map.items():
+                if idx < len(cells):
+                    val = _parse_price_cell(cells[idx])
+                    if val is not None:
+                        prices[label] = val
+
+            if prices:
+                logger.info("CCC table: %s row has prices: %s",
+                           "Amazon" if is_amazon else "3rd Party", prices)
+                return prices
+
+            # If Amazon row is all dashes, continue to 3rd Party
+            if is_amazon:
+                continue
+
+    return {}
+
+
+def _parse_price_cell(text: str) -> Optional[float]:
+    """Parse a CCC table cell like '$39.99 (Feb 22, 2024)' or '-' to a float."""
+    if not text or text.strip() == "-":
+        return None
+    m = _PRICE_RE.search(text)
+    if m:
+        return float(m.group(1).replace(",", ""))
+    return None
+
+
 def _extract_stats_from_section(section) -> dict[str, float]:
     """Extract labelled price rows from a BeautifulSoup element."""
     prices: dict[str, float] = {}
-    # Each stat row usually has a label in a <th> or .name and a value with a $ sign
     rows = section.find_all(["tr", "li", "div"], recursive=True)
     for row in rows:
         text = row.get_text(" ", strip=True)
@@ -298,21 +370,6 @@ def _extract_stats_from_section(section) -> dict[str, float]:
         if label and value is not None:
             prices[label] = value
     return prices
-
-
-def _extract_stats_fullpage(soup) -> dict[str, float]:
-    """
-    Fallback: scan the full page for lines that contain a dollar amount
-    next to a recognisable label (Current, Lowest, Average…).
-    """
-    prices: dict[str, float] = {}
-    for elem in soup.find_all(string=re.compile(r"\$\d")):
-        text = elem.strip()
-        label, value = _label_and_price(text)
-        if label and value is not None:
-            prices.setdefault(label, value)   # first match wins
-    return prices
-
 
 _LABEL_RE = re.compile(
     r"(current|lowest|low|highest|high|average|avg|30[\s\-]?day|90[\s\-]?day)",

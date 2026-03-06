@@ -161,6 +161,55 @@ async def is_configured() -> bool:
     return bool(await _get_ordered_proxy_urls())
 
 
+
+async def _check_via_brightdata(asin: str) -> Optional[IsraelShippingResult]:
+    """
+    Fast Israel shipping check via BrightData Web Unlocker (~2-3s).
+    Fetches the Amazon product page with country=IL geo targeting.
+    No Playwright needed — BrightData handles anti-bot bypass.
+    """
+    import key_store
+    token = await key_store.get("brightdata_api_token")
+    if not token:
+        return None
+
+    zone = await key_store.get("brightdata_zone") or "unlocker"
+    url = f"https://www.amazon.com/dp/{asin}"
+
+    try:
+        import aiohttp
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "zone": zone,
+            "url": url,
+            "country": "il",
+            "format": "raw",
+        }
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://api.brightdata.com/request",
+                headers=headers,
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as resp:
+                if resp.status != 200:
+                    logger.info("BrightData Israel HTTP %d for %s", resp.status, asin)
+                    return None
+                html = await resp.text()
+
+        if not html or len(html) < 1000:
+            return None
+
+        return _parse_html(asin, html)
+
+    except Exception as exc:
+        logger.info("BrightData Israel check error for %s: %s", asin, exc)
+        return None
+
+
 async def check_shipping(asin: str) -> IsraelShippingResult:
     """
     Return Israel shipping info for an ASIN, using a 24-hour DB cache.
@@ -180,6 +229,23 @@ async def check_shipping(asin: str) -> IsraelShippingResult:
             return cached
     except Exception as exc:
         logger.warning("Israel cache read failed: %s", exc)
+
+    # ── Try BrightData Web Unlocker first (fast, no Playwright) ──────────────
+    try:
+        bd_result = await _check_via_brightdata(asin)
+        if bd_result and bd_result.verified:
+            logger.info("Israel check via BrightData succeeded for %s", asin)
+            try:
+                import database as _db
+                await _db.set_israel_cache(
+                    asin=asin, ships_to_israel=bd_result.ships_to_israel,
+                    is_free_shipping=bd_result.is_free_shipping, note=bd_result.note,
+                )
+            except Exception:
+                pass
+            return bd_result
+    except Exception as exc:
+        logger.info("BrightData Israel check failed for %s: %s", asin, exc)
 
     # ── Try each proxy in order (skip unhealthy proxies via circuit breaker) ──
     result = None
