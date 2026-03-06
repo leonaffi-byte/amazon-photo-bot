@@ -652,11 +652,14 @@ async def _test_api(group_name: str) -> tuple[bool, str]:
                 zone = await key_store.get("brightdata_zone") or "unlocker"
                 if not token: return False, "Token not set"
                 async with s.get(
-                    f"https://api.brightdata.com/zone/route_ips?zone={zone}",
+                    f"https://api.brightdata.com/zone?zone={zone}",
                     headers={"Authorization": f"Bearer {token}"},
                 ) as r:
                     elapsed = _time.monotonic() - start
-                    if r.status == 200: return True, f"OK \u2014 zone '{zone}' ({elapsed:.1f}s)"
+                    if r.status == 200:
+                        data = await r.json()
+                        product = (data.get("plan") or {}).get("product", "unknown")
+                        return True, f"OK — zone '{zone}' ({product}) ({elapsed:.1f}s)"
                     return False, f"HTTP {r.status}"
 
             else:
