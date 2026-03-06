@@ -145,49 +145,44 @@ async def _panel_content() -> tuple[str, InlineKeyboardMarkup]:
     all_keys  = await key_store.get_all_keys()
     keys_set  = sum(1 for v in all_keys.values() if v)
     active    = next((t for t in tags if t.is_active), None)
-    tag_line  = f"`{e(active.tag)}`" if active else "_none_ ⚠️"
+    tag_line  = f"`{e(active.tag)}`" if active else "_none ⚠️_"
 
     vision_mode = await settings_store.get("vision_mode")
     search_backend = await settings_store.get("search_backend")
-
-    text = (
-        f"⚙️ *ADMIN PANEL*\n{st.DIV}\n\n"
-        f"🏷️  Affiliate tag: {tag_line}\n"
-        f"🔑  Keys set: *{keys_set}*/{len(all_keys)}\n"
-        f"👥  Admins: *{len(admins)}*\n\n"
-        f"{st.SDIV}\n"
-        f"🤖  Vision mode: `{e(str(vision_mode))}`\n"
-        f"🛒  Search backend: `{e(str(search_backend))}`\n"
-        f"🔍  Searches: *{stats['total_searches']:,}*\n"
-        f"👤  Users: *{stats['unique_users']:,}*\n"
-    )
     import config as _cfg
-    short_status = f"`{e(_cfg.SHORTENER_BASE_URL)}`" if _cfg.SHORTENER_ENABLED and _cfg.SHORTENER_BASE_URL else "_disabled_"
-
-    text += f"🔗  Shortener: {short_status}\n"
 
     _uptime = datetime.now(timezone.utc) - _DEPLOY_TIME
     _hours, _rem = divmod(int(_uptime.total_seconds()), 3600)
     _mins = _rem // 60
-    _deploy_str = _DEPLOY_TIME.strftime("%Y\\-%m\\-%d %H:%M UTC")
-    text += f"🚀  Deployed: `{_deploy_str}` \\(up {_hours}h{_mins:02d}m\\)\n"
+    _deploy_str = _DEPLOY_TIME.strftime("%d %b %Y, %H:%M UTC")
+
+    text = (
+        f"⚙️  *ADMIN PANEL*\n"
+        f"{st.DIV}\n\n"
+
+        f"*Status*\n"
+        f"  🟢  Bot online — up *{_hours}h{_mins:02d}m*\n"
+        f"  🚀  Deployed {e(_deploy_str)}\n\n"
+
+        f"*Quick info*\n"
+        f"  🔑  {keys_set}/{len(all_keys)} API keys configured\n"
+        f"  🏷️  Tag: {tag_line}\n"
+        f"  🤖  Mode: `{e(str(vision_mode))}`  ·  Backend: `{e(str(search_backend))}`\n"
+        f"  📊  {stats['total_searches']:,} searches  ·  {stats['unique_users']:,} users\n"
+    )
 
     kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔑  API Keys",          callback_data=CB_KEYS)],
+        [InlineKeyboardButton("🤖  Vision Models",     callback_data="adm:models")],
+        [InlineKeyboardButton("⚙️  Settings",          callback_data=CB_SETTINGS)],
+        [InlineKeyboardButton("🏷️  Affiliate Tags",    callback_data=CB_TAGS)],
         [
-            InlineKeyboardButton("🏷️  Affiliate Tags", callback_data=CB_TAGS),
-            InlineKeyboardButton("🔑  API Keys",        callback_data=CB_KEYS),
+            InlineKeyboardButton("📊  Stats",           callback_data=CB_STATS),
+            InlineKeyboardButton("👥  Admins",          callback_data=CB_ADMINS),
         ],
         [
-            InlineKeyboardButton("⚙️  Settings",  callback_data=CB_SETTINGS),
-            InlineKeyboardButton("🔗  Shortener", callback_data=CB_SHORTENER),
-        ],
-        [
-            InlineKeyboardButton("🤖  Vision Models", callback_data="adm:models"),
-            InlineKeyboardButton("📊  Stats",         callback_data=CB_STATS),
-        ],
-        [
-            InlineKeyboardButton("👥  Admins",    callback_data=CB_ADMINS),
-            InlineKeyboardButton("📋  Log Group", callback_data=CB_LOGGROUP),
+            InlineKeyboardButton("🔗  Shortener",       callback_data=CB_SHORTENER),
+            InlineKeyboardButton("📋  Log Group",       callback_data=CB_LOGGROUP),
         ],
     ])
     return text, kb
@@ -413,38 +408,51 @@ def _group_status(all_keys: dict, keys: list[str]) -> str:
 
 async def _keys_content() -> tuple[str, InlineKeyboardMarkup]:
     all_keys = await key_store.get_all_keys()
-    lines = [
-        f"\U0001f511 *API KEYS*\n{st.DIV}\n",
-        f"_Keys set here override your \\.env file\\._\n",
+
+    # Categorize groups
+    _categories = [
+        ("🤖 *AI Vision*", ["openai", "anthropic", "google", "groq", "openrouter",
+                             "mistral", "sambanova", "together", "fireworks", "azure"]),
+        ("🛒 *Search*", ["dataforseo", "rapidapi", "amazon_paapi"]),
+        ("🇮🇱 *Israel / Proxy*", ["decodo", "israel_proxy", "capsolver"]),
+        ("🔧 *Other*", ["bitly", "brightdata"]),
     ]
+
+    lines = [f"🔑  *API KEYS*\n{st.DIV}\n"]
     rows = []
-    for group in _API_GROUPS:
-        gname = group["name"]
-        label = group["label"]
-        keys  = group["keys"]
-        status = _group_status(all_keys, keys)
 
-        if len(keys) == 1:
-            key_name = keys[0]
-            val = all_keys.get(key_name)
-            masked = e(key_store.mask(val))
-            lines.append(f"{status} *{e(label)}*  {masked}")
-            btn_row = [
-                InlineKeyboardButton(f"\u270f\ufe0f {label}", callback_data=f"{CB_KEY_SET}{key_name}"),
-                InlineKeyboardButton("\U0001f9ea", callback_data=f"{CB_KEY_TEST}{gname}"),
-            ]
-            if val:
-                btn_row.append(InlineKeyboardButton("\U0001f5d1", callback_data=f"{CB_KEY_DEL}{key_name}"))
-            rows.append(btn_row)
-        else:
-            set_count = sum(1 for k in keys if all_keys.get(k))
-            lines.append(f"{status} *{e(label)}*  \\({set_count}/{len(keys)} fields\\)")
-            rows.append([
-                InlineKeyboardButton(f"\u2699\ufe0f {label}", callback_data=f"{CB_KEY_GROUP}{gname}"),
-                InlineKeyboardButton("\U0001f9ea", callback_data=f"{CB_KEY_TEST}{gname}"),
-            ])
+    for cat_label, group_names in _categories:
+        cat_groups = [g for g in _API_GROUPS if g["name"] in group_names]
+        if not cat_groups:
+            continue
+        lines.append(f"\n{cat_label}")
+        for group in cat_groups:
+            gname = group["name"]
+            label = group["label"]
+            keys  = group["keys"]
+            status = _group_status(all_keys, keys)
 
-    rows.append([InlineKeyboardButton("\u25c0  Back", callback_data=CB_PANEL)])
+            if len(keys) == 1:
+                key_name = keys[0]
+                val = all_keys.get(key_name)
+                masked = e(key_store.mask(val))
+                lines.append(f"  {status}  {e(label)}  {masked}")
+                btn_row = [
+                    InlineKeyboardButton(f"✏️  {label}", callback_data=f"{CB_KEY_SET}{key_name}"),
+                    InlineKeyboardButton("🧪 Test", callback_data=f"{CB_KEY_TEST}{gname}"),
+                ]
+                if val:
+                    btn_row.append(InlineKeyboardButton("🗑 Clear", callback_data=f"{CB_KEY_DEL}{key_name}"))
+                rows.append(btn_row)
+            else:
+                set_count = sum(1 for k in keys if all_keys.get(k))
+                lines.append(f"  {status}  {e(label)}  \\({set_count}/{len(keys)} set\\)")
+                rows.append([
+                    InlineKeyboardButton(f"⚙️  {label}", callback_data=f"{CB_KEY_GROUP}{gname}"),
+                    InlineKeyboardButton("🧪 Test", callback_data=f"{CB_KEY_TEST}{gname}"),
+                ])
+
+    rows.append([InlineKeyboardButton("◀  Back", callback_data=CB_PANEL)])
     return "\n".join(lines), InlineKeyboardMarkup(rows)
 
 
@@ -801,25 +809,36 @@ async def _stats_content() -> str:
     per_tag = []
     for t in tags:
         n = stats["searches_per_tag"].get(t.tag, 0)
-        mark = "  ✅" if t.is_active else ""
-        per_tag.append(f"  ▸ `{e(t.tag)}`{mark}  — {n}")
+        mark = " ✅" if t.is_active else ""
+        per_tag.append(f"  `{e(t.tag)}`{mark}  —  {n:,}")
     no_tag = stats["searches_per_tag"].get("none", 0)
     if no_tag:
-        per_tag.append(f"  ▸ _\\(no tag\\)_ — {no_tag}")
+        per_tag.append(f"  _\\(no tag\\)_  —  {no_tag:,}")
 
     def pct(a, b):
-        return f"{a/b*100:.1f}" if b else "0"
+        return f"{a/b*100:.0f}" if b else "0"
 
     tag_block = "\n".join(per_tag) if per_tag else "  _no data_"
+
+    _uptime = datetime.now(timezone.utc) - _DEPLOY_TIME
+    _hours, _rem = divmod(int(_uptime.total_seconds()), 3600)
+    _mins = _rem // 60
+
     return (
-        f"📊 *STATS*\n{st.DIV}\n\n"
-        f"🔍  Searches: *{stats['total_searches']:,}*\n"
-        f"👤  Users: *{stats['unique_users']:,}*\n"
-        f"🇮🇱  Israel filter: *{stats['israel_filter_uses']:,}×* "
-        f"\\({e(pct(stats['israel_filter_uses'], stats['total_searches']))}%\\)\n"
-        f"🕐  Last: `{e(str(stats['last_search'])[:19])}`\n\n"
-        f"{st.SDIV}\n"
-        f"*Searches per tag:*\n{tag_block}"
+        f"📊  *STATS*\n{st.DIV}\n\n"
+
+        f"*Usage*\n"
+        f"  🔍  Searches: *{stats['total_searches']:,}*\n"
+        f"  👤  Unique users: *{stats['unique_users']:,}*\n"
+        f"  🇮🇱  Israel filter used: *{stats['israel_filter_uses']:,}*"
+        f"  \\({e(pct(stats['israel_filter_uses'], stats['total_searches']))}%\\)\n"
+        f"  🕐  Last search: `{e(str(stats['last_search'])[:19])}`\n\n"
+
+        f"*Per tag*\n{tag_block}\n\n"
+
+        f"*System*\n"
+        f"  🟢  Uptime: {_hours}h{_mins:02d}m\n"
+        f"  🚀  Deployed: {e(_DEPLOY_TIME.strftime('%d %b %Y, %H:%M UTC'))}"
     )
 
 
@@ -884,15 +903,13 @@ async def _shortener_content() -> tuple[str, InlineKeyboardMarkup]:
 async def _settings_content() -> tuple[str, InlineKeyboardMarkup]:
     all_vals = await settings_store.get_all()
     lines = [
-        f"⚙️ *BOT SETTINGS*\n{st.DIV}\n",
-        f"_Changes take effect immediately — no restart needed\\._\n",
-        f"_Overrides your \\.env file\\._\n",
-        f"{st.SDIV}\n",
+        f"⚙️  *SETTINGS*\n{st.DIV}\n",
+        f"_Changes take effect instantly\\._\n",
     ]
     rows = []
     for key, meta in settings_store.SETTINGS_META.items():
         raw = all_vals.get(key, meta["default"])
-        lines.append(f"*{e(meta['label'])}*\n  `{e(raw)}`  _{e(meta['desc'])}_\n")
+        lines.append(f"  *{e(meta['label'])}*:  `{e(raw)}`\n  _{e(meta['desc'])}_\n")
         rows.append([InlineKeyboardButton(
             f"✏️  {meta['label']}", callback_data=f"{CB_SET_EDIT}{key}"
         )])

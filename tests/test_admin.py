@@ -218,11 +218,10 @@ class TestPanelContent:
         await db.log_search(1, "Widget", "test-20", "openai/gpt-4o", 5, False)
 
         text, kb = await admin._panel_content()
-        assert "Affiliate tag" in text
-        assert "Keys set" in text
-        assert "Admins" in text
-        assert "Searches" in text
-        assert "Users" in text
+        assert "Tag:" in text
+        assert "API keys" in text
+        assert "searches" in text
+        assert "users" in text
 
     async def test_panel_content_shows_active_tag(self, monkeypatch):
         """Panel text displays the active affiliate tag."""
