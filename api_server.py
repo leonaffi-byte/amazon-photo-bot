@@ -190,6 +190,9 @@ async def get_api_key(raw_key: str = Security(_API_KEY_HEADER)) -> dict:
     cutoff = time.time() - _WINDOW
     while win and win[0] < cutoff:
         win.popleft()
+    if not win and raw_key in _windows:
+        del _windows[raw_key]  # prevent unbounded memory growth
+        win = _windows[raw_key]  # re-create via defaultdict
     if len(win) >= limit:
         oldest  = win[0]
         resets  = datetime.fromtimestamp(oldest + _WINDOW, tz=timezone.utc).isoformat()

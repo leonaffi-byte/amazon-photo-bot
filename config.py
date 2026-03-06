@@ -2,7 +2,7 @@
 Central configuration — reads from .env file.
 
 Settings priority order:
-  1. Database (set via /admin → ⚙️ Settings) — live, no restart needed
+  1. Database (set via /admin -> Settings) — live, no restart needed
   2. Environment variable / .env file         — fallback / bootstrap
 
 API keys follow the same priority via key_store.py.
@@ -14,9 +14,9 @@ import logging
 import os
 from dotenv import load_dotenv
 
-load_dotenv()
-
 logger = logging.getLogger(__name__)
+
+load_dotenv()
 
 # ── Telegram ──────────────────────────────────────────────────────────────────
 TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
@@ -40,22 +40,22 @@ ANTHROPIC_API_KEY: str | None = os.getenv("ANTHROPIC_API_KEY")
 GOOGLE_API_KEY: str | None    = os.getenv("GOOGLE_API_KEY")
 
 # Vision mode — how to use multiple providers:
-#   best      → run all providers in parallel, pick highest-quality result (default)
-#   cheapest  → always use the cheapest available provider
-#   compare   → run all providers and show a side-by-side comparison in the bot
-#   single:openai/gpt-4o  → force a specific provider
+#   best      -> run all providers in parallel, pick highest-quality result (default)
+#   cheapest  -> always use the cheapest available provider
+#   compare   -> run all providers and show a side-by-side comparison in the bot
+#   single:openai/gpt-4o  -> force a specific provider
 # NOTE: overridden at runtime by settings_store / admin panel
 VISION_MODE: str = os.getenv("VISION_MODE", "best")
 
 # ── Search backend ────────────────────────────────────────────────────────────
-# auto     → uses paapi if keys present, otherwise rapidapi
-# paapi    → Amazon PA-API 5.0 (requires Associates account + 3 qualifying sales)
-# rapidapi → RapidAPI "Real-Time Amazon Data" (easy, no sales requirement)
+# auto     -> uses paapi if keys present, otherwise rapidapi
+# paapi    -> Amazon PA-API 5.0 (requires Associates account + 3 qualifying sales)
+# rapidapi -> RapidAPI "Real-Time Amazon Data" (easy, no sales requirement)
 # NOTE: overridden at runtime by settings_store / admin panel
 SEARCH_BACKEND: str = os.getenv("SEARCH_BACKEND", "auto")
 
 # ── RapidAPI (recommended for new bots — no Amazon relationship needed) ────────
-# Sign up free at https://rapidapi.com → search "Real-Time Amazon Data"
+# Sign up free at https://rapidapi.com -> search "Real-Time Amazon Data"
 # Free tier: 100 searches/month. Paid from ~$9/month for 1,000 searches.
 RAPIDAPI_KEY: str | None = os.getenv("RAPIDAPI_KEY")
 
@@ -131,8 +131,6 @@ async def apply_db_settings() -> None:
         for key in settings_store.SETTINGS_META:
             try:
                 meta = settings_store.SETTINGS_META[key]
-                raw = await settings_store.get_raw(key)
-                # Only apply if there's a DB override (don't stomp .env unnecessarily)
                 import database as _db
                 db_raw = await _db.get_setting(key)
                 if db_raw is not None:

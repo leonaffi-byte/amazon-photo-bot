@@ -28,11 +28,11 @@ from providers.manager import (
 
 
 @pytest.fixture(autouse=True)
-def reset_providers():
+def reset_providers_fixture():
     """Each test starts with a clean provider cache."""
-    manager_mod._providers = {}
+    manager_mod.reset_providers()
     yield
-    manager_mod._providers = {}
+    manager_mod.reset_providers()
 
 
 def make_provider(name: str, model: str, cost_per_image: float = 0.001,
@@ -159,7 +159,7 @@ class TestGetProviders:
         build_mock = AsyncMock(return_value=fake_providers)
         with patch.object(manager_mod, "_build_providers", build_mock):
             await get_providers()
-            manager_mod._providers = {}   # simulate key change clearing cache
+            manager_mod.reset_providers()   # simulate key change clearing cache
             await get_providers()
 
         assert build_mock.call_count == 2

@@ -6,9 +6,9 @@ The rest of the bot imports only from here:
 
 Backend is chosen automatically based on which keys are present in .env:
 
-  SEARCH_BACKEND=rapidapi   →  RapidAPI "Real-Time Amazon Data"  (recommended for new bots)
-  SEARCH_BACKEND=paapi      →  Amazon PA-API 5.0                  (if you have Associates + sales)
-  SEARCH_BACKEND=auto       →  tries paapi first, falls back to rapidapi (default)
+  SEARCH_BACKEND=rapidapi   ->  RapidAPI "Real-Time Amazon Data"  (recommended for new bots)
+  SEARCH_BACKEND=paapi      ->  Amazon PA-API 5.0                  (if you have Associates + sales)
+  SEARCH_BACKEND=auto       ->  tries paapi first, falls back to rapidapi (default)
 
 If SEARCH_BACKEND=auto and you have both keys, PA-API is used (more accurate FBA data).
 If PA-API fails (e.g. account suspended), it auto-falls back to RapidAPI silently.
@@ -94,7 +94,7 @@ async def _get_fallback_backend(current: "SearchBackend") -> "Optional[SearchBac
 
 async def _build_backend() -> SearchBackend:
     """
-    Build the search backend using keys from key_store (DB → .env fallback).
+    Build the search backend using keys from key_store (DB -> .env fallback).
     Called automatically on first search — no restart needed after key changes.
 
     Priority order (auto mode):
@@ -121,7 +121,7 @@ async def _build_backend() -> SearchBackend:
         if not has_paapi:
             raise RuntimeError(
                 "SEARCH_BACKEND=paapi but Amazon PA-API keys are not set.\n"
-                "Add them via /admin → 🔑 API Keys."
+                "Add them via /admin -> API Keys."
             )
         return _make_paapi(amazon_access, amazon_secret, amazon_tag)
 
@@ -129,7 +129,7 @@ async def _build_backend() -> SearchBackend:
         if not has_rapidapi:
             raise RuntimeError(
                 "SEARCH_BACKEND=rapidapi but RAPIDAPI_KEY is not set.\n"
-                "Add it via /admin → 🔑 API Keys."
+                "Add it via /admin -> API Keys."
             )
         return _make_rapidapi(rapidapi_key)
 
@@ -137,13 +137,13 @@ async def _build_backend() -> SearchBackend:
         if not has_dataforseo:
             raise RuntimeError(
                 "SEARCH_BACKEND=dataforseo but DataForSEO keys are not set.\n"
-                "Add dataforseo_login + dataforseo_password via /admin → 🔑 API Keys."
+                "Add dataforseo_login + dataforseo_password via /admin -> API Keys."
             )
         backend = _make_dataforseo(dataforseo_login, dataforseo_password)
         if not await backend.is_available():
             raise RuntimeError(
                 "DataForSEO Amazon SERP endpoint is not enabled on your account.\n"
-                "Go to app.dataforseo.com → API → SERP → Amazon to activate it.\n"
+                "Go to app.dataforseo.com -> API -> SERP -> Amazon to activate it.\n"
                 "Your account has credits but lacks access to this specific endpoint."
             )
         return backend
@@ -152,7 +152,7 @@ async def _build_backend() -> SearchBackend:
         logger.info("Using Playwright / Amazon Direct Scraper backend")
         return _make_playwright()
 
-    # auto mode: PA-API → RapidAPI → DataForSEO → Playwright (free fallback)
+    # auto mode: PA-API -> RapidAPI -> DataForSEO -> Playwright (free fallback)
     # RapidAPI comes before DataForSEO: it has a free quota and is more reliable
     # for accounts that haven't enabled the DataForSEO Amazon SERP endpoint.
     if has_paapi:
@@ -178,11 +178,11 @@ async def _build_backend() -> SearchBackend:
     # Last resort: raise error (Playwright disabled)
     raise RuntimeError(
         "No search API keys found and Playwright is disabled.\n"
-        "Add at least one key via /admin → 🔑 API Keys:\n"
-        "  • RapidAPI key\n"
-        "  • DataForSEO login + password\n"
-        "  • Amazon PA-API keys\n"
-        "  • Bright Data token"
+        "Add at least one key via /admin -> API Keys:\n"
+        "  * RapidAPI key\n"
+        "  * DataForSEO login + password\n"
+        "  * Amazon PA-API keys\n"
+        "  * Bright Data token"
     )
 
 
@@ -214,6 +214,34 @@ def _make_brightdata(token: str, zone: str) -> SearchBackend:
     return BrightDataBackend(api_token=token, zone=zone)
 
 
+# ── Retry helper for transient HTTP errors ─────────────────────────────────────
+
+_RETRYABLE_STATUS = {429, 503, 504}
+_MAX_RETRIES = 2
+
+
+async def _search_with_retry(backend: SearchBackend, query: str, max_results: int, page: int = 1) -> list[AmazonItem]:
+    """Call backend.search with retry on transient errors (429/503/timeout)."""
+    last_exc: Exception | None = None
+    for attempt in range(_MAX_RETRIES + 1):
+        try:
+            return await backend.search(query, max_results, page=page)
+        except Exception as exc:
+            last_exc = exc
+            err = str(exc).lower()
+            is_retryable = (
+                any(str(s) in err for s in _RETRYABLE_STATUS)
+                or "timeout" in err
+                or "timed out" in err
+            )
+            if not is_retryable or attempt >= _MAX_RETRIES:
+                raise
+            wait = 2 ** attempt
+            logger.info("Retrying search in %ds (attempt %d): %s", wait, attempt + 1, exc)
+            await asyncio.sleep(wait)
+    raise last_exc  # should never reach here
+
+
 # ── Public search function ─────────────────────────────────────────────────────
 
 async def search_amazon(
@@ -230,7 +258,7 @@ async def search_amazon(
       2. If fewer than 3 results, retry with alternative_query.
       3. De-duplicate by ASIN.
       4. Optionally filter to Israel-free-delivery-eligible items only.
-      5. Return sorted by quality score (rating × log reviews).
+      5. Return sorted by quality score (rating x log reviews).
 
     Args:
         product:                  ProductInfo from image_analyzer / vision provider.
@@ -251,7 +279,7 @@ async def search_amazon(
     async def _search_with_fallback(query: str, max_res: int, pg: int = 1) -> list:
         nonlocal backend
         try:
-            return await backend.search(query, max_res, page=pg)
+            return await _search_with_retry(backend, query, max_res, page=pg)
         except Exception as exc:
             exc_str = str(exc).lower()
             if "429" in exc_str or "quota" in exc_str or "rate" in exc_str or "limit" in exc_str:
@@ -271,7 +299,7 @@ async def search_amazon(
             items = await _search_with_fallback(primary_query, max_results, pg=page)
             for item in items:
                 seen[item.asin] = item
-            logger.info("[%s] Page %d '%s' → %d items", backend.name, page, primary_query, len(seen))
+            logger.info("[%s] Page %d '%s' -> %d items", backend.name, page, primary_query, len(seen))
         except Exception as exc:
             logger.warning("Page %d search failed: %s", page, exc)
     else:
@@ -280,18 +308,19 @@ async def search_amazon(
             items = await _search_with_fallback(primary_query, max_results)
             for item in items:
                 seen[item.asin] = item
-            logger.info("[%s] Primary '%s' → %d results", backend.name, primary_query, len(seen))
+            logger.info("[%s] Primary '%s' -> %d results", backend.name, primary_query, len(seen))
         except Exception as exc:
             logger.warning("Primary search failed: %s", exc)
 
         # Fallback if too few results — small delay to avoid burst rate-limiting
         if len(seen) < 3 and alt_query != primary_query:
+            await asyncio.sleep(1.0)
             try:
                 items = await _search_with_fallback(alt_query, max_results)
                 for item in items:
                     if item.asin not in seen:
                         seen[item.asin] = item
-                logger.info("[%s] Fallback '%s' → %d total", backend.name, alt_query, len(seen))
+                logger.info("[%s] Fallback '%s' -> %d total", backend.name, alt_query, len(seen))
             except Exception as exc:
                 logger.warning("Fallback search failed: %s", exc)
 

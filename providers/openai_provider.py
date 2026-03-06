@@ -3,8 +3,8 @@ OpenAI vision provider — supports gpt-4o and gpt-4o-mini.
 
 Pricing (as of early 2025):
   gpt-4o:       $5.00 / 1M input tokens,  $15.00 / 1M output tokens
-                + image tiles: each 512×512 tile = 170 tokens (~$0.00085/tile)
-                A typical 1024×1024 product photo ≈ 765 input tokens for vision
+                + image tiles: each 512x512 tile = 170 tokens (~$0.00085/tile)
+                A typical 1024x1024 product photo ~ 765 input tokens for vision
   gpt-4o-mini:  $0.15 / 1M input tokens,  $0.60 / 1M output tokens
                 Image tiles same count but much cheaper per token
 """
@@ -15,12 +15,14 @@ import base64
 import time
 import logging
 
+import httpx
 from openai import AsyncOpenAI
 
 from typing import Optional
 from providers.base import (
     SYSTEM_PROMPT, USER_PROMPT, build_user_prompt,
     ProviderResult, VisionProvider, parse_json_response,
+    PROVIDER_TIMEOUT_SECONDS,
     detect_media_type, sanitize_query, _extract_features,
 )
 
@@ -32,7 +34,10 @@ class OpenAIProvider(VisionProvider):
     def __init__(self, api_key: str, model: str = "gpt-4o"):
         self.name = "openai"
         self.model_id = model
-        self._client = AsyncOpenAI(api_key=api_key)
+        self._client = AsyncOpenAI(
+            api_key=api_key,
+            timeout=httpx.Timeout(PROVIDER_TIMEOUT_SECONDS),
+        )
 
         # Pricing per 1k tokens
         _pricing = {

@@ -5,7 +5,7 @@ Pricing (as of early 2025):
   gemini-1.5-pro:        $3.50 / 1M input,  $10.50 / 1M output
                           Images: $0.001315 per image
   gemini-1.5-flash:      $0.075 / 1M input,  $0.30  / 1M output
-                          Images: $0.00002 per image  ← extremely cheap
+                          Images: $0.00002 per image  <- extremely cheap
   gemini-2.0-flash:      $0.10  / 1M input,  $0.40  / 1M output
                           Images: $0.00004 per image
   gemini-2.0-flash-lite: $0.075 / 1M input,  $0.30  / 1M output
@@ -24,6 +24,7 @@ from typing import Optional
 from providers.base import (
     SYSTEM_PROMPT, USER_PROMPT, build_user_prompt,
     ProviderResult, VisionProvider, parse_json_response,
+    PROVIDER_TIMEOUT_SECONDS,
     detect_media_type, sanitize_query, _extract_features,
 )
 
@@ -51,7 +52,10 @@ class GeminiProvider(VisionProvider):
         self.name     = "google"
         self.model_id = model
         # Force v1 (stable) API — v1beta doesn't expose gemini-1.5-* by bare name
-        self._client  = genai.Client(api_key=api_key, http_options={"api_version": "v1"})
+        self._client  = genai.Client(
+            api_key=api_key,
+            http_options={"api_version": "v1", "timeout": PROVIDER_TIMEOUT_SECONDS * 1000},
+        )
 
         rates = _PRICING.get(model, _PRICING["gemini-2.0-flash"])
         self.cost_per_1k_input_tokens  = rates[0]

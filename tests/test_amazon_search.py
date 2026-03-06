@@ -21,11 +21,11 @@ from search_backends.base import AmazonItem
 
 
 @pytest.fixture(autouse=True)
-def reset_backend():
+def reset_backend_fixture():
     """Each test gets a fresh backend."""
-    amazon_search._backend = None
+    amazon_search.reset_backend()
     yield
-    amazon_search._backend = None
+    amazon_search.reset_backend()
 
 
 def make_product(**kwargs) -> ProductInfo:
@@ -132,7 +132,7 @@ class TestSearchAmazon:
         backend.name = "MockBackend"
         call_count = [0]
 
-        async def fake_search(query, max_results):
+        async def fake_search(query, max_results, page=1):
             call_count[0] += 1
             if call_count[0] == 1:
                 return primary_results or []
@@ -173,7 +173,7 @@ class TestSearchAmazon:
         primary = [make_item(f"B{i:010d}") for i in range(2)]
         call_count = [0]
 
-        async def fake_search(query, max_results):
+        async def fake_search(query, max_results, page=1):
             call_count[0] += 1
             return primary
 

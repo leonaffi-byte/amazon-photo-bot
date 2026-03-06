@@ -19,13 +19,15 @@ import base64
 import time
 import logging
 
+import httpx
 import openai
 
 from typing import Optional
 from providers.base import (
     SYSTEM_PROMPT, USER_PROMPT, build_user_prompt,
     ProviderResult, VisionProvider, parse_json_response,
-    sanitize_query, _extract_features,
+    PROVIDER_TIMEOUT_SECONDS,
+    detect_media_type, sanitize_query, _extract_features,
 )
 
 logger = logging.getLogger(__name__)
@@ -53,6 +55,7 @@ class GroqProvider(VisionProvider):
         self._client  = openai.AsyncOpenAI(
             api_key=api_key,
             base_url=_GROQ_BASE_URL,
+            timeout=httpx.Timeout(PROVIDER_TIMEOUT_SECONDS),
         )
         rates = _PRICING.get(model, (0.00011, 0.00034, 0.00006))
         self.cost_per_1k_input_tokens  = rates[0]
@@ -72,11 +75,7 @@ class GroqProvider(VisionProvider):
     ) -> ProviderResult:
         b64 = base64.b64encode(image_bytes).decode()
 
-        media_type = "image/jpeg"
-        if image_bytes[:8] == b"\x89PNG\r\n\x1a\n":
-            media_type = "image/png"
-        elif image_bytes[:4] == b"RIFF":
-            media_type = "image/webp"
+        media_type = detect_media_type(image_bytes)
 
         t0 = time.monotonic()
 

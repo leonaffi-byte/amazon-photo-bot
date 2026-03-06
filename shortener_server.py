@@ -5,9 +5,9 @@ Runs as an aiohttp web server in the same asyncio event loop as the Telegram bot
 Handles redirect requests and logs every click to SQLite for analytics.
 
 Endpoints:
-  GET /{code}        → 302 redirect to the long URL (logs click)
-  GET /health        → plain-text health check (for uptime monitors / nginx)
-  GET /stats/{code}  → JSON click stats for a code (admin use)
+  GET /{code}        -> 302 redirect to the long URL (logs click)
+  GET /health        -> plain-text health check (for uptime monitors / nginx)
+  GET /stats/{code}  -> JSON click stats for a code (admin use)
 
 Setup:
   1. Set SHORTENER_BASE_URL=https://yourdomain.com in .env
@@ -137,7 +137,7 @@ async def start_shortener() -> web.AppRunner:
     site = web.TCPSite(runner, "0.0.0.0", config.SHORTENER_PORT)
     await site.start()
     logger.info(
-        "🔗 URL shortener listening on port %d  (base: %s)",
+        "URL shortener listening on port %d  (base: %s)",
         config.SHORTENER_PORT,
         config.SHORTENER_BASE_URL or "not configured",
     )

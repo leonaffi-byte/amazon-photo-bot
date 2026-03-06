@@ -199,12 +199,12 @@ def _apply_to_config(key: str, raw: str, typ: str) -> None:
     if key in ("search_backend", "amazon_marketplace"):
         try:
             import amazon_search
-            amazon_search._backend = None
+            amazon_search.reset_backend()
         except Exception:
             pass
     if key == "vision_mode":
         try:
             import providers.manager as pm
-            pm._providers = {}
+            pm.reset_providers()
         except Exception:
             pass

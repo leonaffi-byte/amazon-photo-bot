@@ -7,8 +7,8 @@ access to models from OpenAI, Anthropic, Google, Meta, Mistral, and many others.
 Setup:
   1. Sign up at https://openrouter.ai
   2. Create an API key
-  3. Set openrouter_api_key via /admin → 🔑 API Keys
-  4. Go to /admin → 🤖 Vision Models → Discover OpenRouter to pick models
+  3. Set openrouter_api_key via /admin -> API Keys
+  4. Go to /admin -> Vision Models -> Discover OpenRouter to pick models
 
 OpenRouter model IDs look like: "openai/gpt-4o", "anthropic/claude-3-haiku",
 "google/gemini-pro-vision", "meta-llama/llama-3.2-90b-vision-instruct", etc.
@@ -16,9 +16,9 @@ OpenRouter model IDs look like: "openai/gpt-4o", "anthropic/claude-3-haiku",
 Cross-provider note:
   OpenRouter often charges a small markup (~0-20%) over the direct provider.
   But it's useful for:
-    • Models you can't access directly (e.g. some Anthropic tiers)
-    • Testing many models with one API key
-    • Unified billing
+    * Models you can't access directly (e.g. some Anthropic tiers)
+    * Testing many models with one API key
+    * Unified billing
 """
 from __future__ import annotations
 
@@ -28,11 +28,13 @@ import logging
 import time
 from typing import Optional
 
+import httpx
 import openai
 
 from providers.base import (
     SYSTEM_PROMPT, build_user_prompt,
     ProviderResult, VisionProvider, parse_json_response,
+    PROVIDER_TIMEOUT_SECONDS,
     detect_media_type, sanitize_query, _extract_features,
 )
 
@@ -57,12 +59,13 @@ class OpenRouterProvider(VisionProvider):
         self.model_id = model
 
         # Clean display name: strip the provider prefix for readability
-        # "openai/gpt-4o" → "or/gpt-4o",  "anthropic/claude-3-haiku" → "or/claude-3-haiku"
+        # "openai/gpt-4o" -> "or/gpt-4o",  "anthropic/claude-3-haiku" -> "or/claude-3-haiku"
         self._display_name = display_name or model.split("/")[-1]
 
         self._client = openai.AsyncOpenAI(
             api_key=api_key,
             base_url=_OR_BASE_URL,
+            timeout=httpx.Timeout(PROVIDER_TIMEOUT_SECONDS),
             default_headers={
                 "HTTP-Referer": "https://amazon-photo-bot",
                 "X-Title":      "Amazon Photo Bot",

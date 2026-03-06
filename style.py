@@ -157,14 +157,17 @@ def text_search_ready(
     return "\n".join(lines)
 
 
-def loading_search(product_name: str, filter_label: str) -> str:
-    return (
+def loading_search(product_name: str, filter_label: str, extra_line: str = "") -> str:
+    lines = (
         f"🛒 *Searching Amazon*\n"
         f"{SDIV}\n"
         f"🏷️ _{esc(product_name)}_\n"
-        f"🔎 {esc(filter_label)}\n\n"
-        f"⠙ Fetching results…"
+        f"🔎 {esc(filter_label)}"
     )
+    if extra_line:
+        lines += f"\n{extra_line}"
+    lines += f"\n\n⠙ Fetching results…"
+    return lines
 
 
 # ══════════════════════════════════════════════════════════════════════════════

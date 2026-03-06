@@ -6,27 +6,27 @@ through an Israeli residential proxy, so Amazon sees a genuine Israeli browser
 and returns accurate Israel-specific delivery information.
 
 Proxy priority (auto-selected, no code changes needed when switching)
-──────────────────────────────────────────────────────────────────────
+----------------------------------------------------------------------
 1. Decodo residential proxy  (decodo_user + decodo_password in /admin)
-     → Rotating Israeli residential IPs (Partner/HOT/Cellcom)
-     → Best reliability: Amazon never sees the same IP twice
-     → ~$3.50/GB  ·  register at decodo.com
-     → Proxy URL built automatically:
+     -> Rotating Israeli residential IPs (Partner/HOT/Cellcom)
+     -> Best reliability: Amazon never sees the same IP twice
+     -> ~$3.50/GB  *  register at decodo.com
+     -> Proxy URL built automatically:
         http://user-USER-country-il:PASS@gate.decodo.com:7000
 
 2. WireGuard / custom proxy  (israel_proxy_url in /admin)
-     → Your own Israeli exit node — single static IP
-     → Free but may eventually get flagged at high volume
-     → Format: socks5://HOST:PORT  or  http://HOST:PORT
-     → One-liner setup:  docker run -d -p 1080:1080 serjs/go-socks5-proxy
+     -> Your own Israeli exit node — single static IP
+     -> Free but may eventually get flagged at high volume
+     -> Format: socks5://HOST:PORT  or  http://HOST:PORT
+     -> One-liner setup:  docker run -d -p 1080:1080 serjs/go-socks5-proxy
 
 Flow (per ASIN, result cached 24 h in DB)
-──────────────────────────────────────────
+------------------------------------------
 1. Launch Chromium with auto-selected proxy
 2. GET amazon.com — get session cookies, extract anti-CSRF token via JS
 3. POST /gp/delivery-options/ajax/change-address  (countryCode=IL)  in-page
 4. GET /dp/{ASIN} — Amazon now shows Israel-specific delivery info
-5. Parse HTML → ships_to_israel / is_free_shipping / note
+5. Parse HTML -> ships_to_israel / is_free_shipping / note
 """
 from __future__ import annotations
 
@@ -38,6 +38,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from circuit_breaker import registry as cb_registry
+import config
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,7 @@ logger = logging.getLogger(__name__)
 CACHE_TTL = 86_400      # 24 hours
 
 # ── Circuit breaker for proxy health ──────────────────────────────────────────
-_proxy_failures: dict[str, float] = {}   # proxy_url → monotonic timestamp of last failure
+_proxy_failures: dict[str, float] = {}   # proxy_url -> monotonic timestamp of last failure
 _CIRCUIT_BREAKER_COOLDOWN = 300          # 5 minutes
 
 
@@ -77,7 +78,7 @@ def _build_proxy_cfg(proxy_url: str) -> dict:
     """Convert a proxy URL to Playwright's proxy config dict.
 
     Playwright needs username/password split out from the server URL.
-    e.g. http://USER:PASS@host:port → server=http://host:port, username=USER, password=PASS
+    e.g. http://USER:PASS@host:port -> server=http://host:port, username=USER, password=PASS
 
     Handles common formats:
       socks5://user:pass@host:port
@@ -102,7 +103,7 @@ def _build_proxy_cfg(proxy_url: str) -> dict:
 @dataclass
 class IsraelShippingResult:
     asin:             str
-    verified:         bool            # False = check failed (proxy err, CAPTCHA …)
+    verified:         bool            # False = check failed (proxy err, CAPTCHA ...)
     ships_to_israel:  Optional[bool]  # None when not verified
     is_free_shipping: Optional[bool]  # None when not verified
     note:             str             # display note for product card
@@ -556,7 +557,7 @@ def _parse_html(asin: str, html: str) -> IsraelShippingResult:
                 verified         = True,
                 ships_to_israel  = False,
                 is_free_shipping = False,
-                note             = "❌ Verified: does not ship to 🇮🇱 Israel",
+                note             = "Does not ship to Israel",
             )
 
     # ── Free shipping ──────────────────────────────────────────────────────────
@@ -573,7 +574,7 @@ def _parse_html(asin: str, html: str) -> IsraelShippingResult:
             verified         = True,
             ships_to_israel  = True,
             is_free_shipping = True,
-            note             = "✅ Verified: ships free to 🇮🇱 Israel (cart ≥ $49)",
+            note             = f"Verified: ships free to Israel (cart >= ${int(config.FREE_DELIVERY_THRESHOLD)})",
         )
 
     if has_free:
@@ -582,7 +583,7 @@ def _parse_html(asin: str, html: str) -> IsraelShippingResult:
             verified         = True,
             ships_to_israel  = True,
             is_free_shipping = True,
-            note             = "✅ Verified: FBA — likely ships free to 🇮🇱 Israel",
+            note             = "Verified: FBA — likely ships free to Israel",
         )
 
     # ── Ships but free status unknown ──────────────────────────────────────────
@@ -591,7 +592,7 @@ def _parse_html(asin: str, html: str) -> IsraelShippingResult:
         verified         = True,
         ships_to_israel  = True,
         is_free_shipping = False,
-        note             = "🟡 Verified: ships to 🇮🇱 Israel (shipping cost may apply)",
+        note             = "Verified: ships to Israel (shipping cost may apply)",
     )
 
 

@@ -81,9 +81,6 @@ CB_ADM_DELOK  = f"{P}adm_delok:"  # + user_id
 
 # Stats / misc
 CB_STATS      = f"{P}stats"
-CB_TAG_NONEFR = f"{P}tag_none"
-CB_BACK_PANEL = f"{P}panel"
-
 # Shortener
 CB_SHORTENER     = f"{P}shortener"
 CB_LOGGROUP      = f"{P}loggroup"
@@ -750,13 +747,13 @@ def _reload_backends(changed_key: str) -> None:
     Called after any API key is changed in the admin panel.
     """
     import amazon_search
-    amazon_search._backend = None   # force re-init with new key
+    amazon_search.reset_backend()
 
     if changed_key in ("openai_api_key", "anthropic_api_key", "google_api_key",
                        "groq_api_key", "openrouter_api_key",
                        "azure_openai_key", "azure_openai_endpoint", "azure_openai_deployment"):
         import providers.manager as pm
-        pm._providers = {}          # force re-init of vision providers
+        pm.reset_providers()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -962,11 +959,13 @@ async def received_setting_value(update: Update, context: ContextTypes.DEFAULT_T
     raw = update.message.text.strip()
 
     # Validate
+    typ = meta.get("type", "str")
     try:
-        settings_store._cast(raw, meta.get("type", "str"))
-    except (ValueError, TypeError) as exc:
+        settings_store._cast(raw, typ)
+    except (ValueError, TypeError):
+        hint = {"int": "a whole number", "float": "a number", "bool": "true or false"}.get(typ, "text")
         await update.message.reply_text(
-            f"⚠️ Invalid value: {e(str(exc))}\n\nTry again or /cancel\\.",
+            f"⚠️ Invalid value — expected {e(hint)}\\.\n\nTry again or /cancel\\.",
             parse_mode="MarkdownV2",
         )
         return ST_SETTING_VALUE

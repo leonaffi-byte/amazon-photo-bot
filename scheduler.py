@@ -3,21 +3,21 @@ scheduler.py — Scheduled reports and database backups sent to all admin users.
 
 Schedule (all in REPORT_TIMEZONE, default Asia/Jerusalem):
   Every day at REPORT_HOUR (default 08:00):
-    → Daily report: last 24 hours
+    -> Daily report: last 24 hours
   Every Sunday at REPORT_HOUR:
-    → Also weekly report: last 7 days
+    -> Also weekly report: last 7 days
   Every 1st of month at REPORT_HOUR:
-    → Also monthly report: last 30 days
+    -> Also monthly report: last 30 days
   Every day at BACKUP_HOUR (default 03:00):
-    → Database backup + cleanup of old backups
+    -> Database backup + cleanup of old backups
 
 Reports include:
-  • Unique users
-  • Photo analyses + text searches
-  • Amazon link clicks
-  • API costs (per provider breakdown)
-  • Model health summary
-  • Note about Amazon Associates earnings (manual check needed)
+  * Unique users
+  * Photo analyses + text searches
+  * Amazon link clicks
+  * API costs (per provider breakdown)
+  * Model health summary
+  * Note about Amazon Associates earnings (manual check needed)
 """
 from __future__ import annotations
 
@@ -48,36 +48,36 @@ def _format_report(stats: dict, period_label: str, since: datetime) -> str:
     now_str   = esc(_now_local().strftime("%a %d %b %Y %H:%M"))
 
     lines = [
-        f"📊 *{esc(period_label)} REPORT*",
+        f"*{esc(period_label)} REPORT*",
         f"{DIV}",
-        f"🕐 {since_str} → {now_str}",
+        f"{since_str} -> {now_str}",
         "",
-        f"👥 Unique users:    *{stats['unique_users']}*",
-        f"📸 Photo analyses:  *{stats['photo_searches']}*",
-        f"🔍 Text searches:   *{stats['text_searches']}*",
-        f"🔗 Link clicks:     *{stats['link_clicks']}*",
-        f"📨 Total searches:  *{stats['total_searches']}*",
+        f"Unique users:    *{stats['unique_users']}*",
+        f"Photo analyses:  *{stats['photo_searches']}*",
+        f"Text searches:   *{stats['text_searches']}*",
+        f"Link clicks:     *{stats['link_clicks']}*",
+        f"Total searches:  *{stats['total_searches']}*",
     ]
 
     if stats["total_cost_usd"] > 0:
         total_cost_str = esc(f"${stats['total_cost_usd']:.4f}")
         lines += [
             "",
-            f"💸 Total API cost: *{total_cost_str}*",
+            f"Total API cost: *{total_cost_str}*",
         ]
         if stats["cost_by_provider"]:
-            lines.append("🤖 By model:")
+            lines.append("By model:")
             for provider, cost, calls in stats["cost_by_provider"]:
                 short = esc(provider.split("/")[-1][:25])
                 c     = esc(f"${cost:.4f}")
                 lines.append(f"  `{short}` — {c} \\({calls} calls\\)")
     else:
         lines.append("")
-        lines.append("💸 API costs: none tracked yet")
+        lines.append("API costs: none tracked yet")
 
     lines += [
         "",
-        "🛒 *Amazon purchases:*",
+        "*Amazon purchases:*",
         "_Not available via API\\._",
         "_Check manually: associates\\.amazon\\.com_",
     ]
@@ -141,7 +141,7 @@ async def _scheduler_loop() -> None:
     last_fired_date: str = ""
     last_backup_date: str = ""
 
-    logger.info("📅 Scheduler started (reports at %02d:00, backups at %02d:00 %s)",
+    logger.info("Scheduler started (reports at %02d:00, backups at %02d:00 %s)",
                 config.REPORT_HOUR, config.BACKUP_HOUR, config.REPORT_TIMEZONE)
 
     while True:
@@ -167,7 +167,7 @@ async def _scheduler_loop() -> None:
             if now.hour == config.REPORT_HOUR and now.minute <= 2:
                 if today != last_fired_date:
                     last_fired_date = today
-                    logger.info("⏰ Firing scheduled reports for %s", today)
+                    logger.info("Firing scheduled reports for %s", today)
 
                     await _send_report("DAILY", 24)
 
@@ -183,14 +183,14 @@ async def _scheduler_loop() -> None:
                     and now.minute <= 2
                     and today != last_backup_date):
                 last_backup_date = today
-                logger.info("💾 Running scheduled database backup")
+                logger.info("Running scheduled database backup")
                 await _run_backup()
 
         except Exception as exc:
             logger.error("Scheduler loop error: %s", exc)
 
 
-def start(loop: asyncio.AbstractEventLoop | None = None) -> asyncio.Task:
+def start() -> asyncio.Task:
     """Start the scheduler as a background asyncio Task."""
     global _stop_event
     _stop_event = asyncio.Event()

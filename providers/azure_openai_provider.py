@@ -2,9 +2,9 @@
 Azure OpenAI vision provider — GPT-4o via Microsoft Azure.
 
 Use this instead of (or alongside) the direct OpenAI provider when:
-  • You have Azure credits or an enterprise Azure agreement
-  • You need data residency (Azure processes data in your selected region)
-  • Your organisation requires Azure-based AI services for compliance
+  * You have Azure credits or an enterprise Azure agreement
+  * You need data residency (Azure processes data in your selected region)
+  * Your organisation requires Azure-based AI services for compliance
 
 The model quality is identical to direct OpenAI — it runs the same GPT-4o
 weights, just deployed on Azure's infrastructure.
@@ -12,16 +12,16 @@ weights, just deployed on Azure's infrastructure.
 Setup in Azure Portal:
   1. Create an "Azure OpenAI" resource at portal.azure.com
        (search "Azure OpenAI" in the marketplace)
-  2. Open the resource → "Go to Azure OpenAI Studio"
-  3. Deployments → + New deployment → pick "gpt-4o" or "gpt-4o-mini"
+  2. Open the resource -> "Go to Azure OpenAI Studio"
+  3. Deployments -> + New deployment -> pick "gpt-4o" or "gpt-4o-mini"
        Give your deployment any name, e.g. "gpt-4o-prod"
-  4. Back in the resource → Keys and Endpoint:
+  4. Back in the resource -> Keys and Endpoint:
        Copy KEY 1  (32-char hex string)
        Copy Endpoint  (https://YOUR-NAME.openai.azure.com/)
-  5. In the bot: /admin → 🔑 API Keys → set:
-       azure_openai_key        ← KEY 1 value
-       azure_openai_endpoint   ← https://YOUR-NAME.openai.azure.com/
-       azure_openai_deployment ← gpt-4o-prod  (the name you chose in step 3)
+  5. In the bot: /admin -> API Keys -> set:
+       azure_openai_key        <- KEY 1 value
+       azure_openai_endpoint   <- https://YOUR-NAME.openai.azure.com/
+       azure_openai_deployment <- gpt-4o-prod  (the name you chose in step 3)
 
 Pricing: same per-token rate as direct OpenAI, billed to your Azure subscription.
   gpt-4o:      $5.00 / 1M input tokens + $15.00 / 1M output tokens
@@ -35,11 +35,13 @@ import logging
 import time
 from typing import Optional
 
+import httpx
 import openai
 
 from providers.base import (
     SYSTEM_PROMPT, build_user_prompt,
     ProviderResult, VisionProvider, parse_json_response,
+    PROVIDER_TIMEOUT_SECONDS,
     detect_media_type, sanitize_query, _extract_features,
 )
 
@@ -72,6 +74,7 @@ class AzureOpenAIProvider(VisionProvider):
             api_key=api_key,
             azure_endpoint=endpoint.rstrip("/"),
             api_version=api_version,
+            timeout=httpx.Timeout(PROVIDER_TIMEOUT_SECONDS),
         )
 
         # Cost depends on the underlying model — infer from deployment name

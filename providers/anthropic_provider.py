@@ -8,7 +8,7 @@ Pricing (as of early 2025):
                                Images: ~1600 tokens per standard image
 
 Why Claude is a useful second opinion:
-  - Different training data → catches items GPT-4o misses
+  - Different training data -> catches items GPT-4o misses
   - Excellent at reading fine print, small text, and nutritional labels
   - Sometimes more verbose on features (good for obscure items)
 """
@@ -25,6 +25,7 @@ from typing import Optional
 from providers.base import (
     SYSTEM_PROMPT, USER_PROMPT, build_user_prompt,
     ProviderResult, VisionProvider, parse_json_response,
+    PROVIDER_TIMEOUT_SECONDS,
     detect_media_type, sanitize_query, _extract_features,
 )
 
@@ -38,7 +39,10 @@ class AnthropicProvider(VisionProvider):
     def __init__(self, api_key: str, model: str = "claude-3-5-sonnet-20241022"):
         self.name = "anthropic"
         self.model_id = model
-        self._client = anthropic.AsyncAnthropic(api_key=api_key)
+        self._client = anthropic.AsyncAnthropic(
+            api_key=api_key,
+            timeout=PROVIDER_TIMEOUT_SECONDS,
+        )
 
         _pricing = {
             "claude-3-5-sonnet-20241022": (0.003,  0.015),

@@ -67,7 +67,7 @@ async def _set_or_enabled(models: list[dict]) -> None:
     await db.set_setting("openrouter_enabled_models", json.dumps(models), admin_id=0)
     # Force provider rebuild on next request
     from providers import manager as pm
-    pm._providers = {}
+    pm.reset_providers()
 
 
 # ── Main models panel ─────────────────────────────────────────────────────────
@@ -328,7 +328,7 @@ async def handle_models_callback(update: Update, context: ContextTypes.DEFAULT_T
         pname = m.get("provider_name", "")
         await db.re_enable_model(pname)
         from providers import manager as pm
-        pm._providers = {}
+        pm.reset_providers()
         await query.answer(f"Re-enabled: {pname.split('/')[-1]}", show_alert=False)
         text, kb = await health_content()
         await query.edit_message_text(text, parse_mode="MarkdownV2", reply_markup=kb)

@@ -265,6 +265,9 @@ async def _is_rate_limited(user_id: int) -> tuple[bool, int, int]:
     if len(bucket) >= max_req:
         return True, max_req, window
     bucket.append(now)
+    # Clean up empty buckets to prevent unbounded memory growth
+    if not bucket and user_id in _rate_buckets:
+        del _rate_buckets[user_id]
     return False, max_req, window
 
 
@@ -573,10 +576,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if data.startswith(CB_USE_RESULT):
         try:
             idx = int(data[len(CB_USE_RESULT):])
-            chosen = session.all_provider_results[idx]
         except (ValueError, IndexError):
             await query.answer("Session expired — please send a new photo.", show_alert=True)
             return
+        chosen = session.all_provider_results[idx]
         session.chosen_result       = chosen
         session.chosen_provider_idx = idx
         session.product_info        = chosen.to_product_info()
@@ -680,12 +683,17 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         session.chosen_result       = session.all_provider_results[next_idx]
         session.product_info        = session.chosen_result.to_product_info()
 
+        provider_name = session.chosen_result.provider_name
+        new_query = session.product_info.amazon_search_query
+        logger.info("Try differently: switched to %s → '%s'", provider_name, new_query)
+
         # Show loading in caption while keeping the carousel
         try:
             await query.edit_message_caption(
                 caption=style.loading_search(
                     session.product_info.product_name,
-                    "free delivery to 🇮🇱 Israel" if session.israel_only else "all items"
+                    "free delivery to 🇮🇱 Israel" if session.israel_only else "all items",
+                    extra_line=f"🔄 Using {style.esc(provider_name)}: _{style.esc(new_query)}_",
                 ),
                 parse_mode="MarkdownV2",
             )

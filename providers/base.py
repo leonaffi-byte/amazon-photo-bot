@@ -16,6 +16,10 @@ logger = logging.getLogger(__name__)
 
 # ── Shared utilities ──────────────────────────────────────────────────────────
 
+# Timeout for all provider API calls (seconds)
+PROVIDER_TIMEOUT_SECONDS = 60
+
+
 def detect_media_type(image_bytes: bytes) -> str:
     """Detect image MIME type from magic bytes."""
     if image_bytes[:8] == b"\x89PNG\r\n\x1a\n":

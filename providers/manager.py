@@ -43,6 +43,12 @@ _providers: dict[str, VisionProvider] = {}
 _providers_lock = asyncio.Lock()
 
 
+def reset_providers() -> None:
+    """Clear cached providers so they re-initialise on next use."""
+    global _providers
+    _providers = {}
+
+
 def _model_enabled(env_key: str, default: bool = True) -> bool:
     """
     Check whether a specific model is enabled via an environment variable.
@@ -276,11 +282,11 @@ async def _build_providers() -> dict[str, VisionProvider]:
 
     # Filter out any auto-disabled models
     if disabled:
-        before = len(providers)
+        all_keys = set(providers)
         providers = {k: v for k, v in providers.items() if k not in disabled}
-        skipped = before - len(providers)
-        if skipped:
-            logger.info("Skipped %d auto-disabled model(s): %s", skipped, disabled & set(providers))
+        skipped_names = disabled & all_keys
+        if skipped_names:
+            logger.info("Skipped %d auto-disabled model(s): %s", len(skipped_names), skipped_names)
 
     if not providers:
         raise RuntimeError(
