@@ -439,6 +439,7 @@ class TestHandlePhoto:
         with patch("bot._is_rate_limited", new=AsyncMock(return_value=(False, 5, 60))), \
              patch("bot.get_providers", new=AsyncMock(return_value=fake_providers)), \
              patch("bot.analyse_image", new=AsyncMock(return_value=(winner, all_results))), \
+             patch("bot._compress_image", side_effect=lambda x: x), \
              patch("style.loading_vision", return_value="Loading..."), \
              patch("style.identification_card", return_value="ID card"), \
              patch.object(config, "VISION_MODE", "best"):
@@ -469,6 +470,7 @@ class TestHandlePhoto:
         with patch("bot._is_rate_limited", new=AsyncMock(return_value=(False, 5, 60))), \
              patch("bot.get_providers", new=AsyncMock(return_value=fake_providers)), \
              patch("bot.analyse_image", mock_analyse), \
+             patch("bot._compress_image", side_effect=lambda x: x), \
              patch("style.loading_vision", return_value="Loading..."), \
              patch("style.identification_card", return_value="ID card"), \
              patch.object(config, "VISION_MODE", "best"):
@@ -489,6 +491,7 @@ class TestHandlePhoto:
         with patch("bot._is_rate_limited", new=AsyncMock(return_value=(False, 5, 60))), \
              patch("bot.get_providers", new=AsyncMock(return_value=fake_providers)), \
              patch("bot.analyse_image", new=AsyncMock(side_effect=Exception("API down"))), \
+             patch("bot._compress_image", side_effect=lambda x: x), \
              patch("style.loading_vision", return_value="Loading..."), \
              patch("style.error_analysis_failed", return_value="Analysis failed"):
             await handle_photo(update, ctx)
@@ -514,6 +517,7 @@ class TestHandlePhoto:
         with patch("bot._is_rate_limited", new=AsyncMock(return_value=(False, 5, 60))), \
              patch("bot.get_providers", new=AsyncMock(return_value=fake_providers)), \
              patch("bot.analyse_image", new=AsyncMock(return_value=(result1, all_results))), \
+             patch("bot._compress_image", side_effect=lambda x: x), \
              patch("style.loading_vision", return_value="Loading..."), \
              patch("style.compare_card", return_value="Compare view"), \
              patch.object(config, "VISION_MODE", "compare"), \

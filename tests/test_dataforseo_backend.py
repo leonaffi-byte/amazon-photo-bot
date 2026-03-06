@@ -128,10 +128,10 @@ class TestIsraelDetection:
         assert item.is_amazon_fulfilled is True
         assert item.qualifies_for_israel_free_delivery is True
 
-    def test_third_party_free_delivery_included_in_filter(self, backend):
-        # "FREE delivery" without "shipped by Amazon" → not explicitly FBA,
-        # but free_delivery_likely=True so passes the israel filter.
-        # Playwright verification handles the false positives at display time.
+    def test_third_party_free_delivery_not_in_israel_filter(self, backend):
+        # "FREE delivery" without "shipped by Amazon" → not explicitly FBA.
+        # free_delivery_likely=True but qualifies_for_israel_free_delivery
+        # deliberately excludes it (US free shipping ≠ international shipping).
         item = backend._parse_item(_make_raw(
             is_prime=False, seller="some-brand-store",
             delivery_info=["FREE delivery Mon, Mar 2"],   # no "shipped by Amazon"
@@ -140,7 +140,7 @@ class TestIsraelDetection:
         assert item.is_amazon_fulfilled  is False
         assert item.is_sold_by_amazon    is False
         assert item.free_delivery_likely is True          # shows FREE delivery
-        assert item.qualifies_for_israel_free_delivery is True  # included in filter
+        assert item.qualifies_for_israel_free_delivery is False  # not FBA → excluded
 
     def test_fulfilled_by_amazon_phrase(self, backend):
         item = backend._parse_item(_make_raw(

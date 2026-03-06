@@ -114,23 +114,24 @@ class TestParseJsonResponse:
     def test_plain_json(self):
         raw = '{"product_name": "Widget", "confidence": "high"}'
         data = parse_json_response(raw, "testprovider")
-        assert data["product_name"] == "Widget"
-        assert data["confidence"] == "high"
+        first = data["products"][0]
+        assert first["product_name"] == "Widget"
+        assert first["confidence"] == "high"
 
     def test_json_fenced_with_backticks(self):
         raw = "```json\n{\"product_name\": \"Widget\"}\n```"
         data = parse_json_response(raw, "testprovider")
-        assert data["product_name"] == "Widget"
+        assert data["products"][0]["product_name"] == "Widget"
 
     def test_json_fenced_without_language_hint(self):
         raw = "```\n{\"product_name\": \"Widget\"}\n```"
         data = parse_json_response(raw, "testprovider")
-        assert data["product_name"] == "Widget"
+        assert data["products"][0]["product_name"] == "Widget"
 
     def test_leading_trailing_whitespace(self):
         raw = '  \n  {"product_name": "Widget"}  \n  '
         data = parse_json_response(raw, "testprovider")
-        assert data["product_name"] == "Widget"
+        assert data["products"][0]["product_name"] == "Widget"
 
     def test_invalid_json_raises_value_error(self):
         raw = "This is not JSON at all."

@@ -205,7 +205,7 @@ class TestGetProxyUrl:
         with patch("key_store.get", new=fake_get):
             url = await _get_proxy_url()
         assert "gate.decodo.com" in url
-        assert "myuser-country-IL" in url
+        assert "myuser-country-il" in url
         assert "mypass" in url
         assert "socks5://wg:1080" not in url
 
@@ -216,7 +216,7 @@ class TestGetProxyUrl:
             return {"decodo_user": "u1", "decodo_password": "p1"}.get(key)
         with patch("key_store.get", new=fake_get):
             url = await _get_proxy_url()
-        assert url == "http://u1-country-IL:p1@gate.decodo.com:7000"
+        assert url == "http://user-u1-country-il:p1@gate.decodo.com:7000"
 
     @pytest.mark.asyncio
     async def test_falls_back_to_wireguard_when_no_decodo(self):
@@ -379,7 +379,7 @@ class TestCheckShippingScrape:
         # Verify Decodo proxy URL was passed to _scrape
         call_proxy = mock_scrape.call_args[0][1]   # second positional arg
         assert "gate.decodo.com" in call_proxy
-        assert "myuser-country-IL" in call_proxy
+        assert "myuser-country-il" in call_proxy
 
     @pytest.mark.asyncio
     async def test_unverified_result_not_cached(self):

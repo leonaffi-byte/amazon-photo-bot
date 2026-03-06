@@ -19,6 +19,14 @@ import pytest
 import translator
 
 
+@pytest.fixture(autouse=True)
+def clear_llm_cache():
+    """Clear the LLM cache between tests to prevent interference."""
+    translator._LLM_CACHE.clear()
+    yield
+    translator._LLM_CACHE.clear()
+
+
 # ── detect_language() ─────────────────────────────────────────────────────────
 
 class TestDetectLanguage:

@@ -93,13 +93,13 @@ class TestParseProduct:
 
     def test_3p_delivery_text_does_not_set_fba_flag(self, backend):
         """3P items with 'FREE delivery' — not explicitly FBA but free_delivery_likely=True.
-        The filter now includes these since many FBA items also lack 'shipped by Amazon' text."""
+        qualifies_for_israel_free_delivery excludes free_delivery_likely (US free ≠ international)."""
         raw = self._full_raw(is_prime=False, delivery=self._3P_DELIVERY)
         item = backend._parse_product(raw)
         assert item is not None
         assert not item.is_amazon_fulfilled        # no 'shipped by Amazon' → not flagged FBA
         assert item.free_delivery_likely is True   # but shows FREE delivery
-        assert item.qualifies_for_israel_free_delivery is True  # included in filter
+        assert item.qualifies_for_israel_free_delivery is False  # not FBA → excluded
 
     def test_missing_asin_returns_none(self, backend):
         raw = self._full_raw()
@@ -126,7 +126,7 @@ class TestParseProduct:
         assert item is not None
         assert not item.is_amazon_fulfilled        # no "shipped by Amazon" → not explicitly FBA
         assert item.free_delivery_likely is True   # but shows FREE delivery
-        assert item.qualifies_for_israel_free_delivery is True  # included in filter
+        assert item.qualifies_for_israel_free_delivery is False  # not FBA → excluded
 
     def test_sold_by_amazon_flag(self, backend):
         raw = self._full_raw(is_prime=False, delivery="")

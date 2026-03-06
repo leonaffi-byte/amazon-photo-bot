@@ -48,13 +48,16 @@ class TestParseJsonResponseMalformed:
             parse_json_response("   \n\t  ", "test/model")
 
     def test_partial_json_missing_fields_returns_available_fields(self):
-        """JSON with only some fields returns what's available."""
+        """JSON with only some fields returns what's available (wrapped in products array)."""
         raw = '{"product_name": "Widget"}'
         data = parse_json_response(raw, "test/model")
-        assert data["product_name"] == "Widget"
+        # parse_json_response wraps single dicts in {"products": [dict]}
+        assert "products" in data
+        first = data["products"][0]
+        assert first["product_name"] == "Widget"
         # Missing fields simply aren't in the dict
-        assert "brand" not in data
-        assert "confidence" not in data
+        assert "brand" not in first
+        assert "confidence" not in first
 
     def test_truncated_json_raises_value_error(self):
         """JSON cut off mid-value raises ValueError."""
@@ -62,11 +65,13 @@ class TestParseJsonResponseMalformed:
         with pytest.raises(ValueError):
             parse_json_response(raw, "test/model")
 
-    def test_json_with_trailing_comma_raises_value_error(self):
-        """JSON with trailing comma (invalid) raises ValueError."""
+    def test_json_with_trailing_comma_is_fixed(self):
+        """JSON with trailing comma is auto-fixed by _fix_json."""
         raw = '{"product_name": "Widget", "brand": "TestCo",}'
-        with pytest.raises(ValueError, match="JSON parse error"):
-            parse_json_response(raw, "test/model")
+        data = parse_json_response(raw, "test/model")
+        first = data["products"][0]
+        assert first["product_name"] == "Widget"
+        assert first["brand"] == "TestCo"
 
     def test_nested_markdown_fences(self):
         """Markdown fence with extra backticks or nested content."""
@@ -84,11 +89,12 @@ class TestParseJsonResponseMalformed:
             pass
 
     def test_json_array_instead_of_object(self):
-        """A valid JSON array (not object) is still valid JSON — returns list."""
+        """A valid JSON array is wrapped in {"products": [...]} format."""
         raw = '[{"product_name": "Widget"}]'
         result = parse_json_response(raw, "test/model")
-        # parse_json_response returns whatever json.loads returns
-        assert isinstance(result, list)
+        assert isinstance(result, dict)
+        assert "products" in result
+        assert result["products"][0]["product_name"] == "Widget"
 
     def test_html_response_raises_value_error(self):
         """HTML error page from a provider raises ValueError."""

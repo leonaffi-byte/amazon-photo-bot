@@ -98,14 +98,13 @@ class TestGetBackend:
 
         MockRapid.assert_called_once()
 
-    async def test_no_keys_falls_back_to_playwright(self, monkeypatch):
-        """When no API keys are set, auto mode falls back to PlaywrightBackend (free)."""
+    async def test_no_keys_raises_runtime_error(self, monkeypatch):
+        """When no API keys are set, auto mode raises RuntimeError."""
         monkeypatch.setattr(config, "SEARCH_BACKEND", "auto")
 
         with patch("key_store.get", new_callable=AsyncMock, return_value=None):
-            backend = await amazon_search._build_backend()
-        from search_backends.playwright_backend import PlaywrightBackend
-        assert isinstance(backend, PlaywrightBackend)
+            with pytest.raises(RuntimeError, match="No search API keys"):
+                await amazon_search._build_backend()
 
     async def test_explicit_rapidapi_requires_key(self, monkeypatch):
         monkeypatch.setattr(config, "SEARCH_BACKEND", "rapidapi")

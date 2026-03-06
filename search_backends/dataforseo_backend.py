@@ -47,6 +47,7 @@ class DataForSEOBackend(SearchBackend):
             "Authorization": f"Basic {creds}",
             "Content-Type":  "application/json",
         }
+        self._session: Optional[aiohttp.ClientSession] = None
 
     @property
     def name(self) -> str:
