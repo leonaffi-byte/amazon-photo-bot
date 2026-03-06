@@ -597,10 +597,32 @@ async def _test_api(group_name: str) -> tuple[bool, str]:
             elif group_name == "israel_proxy":
                 url = await key_store.get("israel_proxy_url")
                 if not url: return False, "URL not set"
-                async with s.get("https://httpbin.org/ip", proxy=url) as r:
-                    elapsed = _time.monotonic() - start
-                    if r.status == 200: return True, f"OK ({elapsed:.1f}s)"
-                    return False, f"HTTP {r.status}"
+                url = url.strip()
+                # Add scheme if missing
+                if "://" not in url:
+                    url = f"socks5://{url}"
+                import urllib.parse as _up
+                p = _up.urlparse(url)
+                host = p.hostname
+                port = p.port or 1080
+                if not host: return False, f"Bad URL: {url[:40]}"
+                # For SOCKS5, test TCP connectivity to proxy
+                if p.scheme.startswith("socks"):
+                    import asyncio as _aio
+                    try:
+                        r, w = await _aio.wait_for(
+                            _aio.open_connection(host, port), timeout=10
+                        )
+                        w.close()
+                        elapsed = _time.monotonic() - start
+                        return True, f"OK, SOCKS5 reachable at {host}:{port} ({elapsed:.1f}s)"
+                    except Exception as exc:
+                        return False, f"Cannot connect to {host}:{port}: {exc}"
+                else:
+                    async with s.get("https://httpbin.org/ip", proxy=url) as r:
+                        elapsed = _time.monotonic() - start
+                        if r.status == 200: return True, f"OK ({elapsed:.1f}s)"
+                        return False, f"HTTP {r.status}"
 
             elif group_name == "bitly":
                 token = await key_store.get("bitly_token")
