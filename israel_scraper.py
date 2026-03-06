@@ -78,9 +78,18 @@ def _build_proxy_cfg(proxy_url: str) -> dict:
 
     Playwright needs username/password split out from the server URL.
     e.g. http://USER:PASS@host:port → server=http://host:port, username=USER, password=PASS
+
+    Handles common formats:
+      socks5://user:pass@host:port
+      http://user:pass@host:port
+      user:pass@host:port          (auto-prepends socks5://)
     """
     import urllib.parse as _up
-    p = _up.urlparse(proxy_url)
+    url = proxy_url.strip()
+    # If no scheme, assume socks5
+    if "://" not in url:
+        url = f"socks5://{url}"
+    p = _up.urlparse(url)
     cfg: dict = {"server": f"{p.scheme}://{p.hostname}:{p.port}"}
     if p.username:
         cfg["username"] = _up.unquote(p.username)

@@ -97,11 +97,14 @@ def _build_proxy_cfg(proxy_url: str) -> Optional[dict]:
         return None
     try:
         import urllib.parse as _up
-        p = _up.urlparse(proxy_url)
+        url = proxy_url.strip()
+        if "://" not in url:
+            url = f"socks5://{url}"
+        p = _up.urlparse(url)
         return {
             "server":   f"{p.scheme}://{p.hostname}:{p.port}",
-            "username": p.username or "",
-            "password": p.password or "",
+            "username": _up.unquote(p.username) if p.username else "",
+            "password": _up.unquote(p.password) if p.password else "",
         }
     except Exception:
         return None
