@@ -30,12 +30,13 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Admin changes to settings, tags, or model config take effect on the next user request without bot restart
   4. Sending a >10MB photo returns a friendly "photo too large" message instead of a silent failure or API error
   5. All bot HTTP endpoints (shortener, webhooks, API) are served from a single FastAPI process on one port
-**Plans**: TBD
+**Plans:** 4 plans
 
 Plans:
-- [ ] 01-01: TBD
-- [ ] 01-02: TBD
-- [ ] 01-03: TBD
+- [ ] 01-01-PLAN.md -- Provider stability: timeout unification, health tracking, error messages (STAB-01, STAB-02, STAB-07)
+- [ ] 01-02-PLAN.md -- Data integrity: DB transactions, photo validation, cache invalidation, Pillow offload (STAB-03, STAB-05, STAB-06, INFR-02)
+- [ ] 01-03-PLAN.md -- Server consolidation and graceful shutdown (INFR-01, STAB-04)
+- [ ] 01-04-PLAN.md -- Admin service layer extraction (INFR-03)
 
 ### Phase 2: Enhanced Visual Experience
 **Goal**: Users receive enriched product results with visual annotations on photos, confidence-scored Israel shipping badges, and price history context that helps them decide whether to buy
@@ -107,7 +108,7 @@ Note: Phase 3 depends only on Phase 1 (not Phase 2), so Phases 2 and 3 could the
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Stability and Infrastructure | 0/3 | Not started | - |
+| 1. Stability and Infrastructure | 0/4 | Planning | - |
 | 2. Enhanced Visual Experience | 0/3 | Not started | - |
 | 3. Web Admin Dashboard | 0/2 | Not started | - |
 | 4. Messaging Platform Expansion | 0/3 | Not started | - |
