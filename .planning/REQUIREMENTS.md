@@ -113,52 +113,52 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| STAB-01 | — | Pending |
-| STAB-02 | — | Pending |
-| STAB-03 | — | Pending |
-| STAB-04 | — | Pending |
-| STAB-05 | — | Pending |
-| STAB-06 | — | Pending |
-| STAB-07 | — | Pending |
-| ANNO-01 | — | Pending |
-| ANNO-02 | — | Pending |
-| ANNO-03 | — | Pending |
-| ANNO-04 | — | Pending |
-| ISRL-01 | — | Pending |
-| ISRL-02 | — | Pending |
-| ISRL-03 | — | Pending |
-| ISRL-04 | — | Pending |
-| PRCE-01 | — | Pending |
-| PRCE-02 | — | Pending |
-| PRCE-03 | — | Pending |
-| ADMN-01 | — | Pending |
-| ADMN-02 | — | Pending |
-| ADMN-03 | — | Pending |
-| ADMN-04 | — | Pending |
-| ADMN-05 | — | Pending |
-| ADMN-06 | — | Pending |
-| WEBA-01 | — | Pending |
-| WEBA-02 | — | Pending |
-| WEBA-03 | — | Pending |
-| WEBA-04 | — | Pending |
-| WEBA-05 | — | Pending |
-| WHAT-01 | — | Pending |
-| WHAT-02 | — | Pending |
-| WHAT-03 | — | Pending |
-| WHAT-04 | — | Pending |
-| WHAT-05 | — | Pending |
-| INST-01 | — | Pending |
-| INST-02 | — | Pending |
-| INST-03 | — | Pending |
-| INFR-01 | — | Pending |
-| INFR-02 | — | Pending |
-| INFR-03 | — | Pending |
+| STAB-01 | Phase 1 | Pending |
+| STAB-02 | Phase 1 | Pending |
+| STAB-03 | Phase 1 | Pending |
+| STAB-04 | Phase 1 | Pending |
+| STAB-05 | Phase 1 | Pending |
+| STAB-06 | Phase 1 | Pending |
+| STAB-07 | Phase 1 | Pending |
+| ANNO-01 | Phase 2 | Pending |
+| ANNO-02 | Phase 2 | Pending |
+| ANNO-03 | Phase 2 | Pending |
+| ANNO-04 | Phase 2 | Pending |
+| ISRL-01 | Phase 2 | Pending |
+| ISRL-02 | Phase 2 | Pending |
+| ISRL-03 | Phase 2 | Pending |
+| ISRL-04 | Phase 2 | Pending |
+| PRCE-01 | Phase 2 | Pending |
+| PRCE-02 | Phase 2 | Pending |
+| PRCE-03 | Phase 2 | Pending |
+| ADMN-01 | Phase 3 | Pending |
+| ADMN-02 | Phase 3 | Pending |
+| ADMN-03 | Phase 3 | Pending |
+| ADMN-04 | Phase 3 | Pending |
+| ADMN-05 | Phase 3 | Pending |
+| ADMN-06 | Phase 3 | Pending |
+| WEBA-01 | Phase 5 | Pending |
+| WEBA-02 | Phase 5 | Pending |
+| WEBA-03 | Phase 5 | Pending |
+| WEBA-04 | Phase 5 | Pending |
+| WEBA-05 | Phase 5 | Pending |
+| WHAT-01 | Phase 4 | Pending |
+| WHAT-02 | Phase 4 | Pending |
+| WHAT-03 | Phase 4 | Pending |
+| WHAT-04 | Phase 4 | Pending |
+| WHAT-05 | Phase 4 | Pending |
+| INST-01 | Phase 4 | Pending |
+| INST-02 | Phase 4 | Pending |
+| INST-03 | Phase 4 | Pending |
+| INFR-01 | Phase 1 | Pending |
+| INFR-02 | Phase 1 | Pending |
+| INFR-03 | Phase 1 | Pending |
 
 **Coverage:**
 - v1 requirements: 40 total
-- Mapped to phases: 0
-- Unmapped: 40 ⚠️
+- Mapped to phases: 40
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-13*
-*Last updated: 2026-03-13 after initial definition*
+*Last updated: 2026-03-13 after roadmap creation*
