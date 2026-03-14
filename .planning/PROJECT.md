@@ -33,6 +33,11 @@ When a user sends a photo of any product, the bot must reliably identify it and 
 - ✓ Add proper error messages showing which backend/provider failed — Phase 1
 - ✓ Consolidated single FastAPI gateway for all HTTP services — Phase 1
 - ✓ Admin service layer decoupled from Telegram — Phase 1
+- ✓ ASCII price bar visualization in product captions — Phase 2
+- ✓ Multi-signal Israel shipping confidence scoring (replaces binary detection) — Phase 2
+- ✓ Semi-transparent overlay annotations on detected products — Phase 2
+- ✓ Shipping badges (green/yellow/red/gray) in product results — Phase 2
+- ✓ 4-stage progress messages during analysis — Phase 2
 
 ### Active
 
@@ -50,18 +55,13 @@ When a user sends a photo of any product, the bot must reliably identify it and 
 - [ ] Optimize Playwright selector resilience and speed
 
 **Photo Annotations:**
-- [ ] Return annotated photo with semi-transparent overlays on detected products
-- [ ] Fall back to bounding boxes if shape detection not feasible
 - [ ] Let user tap/select which detected product to search for
 
 **Israel Shipping Filter Improvements:**
-- [ ] Improve detection accuracy for Israel-eligible products
-- [ ] Add confidence scoring to Israel eligibility
-- [ ] Show "ships free to Israel" badge on results
+- [ ] Improve detection accuracy for Israel-eligible products (beyond confidence scoring)
 
 **Price History:**
 - [ ] Show price chart image alongside product results
-- [ ] Show high/low text summary ("Lowest: $X (3mo ago) / Current: $Y")
 
 **Multi-Platform:**
 - [ ] WhatsApp Business API integration (production-ready)
@@ -74,7 +74,6 @@ When a user sends a photo of any product, the bot must reliably identify it and 
 
 **UX & Design:**
 - [ ] Better message formatting and visual design
-- [ ] Faster perceived response (progress indicators, streaming updates)
 
 ### Out of Scope
 
@@ -89,7 +88,7 @@ When a user sends a photo of any product, the bot must reliably identify it and 
 
 - **Audience:** Israeli consumers shopping on Amazon (Hebrew + English speakers)
 - **Monetization:** Amazon Associates affiliate commission on purchases via bot links
-- **Current state:** Working Telegram bot with hardened stability (unified timeouts, transaction safety, single gateway). Israel filter accuracy and health tracking still need improvement.
+- **Current state:** Working Telegram bot with hardened stability and enhanced visual experience (price bars, shipping badges, photo overlays, progress messages). Israel filter now uses multi-signal confidence scoring.
 - **Existing adapters:** WhatsApp, Discord, Instagram, Messenger, Viber, LINE adapter code exists in `adapters/` but is untested
 - **Tech stack:** Python 3.11+ async, SQLite, FastAPI (single gateway), Playwright, Docker
 - **68 known issues** documented in `.planning/codebase/CONCERNS.md` ranging from critical bugs to code quality
@@ -108,11 +107,13 @@ When a user sends a photo of any product, the bot must reliably identify it and 
 |----------|-----------|---------|
 | Stay on SQLite | Works for current scale, migration cost high | — Pending |
 | Web app for public access | Telegram alone limits reach; web enables SEO + sharing | — Pending |
-| Semi-transparent overlays for detection | User preference, better UX than bounding boxes | — Pending |
+| Semi-transparent overlays for detection | User preference, better UX than bounding boxes | ✓ Phase 2 |
+| Confidence-based Israel shipping tiers | Replaces binary yes/no with green/yellow/red scoring | ✓ Phase 2 |
+| 4-stage progress messages | Perceived speed improvement during analysis flow | ✓ Phase 2 |
 | WhatsApp + Instagram priority | Largest platforms in Israel after Telegram | — Pending |
 | Fix stability before new features | Unreliable core undermines everything built on top | ✓ Phase 1 |
 | Consolidate HTTP servers into single gateway | 3 ports → 1, simpler ops and Docker config | ✓ Phase 1 |
 | Extract admin service layer | Enables web dashboard to reuse admin logic without Telegram coupling | ✓ Phase 1 |
 
 ---
-*Last updated: 2026-03-14 after Phase 1*
+*Last updated: 2026-03-14 after Phase 2*
