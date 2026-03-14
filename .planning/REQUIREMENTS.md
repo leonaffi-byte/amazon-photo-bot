@@ -26,10 +26,10 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Israel Shipping
 
-- [ ] **ISRL-01**: Israel shipping detection uses multi-signal approach (FBA status + seller identity + Prime status + address verification)
+- [x] **ISRL-01**: Israel shipping detection uses multi-signal approach (FBA status + seller identity + Prime status + address verification)
 - [ ] **ISRL-02**: Each product result shows confidence-scored shipping badge (green = ships free, yellow = likely, red = won't ship)
-- [ ] **ISRL-03**: False positive rate for Israel shipping reduced below 10%
-- [ ] **ISRL-04**: False negative rate for Israel shipping reduced below 15%
+- [x] **ISRL-03**: False positive rate for Israel shipping reduced below 10%
+- [x] **ISRL-04**: False negative rate for Israel shipping reduced below 15%
 
 ### Price History
 
@@ -124,10 +124,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ANNO-02 | Phase 2 | Pending |
 | ANNO-03 | Phase 2 | Pending |
 | ANNO-04 | Phase 2 | Pending |
-| ISRL-01 | Phase 2 | Pending |
+| ISRL-01 | Phase 2 | Complete |
 | ISRL-02 | Phase 2 | Pending |
-| ISRL-03 | Phase 2 | Pending |
-| ISRL-04 | Phase 2 | Pending |
+| ISRL-03 | Phase 2 | Complete |
+| ISRL-04 | Phase 2 | Complete |
 | PRCE-01 | Phase 2 | Pending |
 | PRCE-02 | Phase 2 | Pending |
 | PRCE-03 | Phase 2 | Pending |
