@@ -290,6 +290,9 @@ _MIGRATIONS = [
     "ALTER TABLE users ADD COLUMN platform TEXT",
     "ALTER TABLE users ADD COLUMN lang TEXT",
     "ALTER TABLE users ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+    # Phase 4: WhatsApp opt-in consent and 24-hour window tracking
+    "ALTER TABLE users ADD COLUMN wa_opted_in INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN wa_last_msg_at REAL",
 ]
 
 
@@ -1926,3 +1929,49 @@ async def ensure_user(user_key: str, platform: str | None = None) -> None:
             (user_key, platform),
         )
         await db.commit()
+
+
+# ── WhatsApp opt-in / 24-hour window tracking ──────────────────────────────────
+
+async def get_wa_opt_in(user_key: str) -> bool:
+    """Return True if user has opted in on WhatsApp."""
+    async with _get_conn() as db:
+        async with db.execute(
+            "SELECT wa_opted_in FROM users WHERE user_key = ?", (user_key,)
+        ) as cursor:
+            row = await cursor.fetchone()
+    return bool(row[0]) if row else False
+
+
+async def set_wa_opt_in(user_key: str, opted_in: bool) -> None:
+    """Record WhatsApp opt-in consent."""
+    async with _get_conn() as db:
+        await db.execute(
+            """INSERT INTO users (user_key, wa_opted_in)
+               VALUES (?, ?)
+               ON CONFLICT(user_key) DO UPDATE SET wa_opted_in = ?""",
+            (user_key, int(opted_in), int(opted_in)),
+        )
+        await db.commit()
+
+
+async def update_wa_last_msg_at(user_key: str, ts: float) -> None:
+    """Update the timestamp of the last user-initiated WhatsApp message."""
+    async with _get_conn() as db:
+        await db.execute(
+            """INSERT INTO users (user_key, wa_last_msg_at)
+               VALUES (?, ?)
+               ON CONFLICT(user_key) DO UPDATE SET wa_last_msg_at = ?""",
+            (user_key, ts, ts),
+        )
+        await db.commit()
+
+
+async def get_wa_last_msg_at(user_key: str) -> float | None:
+    """Return the unix timestamp of the user's last WhatsApp message, or None."""
+    async with _get_conn() as db:
+        async with db.execute(
+            "SELECT wa_last_msg_at FROM users WHERE user_key = ?", (user_key,)
+        ) as cursor:
+            row = await cursor.fetchone()
+    return float(row[0]) if row and row[0] is not None else None
