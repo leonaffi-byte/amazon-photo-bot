@@ -37,6 +37,7 @@ from telegram.ext import (
     filters,
 )
 
+import admin_service
 import config
 import database as db
 import key_store
@@ -139,13 +140,13 @@ def e(text: str) -> str:
 # ══════════════════════════════════════════════════════════════════════════════
 
 async def _panel_content() -> tuple[str, InlineKeyboardMarkup]:
-    tags      = await db.get_all_tags()
-    stats     = await db.get_stats()
-    admins    = await db.get_all_admins()
-    all_keys  = await key_store.get_all_keys()
-    keys_set  = sum(1 for v in all_keys.values() if v)
+    tags      = await admin_service.list_tags()
+    stats     = await admin_service.get_stats()
+    key_groups = await admin_service.list_key_groups()
+    keys_set  = sum(1 for g in key_groups for is_set in g.keys.values() if is_set)
+    keys_total = sum(len(g.keys) + len(g.optional_keys) for g in key_groups)
     active    = next((t for t in tags if t.is_active), None)
-    tag_line  = f"`{e(active.tag)}`" if active else "_none ⚠️_"
+    tag_line  = f"`{e(active.name)}`" if active else "_none ⚠️_"
 
     vision_mode = await settings_store.get("vision_mode")
     search_backend = await settings_store.get("search_backend")
@@ -165,10 +166,10 @@ async def _panel_content() -> tuple[str, InlineKeyboardMarkup]:
         f"  🚀  Deployed {e(_deploy_str)}\n\n"
 
         f"*Quick info*\n"
-        f"  🔑  {keys_set}/{len(all_keys)} API keys configured\n"
+        f"  🔑  {keys_set}/{keys_total} API keys configured\n"
         f"  🏷️  Tag: {tag_line}\n"
         f"  🤖  Mode: `{e(str(vision_mode))}`  ·  Backend: `{e(str(search_backend))}`\n"
-        f"  📊  {stats['total_searches']:,} searches  ·  {stats['unique_users']:,} users\n"
+        f"  📊  {stats.total_searches:,} searches  ·  {stats.total_users:,} users\n"
     )
 
     kb = InlineKeyboardMarkup([
@@ -200,7 +201,7 @@ async def cmd_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 # ══════════════════════════════════════════════════════════════════════════════
 
 async def _tags_content() -> tuple[str, InlineKeyboardMarkup]:
-    tags = await db.get_all_tags()
+    tags = await admin_service.list_tags()
     if not tags:
         text = f"🏷️ *AFFILIATE TAGS*\n{st.DIV}\n\n_No tags yet\\. Add one below\\._"
         kb = InlineKeyboardMarkup([
@@ -214,13 +215,13 @@ async def _tags_content() -> tuple[str, InlineKeyboardMarkup]:
     for t in tags:
         badge = "✅ *ACTIVE*" if t.is_active else "⬜"
         lines.append(
-            f"{badge}  `{e(t.tag)}`\n"
+            f"{badge}  `{e(t.name)}`\n"
             f"  _{e(t.description)}_   🔍 {t.search_count} searches\n"
         )
         btn_row = []
         if not t.is_active:
-            btn_row.append(InlineKeyboardButton(f"✅  Activate {t.tag}", callback_data=f"{CB_TAG_ACT}{t.id}"))
-        btn_row.append(InlineKeyboardButton(f"🗑  Delete {t.tag}", callback_data=f"{CB_TAG_DEL}{t.id}"))
+            btn_row.append(InlineKeyboardButton(f"✅  Activate {t.name}", callback_data=f"{CB_TAG_ACT}{t.id}"))
+        btn_row.append(InlineKeyboardButton(f"🗑  Delete {t.name}", callback_data=f"{CB_TAG_DEL}{t.id}"))
         rows.append(btn_row)
 
     rows += [
@@ -316,11 +317,11 @@ async def tag_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await q.edit_message_text("❌ Cancelled\\.", parse_mode="MarkdownV2")
         return ConversationHandler.END
     flow = context.user_data.get("tag_flow", {})
-    admin_name = q.from_user.full_name or str(q.from_user.id)
     try:
-        await db.add_tag(
-            tag=flow["tag"], description=flow["desc"],
-            admin_id=q.from_user.id, admin_name=admin_name,
+        await admin_service.add_tag(
+            tag=flow["tag"],
+            description=flow["desc"],
+            admin_id=q.from_user.id,
             make_active=flow.get("auto_activate", False),
         )
     except ValueError as exc:
@@ -407,6 +408,7 @@ def _group_status(all_keys: dict, required: list[str], optional: list[str] | Non
 
 
 async def _keys_content() -> tuple[str, InlineKeyboardMarkup]:
+    # Use service layer for group status; key_store for display-specific masking/source
     all_keys = await key_store.get_all_keys()
 
     # Build source map: key_name -> "db" | "env" | "none"
@@ -476,21 +478,21 @@ async def _keys_content() -> tuple[str, InlineKeyboardMarkup]:
 
 
 async def _group_content(group_name: str) -> tuple[str, InlineKeyboardMarkup]:
-    group = next((g for g in _API_GROUPS if g["name"] == group_name), None)
-    if not group:
+    group_status = await admin_service.get_key_group(group_name)
+    if not group_status:
         return "Group not found\\.", InlineKeyboardMarkup([[InlineKeyboardButton("◀ Back", callback_data=CB_KEYS)]])
 
-    all_keys = await key_store.get_all_keys()
-    label = group["label"]
-    optional = group.get("optional", [])
-    all_group_keys = group["keys"] + optional
+    # Find original group definition for optional keys and key ordering
+    group_def = next((g for g in _API_GROUPS if g["name"] == group_name), None)
+    label = group_status.label
+    optional = group_def.get("optional", []) if group_def else []
+    all_group_keys = list(group_status.keys.keys()) + list(group_status.optional_keys.keys())
     lines = [f"⚙️ *{e(label)}*\n{st.DIV}\n"]
     rows = []
     for key_name in all_group_keys:
         kl, desc = _KEY_LABELS.get(key_name, (key_name, ""))
         is_optional = key_name in optional
-        val = all_keys.get(key_name)
-        _, src = await key_store.get_with_source(key_name)
+        val, src = await key_store.get_with_source(key_name)
         masked = e(key_store.mask(val))
         opt_tag = " \\(optional\\)" if is_optional else ""
         if val:
@@ -511,225 +513,8 @@ async def _group_content(group_name: str) -> tuple[str, InlineKeyboardMarkup]:
 
 
 async def _test_api(group_name: str) -> tuple[bool, str]:
-    import aiohttp
-    import time as _time
-    start = _time.monotonic()
-    try:
-        timeout = aiohttp.ClientTimeout(total=10)
-        async with aiohttp.ClientSession(timeout=timeout) as s:
-            if group_name == "openai":
-                key = await key_store.get("openai_api_key")
-                if not key: return False, "Key not set"
-                async with s.get("https://api.openai.com/v1/models",
-                                 headers={"Authorization": f"Bearer {key}"}) as r:
-                    elapsed = _time.monotonic() - start
-                    if r.status == 200: return True, f"OK ({elapsed:.1f}s)"
-                    return False, f"HTTP {r.status}"
-
-            elif group_name == "anthropic":
-                key = await key_store.get("anthropic_api_key")
-                if not key: return False, "Key not set"
-                async with s.get("https://api.anthropic.com/v1/models",
-                                 headers={"x-api-key": key, "anthropic-version": "2023-06-01"}) as r:
-                    elapsed = _time.monotonic() - start
-                    if r.status == 200: return True, f"OK ({elapsed:.1f}s)"
-                    return False, f"HTTP {r.status}"
-
-            elif group_name == "google":
-                key = await key_store.get("google_api_key")
-                if not key: return False, "Key not set"
-                async with s.get(f"https://generativelanguage.googleapis.com/v1/models?key={key}") as r:
-                    elapsed = _time.monotonic() - start
-                    if r.status == 200: return True, f"OK ({elapsed:.1f}s)"
-                    return False, f"HTTP {r.status}"
-
-            elif group_name == "groq":
-                key = await key_store.get("groq_api_key")
-                if not key: return False, "Key not set"
-                async with s.get("https://api.groq.com/openai/v1/models",
-                                 headers={"Authorization": f"Bearer {key}"}) as r:
-                    elapsed = _time.monotonic() - start
-                    if r.status == 200: return True, f"OK ({elapsed:.1f}s)"
-                    return False, f"HTTP {r.status}"
-
-            elif group_name == "openrouter":
-                key = await key_store.get("openrouter_api_key")
-                if not key: return False, "Key not set"
-                async with s.get("https://openrouter.ai/api/v1/models",
-                                 headers={"Authorization": f"Bearer {key}"}) as r:
-                    elapsed = _time.monotonic() - start
-                    if r.status == 200: return True, f"OK ({elapsed:.1f}s)"
-                    return False, f"HTTP {r.status}"
-
-            elif group_name == "azure":
-                key = await key_store.get("azure_openai_key")
-                endpoint = await key_store.get("azure_openai_endpoint")
-                if not all([key, endpoint]):
-                    missing = []
-                    if not key: missing.append("key")
-                    if not endpoint: missing.append("endpoint")
-                    return False, f"Missing: {', '.join(missing)}"
-                url = f"{endpoint.rstrip('/')}/openai/models?api-version=2024-02-01"
-                async with s.get(url, headers={"api-key": key}) as r:
-                    elapsed = _time.monotonic() - start
-                    if r.status == 200: return True, f"OK ({elapsed:.1f}s)"
-                    return False, f"HTTP {r.status}"
-
-            elif group_name == "dataforseo":
-                login = await key_store.get("dataforseo_login")
-                password = await key_store.get("dataforseo_password")
-                if not all([login, password]): return False, "Login or password not set"
-                import base64
-                auth = base64.b64encode(f"{login}:{password}".encode()).decode()
-                async with s.get("https://api.dataforseo.com/v3/appendix/user_data",
-                                 headers={"Authorization": f"Basic {auth}"}) as r:
-                    elapsed = _time.monotonic() - start
-                    if r.status == 200: return True, f"OK ({elapsed:.1f}s)"
-                    return False, f"HTTP {r.status}"
-
-            elif group_name == "rapidapi":
-                key = await key_store.get("rapidapi_key")
-                if not key: return False, "Key not set"
-                async with s.get("https://real-time-amazon-data.p.rapidapi.com/search",
-                                 params={"query": "test", "country": "US"},
-                                 headers={"X-RapidAPI-Key": key,
-                                          "X-RapidAPI-Host": "real-time-amazon-data.p.rapidapi.com"}) as r:
-                    elapsed = _time.monotonic() - start
-                    if r.status == 200: return True, f"OK ({elapsed:.1f}s)"
-                    return False, f"HTTP {r.status}"
-
-            elif group_name == "amazon_paapi":
-                ak = await key_store.get("amazon_access_key")
-                sk = await key_store.get("amazon_secret_key")
-                tag = await key_store.get("amazon_associate_tag")
-                if not all([ak, sk, tag]):
-                    missing = []
-                    if not ak: missing.append("access key")
-                    if not sk: missing.append("secret key")
-                    if not tag: missing.append("tag")
-                    return False, f"Missing: {', '.join(missing)}"
-                return True, "All 3 fields set (signature test skipped)"
-
-            elif group_name == "capsolver":
-                key = await key_store.get("capsolver_api_key")
-                if not key: return False, "Key not set"
-                async with s.post("https://api.capsolver.com/getBalance",
-                                  json={"clientKey": key}) as r:
-                    elapsed = _time.monotonic() - start
-                    data = await r.json()
-                    if data.get("errorId", 1) == 0:
-                        bal = data.get("balance", "?")
-                        return True, f"OK (${bal}) ({elapsed:.1f}s)"
-                    return False, str(data.get("errorDescription", f"HTTP {r.status}"))[:60]
-
-            elif group_name == "decodo":
-                user = await key_store.get("decodo_user")
-                pwd  = await key_store.get("decodo_password")
-                if not all([user, pwd]): return False, "Username or password not set"
-                port = await key_store.get("decodo_port") or "7000"
-                proxy = f"http://{user}:{pwd}@gate.decodo.com:{port}"
-                async with s.get("https://ip.decodo.com/json", proxy=proxy) as r:
-                    elapsed = _time.monotonic() - start
-                    if r.status == 200:
-                        data = await r.json()
-                        ip = data.get("ip", "?")
-                        return True, f"OK (IP: {ip}) ({elapsed:.1f}s)"
-                    return False, f"HTTP {r.status}"
-
-            elif group_name == "israel_proxy":
-                url = await key_store.get("israel_proxy_url")
-                if not url: return False, "URL not set"
-                url = url.strip()
-                # Add scheme if missing
-                if "://" not in url:
-                    url = f"socks5://{url}"
-                import urllib.parse as _up
-                p = _up.urlparse(url)
-                host = p.hostname
-                port = p.port or 1080
-                if not host: return False, f"Bad URL: {url[:40]}"
-                # For SOCKS5, test TCP connectivity to proxy
-                if p.scheme.startswith("socks"):
-                    import asyncio as _aio
-                    try:
-                        r, w = await _aio.wait_for(
-                            _aio.open_connection(host, port), timeout=10
-                        )
-                        w.close()
-                        elapsed = _time.monotonic() - start
-                        return True, f"OK, SOCKS5 reachable at {host}:{port} ({elapsed:.1f}s)"
-                    except Exception as exc:
-                        return False, f"Cannot connect to {host}:{port}: {exc}"
-                else:
-                    async with s.get("https://httpbin.org/ip", proxy=url) as r:
-                        elapsed = _time.monotonic() - start
-                        if r.status == 200: return True, f"OK ({elapsed:.1f}s)"
-                        return False, f"HTTP {r.status}"
-
-            elif group_name == "bitly":
-                token = await key_store.get("bitly_token")
-                if not token: return False, "Token not set"
-                async with s.get("https://api-ssl.bitly.com/v4/user",
-                                 headers={"Authorization": f"Bearer {token}"}) as r:
-                    elapsed = _time.monotonic() - start
-                    if r.status == 200: return True, f"OK ({elapsed:.1f}s)"
-                    return False, f"HTTP {r.status}"
-
-            elif group_name == "mistral":
-                key = await key_store.get("mistral_api_key")
-                if not key: return False, "Key not set"
-                async with s.get("https://api.mistral.ai/v1/models",
-                                 headers={"Authorization": f"Bearer {key}"}) as r:
-                    elapsed = _time.monotonic() - start
-                    if r.status == 200: return True, f"OK ({elapsed:.1f}s)"
-                    return False, f"HTTP {r.status}"
-
-            elif group_name == "sambanova":
-                key = await key_store.get("sambanova_api_key")
-                if not key: return False, "Key not set"
-                async with s.get("https://api.sambanova.ai/v1/models",
-                                 headers={"Authorization": f"Bearer {key}"}) as r:
-                    elapsed = _time.monotonic() - start
-                    if r.status == 200: return True, f"OK ({elapsed:.1f}s)"
-                    return False, f"HTTP {r.status}"
-
-            elif group_name == "together":
-                key = await key_store.get("together_api_key")
-                if not key: return False, "Key not set"
-                async with s.get("https://api.together.xyz/v1/models",
-                                 headers={"Authorization": f"Bearer {key}"}) as r:
-                    elapsed = _time.monotonic() - start
-                    if r.status == 200: return True, f"OK ({elapsed:.1f}s)"
-                    return False, f"HTTP {r.status}"
-
-            elif group_name == "fireworks":
-                key = await key_store.get("fireworks_api_key")
-                if not key: return False, "Key not set"
-                async with s.get("https://api.fireworks.ai/inference/v1/models",
-                                 headers={"Authorization": f"Bearer {key}"}) as r:
-                    elapsed = _time.monotonic() - start
-                    if r.status == 200: return True, f"OK ({elapsed:.1f}s)"
-                    return False, f"HTTP {r.status}"
-
-            elif group_name == "brightdata":
-                token = await key_store.get("brightdata_api_token")
-                zone = await key_store.get("brightdata_zone") or "unlocker"
-                if not token: return False, "Token not set"
-                async with s.get(
-                    f"https://api.brightdata.com/zone?zone={zone}",
-                    headers={"Authorization": f"Bearer {token}"},
-                ) as r:
-                    elapsed = _time.monotonic() - start
-                    if r.status == 200:
-                        data = await r.json()
-                        product = (data.get("plan") or {}).get("product", "unknown")
-                        return True, f"OK, zone={zone} type={product} ({elapsed:.1f}s)"
-                    return False, f"HTTP {r.status}"
-
-            else:
-                return False, "Unknown API group"
-    except Exception as exc:
-        return False, e(str(exc)[:80])
+    """Thin wrapper — delegates to admin_service.test_api_group."""
+    return await admin_service.test_api_group(group_name)
 
 # Set-key conversation
 async def _key_set_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -771,7 +556,7 @@ async def received_key_value(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("⚠️ Empty value — not saved\\.", parse_mode="MarkdownV2")
         return ST_KEY_VALUE
 
-    await key_store.set(key_name, value, update.effective_user.id)
+    await admin_service.set_api_key(key_name, value, update.effective_user.id)
 
     # Reload providers / search backend so new key takes effect immediately
     _reload_backends(key_name)
@@ -831,15 +616,15 @@ async def _admins_content(viewer_id: int) -> tuple[str, InlineKeyboardMarkup]:
 # ══════════════════════════════════════════════════════════════════════════════
 
 async def _stats_content() -> str:
-    stats = await db.get_stats()
-    tags  = await db.get_all_tags()
+    stats = await admin_service.get_stats()
+    tags  = await admin_service.list_tags()
 
     per_tag = []
     for t in tags:
-        n = stats["searches_per_tag"].get(t.tag, 0)
+        n = stats.searches_per_tag.get(t.name, 0)
         mark = " ✅" if t.is_active else ""
-        per_tag.append(f"  `{e(t.tag)}`{mark}  —  {n:,}")
-    no_tag = stats["searches_per_tag"].get("none", 0)
+        per_tag.append(f"  `{e(t.name)}`{mark}  —  {n:,}")
+    no_tag = stats.searches_per_tag.get("none", 0)
     if no_tag:
         per_tag.append(f"  _\\(no tag\\)_  —  {no_tag:,}")
 
@@ -856,11 +641,11 @@ async def _stats_content() -> str:
         f"📊  *STATS*\n{st.DIV}\n\n"
 
         f"*Usage*\n"
-        f"  🔍  Searches: *{stats['total_searches']:,}*\n"
-        f"  👤  Unique users: *{stats['unique_users']:,}*\n"
-        f"  🇮🇱  Israel filter used: *{stats['israel_filter_uses']:,}*"
-        f"  \\({e(pct(stats['israel_filter_uses'], stats['total_searches']))}%\\)\n"
-        f"  🕐  Last search: `{e(str(stats['last_search'])[:19])}`\n\n"
+        f"  🔍  Searches: *{stats.total_searches:,}*\n"
+        f"  👤  Unique users: *{stats.total_users:,}*\n"
+        f"  🇮🇱  Israel filter used: *{stats.israel_filter_uses:,}*"
+        f"  \\({e(pct(stats.israel_filter_uses, stats.total_searches))}%\\)\n"
+        f"  🕐  Last search: `{e(str(stats.last_search)[:19])}`\n\n"
 
         f"*Per tag*\n{tag_block}\n\n"
 
@@ -878,7 +663,7 @@ async def _shortener_content() -> tuple[str, InlineKeyboardMarkup]:
     import config as _cfg
     from url_shortener import active_backend_name
 
-    stats = await db.get_shortener_stats()
+    stats = await admin_service.get_shortener_stats()
 
     if _cfg.SHORTENER_ENABLED and _cfg.SHORTENER_BASE_URL:
         backend_line = f"🟢 *Custom* — `{e(_cfg.SHORTENER_BASE_URL)}`"
@@ -929,17 +714,16 @@ async def _shortener_content() -> tuple[str, InlineKeyboardMarkup]:
 # ══════════════════════════════════════════════════════════════════════════════
 
 async def _settings_content() -> tuple[str, InlineKeyboardMarkup]:
-    all_vals = await settings_store.get_all()
+    settings = await admin_service.list_settings()
     lines = [
         f"⚙️  *SETTINGS*\n{st.DIV}\n",
         f"_Changes take effect instantly\\._\n",
     ]
     rows = []
-    for key, meta in settings_store.SETTINGS_META.items():
-        raw = all_vals.get(key, meta["default"])
-        lines.append(f"  *{e(meta['label'])}*:  `{e(raw)}`\n  _{e(meta['desc'])}_\n")
+    for s in settings:
+        lines.append(f"  *{e(s.label)}*:  `{e(s.value)}`\n  _{e(s.description)}_\n")
         rows.append([InlineKeyboardButton(
-            f"✏️  {meta['label']}", callback_data=f"{CB_SET_EDIT}{key}"
+            f"✏️  {s.label}", callback_data=f"{CB_SET_EDIT}{s.key}"
         )])
 
     rows.append([InlineKeyboardButton("◀  Back", callback_data=CB_PANEL)])
@@ -1024,7 +808,7 @@ async def received_setting_value(update: Update, context: ContextTypes.DEFAULT_T
         )
         return ST_SETTING_VALUE
 
-    await settings_store.set(key, raw, update.effective_user.id)
+    await admin_service.set_setting(key, raw, update.effective_user.id)
 
     text, kb = await _settings_content()
     await update.message.reply_text(
@@ -1045,7 +829,7 @@ async def reset_setting_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if not key:
         await update.message.reply_text("Nothing to reset\\.", parse_mode="MarkdownV2")
         return ConversationHandler.END
-    await settings_store.delete(key)
+    await admin_service.reset_setting(key)
     meta = settings_store.SETTINGS_META.get(key, {})
     default = meta.get("default", "")
     text, kb = await _settings_content()
@@ -1117,20 +901,20 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await q.edit_message_text(text, parse_mode="MarkdownV2", reply_markup=kb)
 
     elif data == CB_TAG_NONE:
-        await db.deactivate_all_tags()
+        await admin_service.deactivate_all_tags()
         text, kb = await _tags_content()
         await q.edit_message_text("🚫 All tags deactivated\\.\n\n" + text,
                                   parse_mode="MarkdownV2", reply_markup=kb)
 
     elif data.startswith(CB_TAG_ACT):
-        await db.set_active_tag(int(data[len(CB_TAG_ACT):]))
+        await admin_service.set_active_tag(int(data[len(CB_TAG_ACT):]))
         text, kb = await _tags_content()
         await q.edit_message_text("✅ Tag activated\\!\n\n" + text,
                                   parse_mode="MarkdownV2", reply_markup=kb)
 
     elif data.startswith(CB_TAG_DEL) and not data.startswith(CB_TAG_DELOK):
         tag_id = int(data[len(CB_TAG_DEL):])
-        tags = await db.get_all_tags()
+        tags = await admin_service.list_tags()
         tag  = next((t for t in tags if t.id == tag_id), None)
         if not tag:
             await q.answer("Not found.", show_alert=True); return
@@ -1140,12 +924,12 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             InlineKeyboardButton("❌ Cancel", callback_data=CB_TAGS),
         ]])
         await q.edit_message_text(
-            f"🗑 Delete `{e(tag.tag)}`?{warn}\n_{e(tag.description)}_",
+            f"🗑 Delete `{e(tag.name)}`?{warn}\n_{e(tag.description)}_",
             parse_mode="MarkdownV2", reply_markup=kb,
         )
 
     elif data.startswith(CB_TAG_DELOK):
-        await db.remove_tag(int(data[len(CB_TAG_DELOK):]))
+        await admin_service.remove_tag(int(data[len(CB_TAG_DELOK):]))
         text, kb = await _tags_content()
         await q.edit_message_text("🗑 Deleted\\.\n\n" + text,
                                   parse_mode="MarkdownV2", reply_markup=kb)
@@ -1188,7 +972,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     elif data.startswith(CB_KEY_DELOK):
         key_name = data[len(CB_KEY_DELOK):]
-        await key_store.delete(key_name)
+        await admin_service.delete_api_key(key_name)
         _reload_backends(key_name)
         text, kb = await _keys_content()
         await q.edit_message_text("🗑 Key cleared \\(bot now uses \\.env fallback\\)\\.\n\n" + text,
@@ -1264,7 +1048,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         key, _, value = rest.partition(":")
         meta = settings_store.SETTINGS_META.get(key)
         if meta:
-            await settings_store.set(key, value, uid)
+            await admin_service.set_setting(key, value, uid)
             text, kb = await _settings_content()
             await q.edit_message_text(
                 f"✅ *{e(meta['label'])}* set to `{e(value)}`\\!\n\n" + text,
@@ -1277,7 +1061,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         key = data[len(CB_SET_RESET):]
         meta = settings_store.SETTINGS_META.get(key)
         if meta:
-            await settings_store.delete(key)
+            await admin_service.reset_setting(key)
             default = meta.get("default", "")
             text, kb = await _settings_content()
             await q.edit_message_text(
