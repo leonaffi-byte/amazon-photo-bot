@@ -38,7 +38,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import uvicorn
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, Security, status
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, Security, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.security import APIKeyHeader
@@ -497,6 +497,160 @@ async def update_key(
         plan        = plan,
         daily_limit = limit,
         is_active   = active,
+    )
+    return ApiKey(**updated)
+
+
+# ── APIRouter export (for use in gateway.py) ──────────────────────────────────
+#
+# When the bot runs in consolidated-gateway mode (gateway.py), these routes are
+# mounted at /api/v1/* via:
+#
+#   app.include_router(router, prefix="/api/v1")
+#
+# The route paths here are RELATIVE (e.g. "/check" maps to "/api/v1/check").
+# The standalone `app` above still registers them at "/v1/check" for backward
+# compatibility when api_server.py is run directly.
+
+router = APIRouter(prefix="/api/v1", tags=["API"])
+
+
+@router.get("/check", response_model=ShippingResult, summary="Check a single ASIN")
+async def _router_check_single(
+    asin:  str  = Query(..., description="Amazon ASIN (10 alphanumeric chars)"),
+    fresh: bool = Query(False, description="Bypass cache and re-verify"),
+    _key:  dict = Depends(get_api_key),
+):
+    asin = _validate_asin(asin)
+    return await _check_one(asin, fresh=fresh)
+
+
+@router.post("/batch", response_model=BatchResult, summary="Check multiple ASINs (up to 10)")
+async def _router_check_batch(
+    body: BatchRequest,
+    _key: dict = Depends(get_api_key),
+):
+    results: list[ShippingResult] = []
+    errors:  dict[str, str]       = {}
+
+    async def _safe_check(asin: str) -> None:
+        try:
+            result = await _check_one(asin, fresh=body.fresh)
+            results.append(result)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            errors[asin] = str(exc)
+
+    asin_list = [_validate_asin(a) for a in body.asins]
+    await asyncio.gather(*[_safe_check(a) for a in asin_list], return_exceptions=True)
+    return BatchResult(results=results, errors=errors)
+
+
+@router.get("/cache/{asin}", response_model=ShippingResult, summary="Read cached result (no fresh check)")
+async def _router_get_cached(
+    asin: str,
+    _key: dict = Depends(get_api_key),
+):
+    asin = _validate_asin(asin)
+    cached = await db.get_israel_cache(asin)
+    if not cached:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No cached result for ASIN {asin}. Use /api/v1/check to verify.",
+        )
+    return ShippingResult(
+        asin             = cached.asin,
+        verified         = cached.verified,
+        ships_to_israel  = cached.ships_to_israel,
+        is_free_shipping = cached.is_free_shipping,
+        note             = cached.note,
+        cached           = True,
+        checked_at       = datetime.now(timezone.utc).isoformat(),
+    )
+
+
+@router.delete("/cache/{asin}", summary="Invalidate cached result")
+async def _router_invalidate_cache(
+    asin: str,
+    _key: dict = Depends(get_api_key),
+):
+    asin = _validate_asin(asin)
+    await db.delete_israel_cache(asin)
+    return {"asin": asin, "cache": "cleared"}
+
+
+@router.get("/quota", response_model=QuotaInfo, summary="Check remaining quota")
+async def _router_quota(key_row: dict = Depends(get_api_key)):
+    raw_key = key_row["key"]
+    win     = _windows[raw_key]
+    cutoff  = time.time() - _WINDOW
+    valid   = [t for t in win if t > cutoff]
+    limit   = key_row["daily_limit"]
+    used    = len(valid)
+    resets_at = (
+        datetime.fromtimestamp(valid[0] + _WINDOW, tz=timezone.utc).isoformat()
+        if valid else
+        datetime.now(timezone.utc).isoformat()
+    )
+    return QuotaInfo(
+        plan          = key_row["plan"],
+        daily_limit   = limit,
+        used_today    = used,
+        remaining     = max(0, limit - used),
+        window_resets = resets_at,
+    )
+
+
+@router.post("/admin/keys", response_model=ApiKey, status_code=status.HTTP_201_CREATED, summary="Create a new API key")
+async def _router_create_key(
+    body: CreateKeyRequest,
+    _:    None = Depends(get_admin_key),
+):
+    limit = body.daily_limit or PLAN_LIMITS.get(body.plan, 100)
+    key   = "isk_" + secrets.token_hex(16)
+    row   = await db.create_external_api_key(
+        key=key, name=body.name, plan=body.plan, daily_limit=limit, notes=body.notes,
+    )
+    return ApiKey(**row)
+
+
+@router.get("/admin/keys", response_model=list[ApiKey], summary="List all API keys")
+async def _router_list_keys(_: None = Depends(get_admin_key)):
+    rows = await db.list_external_api_keys()
+    return [ApiKey(**r) for r in rows]
+
+
+@router.get("/admin/keys/{key}", response_model=ApiKey, summary="Get API key details")
+async def _router_get_key(key: str, _: None = Depends(get_admin_key)):
+    row = await db.get_external_api_key(key)
+    if not row:
+        raise HTTPException(status_code=404, detail="Key not found")
+    return ApiKey(**row)
+
+
+@router.delete("/admin/keys/{key}", summary="Revoke an API key")
+async def _router_revoke_key(key: str, _: None = Depends(get_admin_key)):
+    row = await db.get_external_api_key(key)
+    if not row:
+        raise HTTPException(status_code=404, detail="Key not found")
+    await db.revoke_external_api_key(key)
+    return {"key": key, "status": "revoked"}
+
+
+@router.patch("/admin/keys/{key}", response_model=ApiKey, summary="Update API key (plan, limit, active status)")
+async def _router_update_key(
+    key:    str,
+    plan:   Optional[str]  = Query(None, pattern="^(free|basic|pro)$"),
+    limit:  Optional[int]  = Query(None, ge=1),
+    active: Optional[bool] = Query(None),
+    _:      None           = Depends(get_admin_key),
+):
+    row = await db.get_external_api_key(key)
+    if not row:
+        raise HTTPException(status_code=404, detail="Key not found")
+    updated = await db.update_external_api_key(
+        key=key, plan=plan, daily_limit=limit, is_active=active,
     )
     return ApiKey(**updated)
 
