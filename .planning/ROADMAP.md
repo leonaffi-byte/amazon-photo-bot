@@ -18,7 +18,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 4: Messaging Platform Expansion** - WhatsApp Business API and Instagram DM integrations (completed 2026-03-14)
 - [x] **Phase 5: Public Web Application** - Photo upload web app with shareable result pages for SEO (completed 2026-03-14)
 - [x] **Phase 6: Admin Tech Debt Cleanup** - Wire today stats to real queries, register /webtoken in TelegramAdapter, remove legacy dead code (completed 2026-03-14)
-- [ ] **Phase 7: Multi-Platform Visual Parity** - Wire Phase 2 visual features (overlays, badges, price bar, progress) into bot_core.py for WhatsApp/Instagram
+- [x] **Phase 7: Multi-Platform Visual Parity** - Wire Phase 2 visual features (overlays, badges, price bar, progress) into bot_core.py for WhatsApp/Instagram (completed 2026-03-14)
 - [ ] **Phase 8: WhatsApp Compliance Hardening** - Wire 24h window enforcement and template fallback into live WhatsApp send path
 
 ## Phase Details
@@ -129,7 +129,7 @@ Plans:
   2. WhatsApp/Instagram results include shipping badges (green/yellow/red) via formatter.py calling shipping_badge()
   3. WhatsApp/Instagram results include ASCII price bar and deal quality label via formatter.py
   4. WhatsApp/Instagram users see multi-stage progress messages during analysis (not single loading message)
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 - [ ] 07-01-PLAN.md -- Port shipping badge, price bar, and deal label into formatter.py (ISRL-02, PRCE-02, PRCE-03)
@@ -163,5 +163,5 @@ Note: Phase 3 depends only on Phase 1 (not Phase 2), so Phases 2 and 3 could the
 | 4. Messaging Platform Expansion | 3/3 | Complete   | 2026-03-14 |
 | 5. Public Web Application | 3/3 | Complete   | 2026-03-14 |
 | 6. Admin Tech Debt Cleanup | 1/1 | Complete   | 2026-03-14 |
-| 7. Multi-Platform Visual Parity | 1/2 | In Progress|  |
+| 7. Multi-Platform Visual Parity | 2/2 | Complete   | 2026-03-14 |
 | 8. WhatsApp Compliance Hardening | 0/0 | Not Started |  |
