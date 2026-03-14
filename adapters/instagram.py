@@ -15,6 +15,7 @@ from fastapi import Request
 from fastapi.responses import PlainTextResponse
 
 import config
+import database
 from adapters.base import Button, MessageRef, PlatformAdapter
 from adapters.shared_meta import (
     send_graph_api,
@@ -106,12 +107,39 @@ class InstagramAdapter(PlatformAdapter):
         """Route an incoming Instagram message to the appropriate callback."""
         sender_id = messaging_event.get("sender", {}).get("id", "")
         message = messaging_event.get("message", {})
+        user_key = f"instagram:{sender_id}"
 
         event = {
             "messaging_event": messaging_event,
             "user_id": sender_id,
             "message": message,
         }
+
+        # Intercept opt-in quick reply before any other routing
+        quick_reply = message.get("quick_reply", {})
+        if quick_reply.get("payload") == "optin:agree":
+            await database.set_ig_opt_in(user_key, True)
+            await self.send_text(
+                sender_id,
+                "Thank you! Send any product photo and I'll find it on Amazon for you.",
+            )
+            return
+
+        # Allow slash commands through BEFORE opt-in gate (per locked decision:
+        # "Full command set matching Telegram (/start, /help, /language, /providers)")
+        text = message.get("text", "")
+        if text.startswith("/"):
+            chat_id = self.get_chat_id(event)
+            parts = text.split(maxsplit=1)
+            command = parts[0]
+            args = parts[1] if len(parts) > 1 else ""
+            await self._on_command(self, sender_id, chat_id, command, args, event)
+            return
+
+        # Opt-in gate: block all non-command messages until user consents
+        if not await database.get_ig_opt_in(user_key):
+            await self._send_opt_in_prompt(sender_id)
+            return
 
         # Check for attachments with image type
         attachments = message.get("attachments", [])
@@ -121,24 +149,43 @@ class InstagramAdapter(PlatformAdapter):
                 await self._on_photo(self, event)
                 return
 
-        # Quick reply callback
-        quick_reply = message.get("quick_reply", {})
+        # Quick reply callback (non-optin payloads)
         if quick_reply.get("payload"):
             chat_id = self.get_chat_id(event)
             await self._on_callback(self, sender_id, chat_id, quick_reply["payload"], event)
             return
 
         # Text message
-        text = message.get("text", "")
         if text:
             chat_id = self.get_chat_id(event)
-            if text.startswith("/"):
-                parts = text.split(maxsplit=1)
-                command = parts[0]
-                args = parts[1] if len(parts) > 1 else ""
-                await self._on_command(self, sender_id, chat_id, command, args, event)
-            else:
-                await self._on_text(self, sender_id, chat_id, text, event)
+            await self._on_text(self, sender_id, chat_id, text, event)
+
+    async def _send_opt_in_prompt(self, chat_id: str) -> None:
+        """Send the opt-in consent prompt to a new Instagram user."""
+        assert self._session is not None
+        data = {
+            "recipient": {"id": chat_id},
+            "message": {
+                "text": (
+                    "Welcome to Amazon Photo Bot!\n\n"
+                    "Send a photo of any product to find it on Amazon with Israel shipping info.\n\n"
+                    "Tap 'I agree' to get started."
+                ),
+                "quick_replies": [
+                    {
+                        "content_type": "text",
+                        "title": "I agree",
+                        "payload": "optin:agree",
+                    }
+                ],
+            },
+        }
+        await send_graph_api(
+            f"{self._page_id}/messages",
+            self._token,
+            data,
+            self._session,
+        )
 
     # ── Incoming helpers ───────────────────────────────────────────────────
 

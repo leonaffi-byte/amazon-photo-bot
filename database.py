@@ -293,6 +293,8 @@ _MIGRATIONS = [
     # Phase 4: WhatsApp opt-in consent and 24-hour window tracking
     "ALTER TABLE users ADD COLUMN wa_opted_in INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE users ADD COLUMN wa_last_msg_at REAL",
+    # Phase 4: Instagram opt-in consent
+    "ALTER TABLE users ADD COLUMN ig_opted_in INTEGER NOT NULL DEFAULT 0",
 ]
 
 
@@ -1963,6 +1965,30 @@ async def update_wa_last_msg_at(user_key: str, ts: float) -> None:
                VALUES (?, ?)
                ON CONFLICT(user_key) DO UPDATE SET wa_last_msg_at = ?""",
             (user_key, ts, ts),
+        )
+        await db.commit()
+
+
+# ── Instagram opt-in tracking ─────────────────────────────────────────────────
+
+async def get_ig_opt_in(user_key: str) -> bool:
+    """Return True if user has opted in on Instagram."""
+    async with _get_conn() as db:
+        async with db.execute(
+            "SELECT ig_opted_in FROM users WHERE user_key = ?", (user_key,)
+        ) as cursor:
+            row = await cursor.fetchone()
+    return bool(row[0]) if row else False
+
+
+async def set_ig_opt_in(user_key: str, opted_in: bool) -> None:
+    """Record Instagram opt-in consent."""
+    async with _get_conn() as db:
+        await db.execute(
+            """INSERT INTO users (user_key, ig_opted_in)
+               VALUES (?, ?)
+               ON CONFLICT(user_key) DO UPDATE SET ig_opted_in = ?""",
+            (user_key, int(opted_in), int(opted_in)),
         )
         await db.commit()
 
