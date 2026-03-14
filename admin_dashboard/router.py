@@ -18,6 +18,11 @@ Routes:
   POST /tags/{tag_id}/deactivate — Deactivate all tags (deactivates active one)
   POST /tags/add          — Add a new affiliate tag
   POST /tags/{tag_id}/remove — Remove a tag
+  GET  /settings          — Bot settings editor
+  POST /settings/{key}/update — Update a single setting and return updated row fragment
+  POST /settings/{key}/reset  — Reset a setting to default and return updated row fragment
+  GET  /health            — Provider health detail page
+  POST /health/{provider_name}/reset — Reset provider failure count and return updated row fragment
 
 All routes except /login, /auth/callback, /auth/token, /logout use
 Depends(require_admin) to enforce authentication.
@@ -375,6 +380,69 @@ async def tag_deactivate(
         {"request": request, "tag": tag},
     )
 
+
+@router.get("/settings", response_class=HTMLResponse, name="admin_settings")
+async def settings_page(request: Request, admin_id: int = Depends(require_admin)):
+    """Bot settings editor — lists all runtime settings with appropriate input controls."""
+    try:
+        settings = await admin_service.list_settings()
+    except Exception:
+        logger.warning("list_settings() failed", exc_info=True)
+        settings = []
+    return templates.TemplateResponse(
+        "settings.html",
+        {"request": request, "settings": settings},
+    )
+
+
+@router.post("/settings/{key}/update", response_class=HTMLResponse, name="admin_setting_update")
+async def setting_update(
+    request: Request,
+    key: str,
+    value: str = Form(...),
+    admin_id: int = Depends(require_admin),
+):
+    """Update a bot setting and return the updated setting row fragment."""
+    await admin_service.set_setting(key, value, admin_id=admin_id)
+    try:
+        await notifications.admin(
+            f"Setting `{key}` changed to `{value}` via web by admin {admin_id}",
+            parse_mode="MarkdownV2",
+        )
+    except Exception:
+        logger.warning("Failed to send admin notification for setting update", exc_info=True)
+    settings = await admin_service.list_settings()
+    setting = next((s for s in settings if s.key == key), None)
+    return templates.TemplateResponse(
+        "partials/setting_row.html",
+        {"request": request, "setting": setting},
+    )
+
+
+@router.post("/settings/{key}/reset", response_class=HTMLResponse, name="admin_setting_reset")
+async def setting_reset(
+    request: Request,
+    key: str,
+    admin_id: int = Depends(require_admin),
+):
+    """Reset a bot setting to its default and return the updated setting row fragment."""
+    await admin_service.reset_setting(key)
+    try:
+        await notifications.admin(
+            f"Setting `{key}` reset to default via web by admin {admin_id}",
+            parse_mode="MarkdownV2",
+        )
+    except Exception:
+        logger.warning("Failed to send admin notification for setting reset", exc_info=True)
+    settings = await admin_service.list_settings()
+    setting = next((s for s in settings if s.key == key), None)
+    return templates.TemplateResponse(
+        "partials/setting_row.html",
+        {"request": request, "setting": setting},
+    )
+
+
+# ── Settings management routes ────────────────────────────────────────────────
 
 @router.post("/tags/{tag_id}/remove", response_class=HTMLResponse, name="admin_tag_remove")
 async def tag_remove(

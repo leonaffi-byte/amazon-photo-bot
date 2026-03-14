@@ -1,0 +1,42 @@
+<tr id="setting-row-{{ setting.key }}" class="hover:bg-gray-50">
+  <td class="px-4 py-3">
+    <span class="font-mono text-sm text-gray-800">{{ setting.key }}</span>
+  </td>
+  <td class="px-4 py-3 text-sm text-gray-600">{{ setting.description }}</td>
+  <td class="px-4 py-3">
+    <form hx-post="/admin/settings/{{ setting.key }}/update"
+          hx-target="#setting-row-{{ setting.key }}"
+          hx-swap="outerHTML"
+          class="flex items-center gap-2">
+      {% if setting.choices %}
+      <select name="value" class="border border-gray-300 rounded px-2 py-1 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300">
+        {% for choice in setting.choices %}
+        <option value="{{ choice }}" {% if choice == setting.value %}selected{% endif %}>{{ choice }}</option>
+        {% endfor %}
+      </select>
+      {% elif setting.type == "bool" %}
+      <select name="value" class="border border-gray-300 rounded px-2 py-1 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300">
+        <option value="true" {% if setting.value == "true" %}selected{% endif %}>true</option>
+        <option value="false" {% if setting.value == "false" %}selected{% endif %}>false</option>
+      </select>
+      {% elif setting.type == "int" or setting.type == "float" %}
+      <input type="number" name="value" value="{{ setting.value }}"
+             class="border border-gray-300 rounded px-2 py-1 text-sm w-24 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+             {% if setting.type == "float" %}step="any"{% endif %}>
+      {% else %}
+      <input type="text" name="value" value="{{ setting.value }}"
+             class="border border-gray-300 rounded px-2 py-1 text-sm w-32 focus:outline-none focus:ring-2 focus:ring-indigo-300">
+      {% endif %}
+      <button type="submit"
+              class="text-sm text-indigo-600 hover:text-indigo-800 font-medium">Save</button>
+    </form>
+  </td>
+  <td class="px-4 py-3 text-sm text-gray-400 font-mono">{{ setting.default }}</td>
+  <td class="px-4 py-3">
+    <button hx-post="/admin/settings/{{ setting.key }}/reset"
+            hx-target="#setting-row-{{ setting.key }}"
+            hx-swap="outerHTML"
+            hx-confirm="Reset {{ setting.key }} to default?"
+            class="text-sm text-gray-500 hover:text-gray-700">Reset</button>
+  </td>
+</tr>
