@@ -39,8 +39,8 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Web Admin Dashboard
 
-- [ ] **ADMN-01**: Web-based admin dashboard accessible at `/admin` with authentication
-- [ ] **ADMN-02**: Dashboard shows bot statistics (users, searches, clicks, revenue estimates)
+- [x] **ADMN-01**: Web-based admin dashboard accessible at `/admin` with authentication
+- [x] **ADMN-02**: Dashboard shows bot statistics (users, searches, clicks, revenue estimates)
 - [ ] **ADMN-03**: Admin can manage API keys (add, remove, view status) via web UI
 - [ ] **ADMN-04**: Admin can manage affiliate tags (activate, deactivate, add) via web UI
 - [ ] **ADMN-05**: Admin can edit bot settings (vision mode, search backend, thresholds) via web UI
@@ -131,8 +131,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PRCE-01 | Phase 2 | Complete |
 | PRCE-02 | Phase 2 | Complete |
 | PRCE-03 | Phase 2 | Complete |
-| ADMN-01 | Phase 3 | Pending |
-| ADMN-02 | Phase 3 | Pending |
+| ADMN-01 | Phase 3 | Complete |
+| ADMN-02 | Phase 3 | Complete |
 | ADMN-03 | Phase 3 | Pending |
 | ADMN-04 | Phase 3 | Pending |
 | ADMN-05 | Phase 3 | Pending |
