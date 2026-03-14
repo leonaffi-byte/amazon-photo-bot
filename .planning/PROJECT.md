@@ -26,20 +26,22 @@ When a user sends a photo of any product, the bot must reliably identify it and 
 - ✓ Scheduled admin reports (daily/weekly/monthly) — existing
 - ✓ Multi-adapter architecture (Telegram, WhatsApp, Discord, Instagram, etc.) — existing (adapters coded, untested)
 - ✓ Provider health tracking with auto-disable/recovery — existing
+- ✓ Enforce timeouts on all vision provider API calls — Phase 1
+- ✓ Wrap multi-step DB operations in transactions — Phase 1
+- ✓ Fix graceful shutdown race condition — Phase 1
+- ✓ Fix settings cache invalidation (admin changes take effect immediately) — Phase 1
+- ✓ Add proper error messages showing which backend/provider failed — Phase 1
+- ✓ Consolidated single FastAPI gateway for all HTTP services — Phase 1
+- ✓ Admin service layer decoupled from Telegram — Phase 1
 
 ### Active
 
 <!-- Current scope. Building toward these. -->
 
 **Stability & Reliability:**
-- [ ] Enforce timeouts on all vision provider API calls
 - [ ] Fix model health tracking (add time-window reset, not permanent disable)
-- [ ] Wrap multi-step DB operations in transactions
-- [ ] Fix graceful shutdown race condition
 - [ ] Add photo size validation before vision API
 - [ ] Fix Israel shipping filter accuracy (both false positives and false negatives)
-- [ ] Fix settings cache invalidation (admin changes take effect immediately)
-- [ ] Add proper error messages showing which backend/provider failed
 
 **Performance:**
 - [ ] Reduce end-to-end latency (photo → results)
@@ -87,9 +89,9 @@ When a user sends a photo of any product, the bot must reliably identify it and 
 
 - **Audience:** Israeli consumers shopping on Amazon (Hebrew + English speakers)
 - **Monetization:** Amazon Associates affiliate commission on purchases via bot links
-- **Current state:** Working Telegram bot, but unreliable — timeouts, stale caches, inaccurate Israel filter, slow response times
+- **Current state:** Working Telegram bot with hardened stability (unified timeouts, transaction safety, single gateway). Israel filter accuracy and health tracking still need improvement.
 - **Existing adapters:** WhatsApp, Discord, Instagram, Messenger, Viber, LINE adapter code exists in `adapters/` but is untested
-- **Tech stack:** Python 3.11+ async, SQLite, aiohttp, Playwright, Docker
+- **Tech stack:** Python 3.11+ async, SQLite, FastAPI (single gateway), Playwright, Docker
 - **68 known issues** documented in `.planning/codebase/CONCERNS.md` ranging from critical bugs to code quality
 
 ## Constraints
@@ -108,7 +110,9 @@ When a user sends a photo of any product, the bot must reliably identify it and 
 | Web app for public access | Telegram alone limits reach; web enables SEO + sharing | — Pending |
 | Semi-transparent overlays for detection | User preference, better UX than bounding boxes | — Pending |
 | WhatsApp + Instagram priority | Largest platforms in Israel after Telegram | — Pending |
-| Fix stability before new features | Unreliable core undermines everything built on top | — Pending |
+| Fix stability before new features | Unreliable core undermines everything built on top | ✓ Phase 1 |
+| Consolidate HTTP servers into single gateway | 3 ports → 1, simpler ops and Docker config | ✓ Phase 1 |
+| Extract admin service layer | Enables web dashboard to reuse admin logic without Telegram coupling | ✓ Phase 1 |
 
 ---
-*Last updated: 2026-03-13 after initialization*
+*Last updated: 2026-03-14 after Phase 1*
