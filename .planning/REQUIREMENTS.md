@@ -56,11 +56,11 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### WhatsApp Integration
 
-- [ ] **WHAT-01**: Bot responds to photo messages on WhatsApp with product results
-- [ ] **WHAT-02**: All WhatsApp interactions use structured messages (buttons, list messages) — no free-text AI chat
-- [ ] **WHAT-03**: WhatsApp message templates approved by Meta for outbound messages
-- [ ] **WHAT-04**: WhatsApp adapter handles 24-hour conversation window correctly
-- [ ] **WHAT-05**: User opt-in flow before receiving messages (WhatsApp compliance)
+- [x] **WHAT-01**: Bot responds to photo messages on WhatsApp with product results
+- [x] **WHAT-02**: All WhatsApp interactions use structured messages (buttons, list messages) — no free-text AI chat
+- [x] **WHAT-03**: WhatsApp message templates approved by Meta for outbound messages
+- [x] **WHAT-04**: WhatsApp adapter handles 24-hour conversation window correctly
+- [x] **WHAT-05**: User opt-in flow before receiving messages (WhatsApp compliance)
 
 ### Instagram Integration
 
@@ -142,11 +142,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | WEBA-03 | Phase 5 | Pending |
 | WEBA-04 | Phase 5 | Pending |
 | WEBA-05 | Phase 5 | Pending |
-| WHAT-01 | Phase 4 | Pending |
-| WHAT-02 | Phase 4 | Pending |
-| WHAT-03 | Phase 4 | Pending |
-| WHAT-04 | Phase 4 | Pending |
-| WHAT-05 | Phase 4 | Pending |
+| WHAT-01 | Phase 4 | Complete |
+| WHAT-02 | Phase 4 | Complete |
+| WHAT-03 | Phase 4 | Complete |
+| WHAT-04 | Phase 4 | Complete |
+| WHAT-05 | Phase 4 | Complete |
 | INST-01 | Phase 4 | Complete |
 | INST-02 | Phase 4 | Complete |
 | INST-03 | Phase 4 | Complete |

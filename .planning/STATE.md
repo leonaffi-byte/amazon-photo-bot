@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-stopped_at: Completed 04-messaging-platform-expansion/04-03-PLAN.md
-last_updated: "2026-03-14T09:58:25.538Z"
+stopped_at: Completed 04-messaging-platform-expansion/04-02-PLAN.md
+last_updated: "2026-03-14T10:03:39.799Z"
 last_activity: 2026-03-14 -- Phase 2 complete (4/4 plans, verification passed)
 progress:
   total_phases: 5
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 14
-  completed_plans: 13
+  completed_plans: 14
 ---
 
 ---
@@ -93,6 +93,7 @@ Progress: [████████████████████] 8/8 pla
 | Phase 03-web-admin-dashboard P03 | 14 | 2 tasks | 9 files |
 | Phase 04-messaging-platform-expansion P01 | 8 | 2 tasks | 3 files |
 | Phase 04-messaging-platform-expansion P03 | 10 | 2 tasks | 3 files |
+| Phase 04-messaging-platform-expansion P02 | 10 | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -126,6 +127,8 @@ Recent decisions affecting current work:
 - [Phase 04-messaging-platform-expansion]: WhatsApp opt-in tracked as INTEGER (0/1) in SQLite; wa_last_msg_at as REAL unix timestamp for 24-hour window enforcement
 - [Phase 04-messaging-platform-expansion]: Instagram opt-in uses quick replies (not WhatsApp-style templates); commands pass through before opt-in gate
 - [Phase 04-messaging-platform-expansion]: Patch adapters.instagram.send_graph_api in tests (not shared_meta) — from-import creates local binding
+- [Phase 04-messaging-platform-expansion]: Slash commands pass through WhatsApp opt-in gate matching Telegram behavior for new user onboarding
+- [Phase 04-messaging-platform-expansion]: WhatsApp send_list_message uses hasattr check in BotCore for platform-agnostic safety without base class change
 
 ### Pending Todos
 
@@ -139,6 +142,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-14T09:58:25.534Z
-Stopped at: Completed 04-messaging-platform-expansion/04-03-PLAN.md
+Last session: 2026-03-14T10:03:39.793Z
+Stopped at: Completed 04-messaging-platform-expansion/04-02-PLAN.md
 Resume file: None

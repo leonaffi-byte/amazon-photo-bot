@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Stability and Infrastructure** - Fix critical bugs, enforce timeouts, consolidate servers into single FastAPI gateway (completed 2026-03-14)
 - [ ] **Phase 2: Enhanced Visual Experience** - Photo annotations, Israel shipping badges, price history summaries, progress streaming
 - [x] **Phase 3: Web Admin Dashboard** - Browser-based admin panel replacing Telegram-only admin commands (completed 2026-03-14)
-- [ ] **Phase 4: Messaging Platform Expansion** - WhatsApp Business API and Instagram DM integrations
+- [x] **Phase 4: Messaging Platform Expansion** - WhatsApp Business API and Instagram DM integrations (completed 2026-03-14)
 - [ ] **Phase 5: Public Web Application** - Photo upload web app with shareable result pages for SEO
 
 ## Phase Details
@@ -79,7 +79,7 @@ Plans:
   2. WhatsApp 24-hour conversation window is respected: if the window closes before results are ready, the bot sends an approved template message to re-engage rather than silently failing
   3. WhatsApp users complete an opt-in flow before receiving any messages (Meta compliance)
   4. An Instagram user can send a product photo via DM and receive product results with proper formatting
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 
 Plans:
 - [ ] 04-01-PLAN.md -- Foundation: aiohttp-to-FastAPI webhook migration + DB opt-in columns (INST-02)
@@ -112,5 +112,5 @@ Note: Phase 3 depends only on Phase 1 (not Phase 2), so Phases 2 and 3 could the
 | 1. Stability and Infrastructure | 4/4 | Complete   | 2026-03-14 |
 | 2. Enhanced Visual Experience | 3/4 | In Progress|  |
 | 3. Web Admin Dashboard | 3/3 | Complete   | 2026-03-14 |
-| 4. Messaging Platform Expansion | 2/3 | In Progress|  |
+| 4. Messaging Platform Expansion | 3/3 | Complete   | 2026-03-14 |
 | 5. Public Web Application | 0/2 | Not started | - |
