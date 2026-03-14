@@ -74,8 +74,9 @@ async def homepage(request: Request, lang: str = "he"):
         lang = "he"
 
     response = templates.TemplateResponse(
+        request,
         "home.html",
-        {"request": request, "lang": lang},
+        {"lang": lang},
     )
     # Set lang cookie so subsequent requests preserve preference
     response.set_cookie("lang", lang, max_age=365 * 86400, samesite="lax")
@@ -145,9 +146,9 @@ async def upload(request: Request, photo: UploadFile = File(...)):
         lang = "he"
 
     return templates.TemplateResponse(
+        request,
         "partials/progress.html",
         {
-            "request": request,
             "session_id": session_id,
             "thumbnail_b64": thumbnail_b64,
             "lang": lang,
