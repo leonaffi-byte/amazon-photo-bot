@@ -79,12 +79,12 @@ Plans:
   2. WhatsApp 24-hour conversation window is respected: if the window closes before results are ready, the bot sends an approved template message to re-engage rather than silently failing
   3. WhatsApp users complete an opt-in flow before receiving any messages (Meta compliance)
   4. An Instagram user can send a product photo via DM and receive product results with proper formatting
-**Plans**: TBD
+**Plans:** 3 plans
 
 Plans:
-- [ ] 04-01: TBD
-- [ ] 04-02: TBD
-- [ ] 04-03: TBD
+- [ ] 04-01-PLAN.md -- Foundation: aiohttp-to-FastAPI webhook migration + DB opt-in columns (INST-02)
+- [ ] 04-02-PLAN.md -- WhatsApp compliance: opt-in gate, 24h window, list messages, template send, tests (WHAT-01, WHAT-02, WHAT-03, WHAT-04, WHAT-05)
+- [ ] 04-03-PLAN.md -- Instagram compliance: opt-in gate, quick reply navigation, tests (INST-01, INST-03)
 
 ### Phase 5: Public Web Application
 **Goal**: Anyone can visit the website, upload a product photo, and browse results with prices, shipping badges, price history, and shareable URLs -- no app install or messaging account required
