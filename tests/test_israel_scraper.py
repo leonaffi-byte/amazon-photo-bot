@@ -127,30 +127,32 @@ class TestParseHtml:
         result = _parse_html("ASIN123456", html)
         assert result.ships_to_israel is False
 
-    # ── Free shipping ──────────────────────────────────────────────────────────
-    def test_free_delivery_without_israel_mention(self):
+    # ── Free shipping (confidence-based) ──────────────────────────────────────
+    def test_free_delivery_without_fba_or_israel_scores_red(self):
+        # "FREE delivery Mon, Mar 3" alone scores 0.35 (below 0.4 threshold)
+        # → red tier: not enough confidence to confirm Israel shipping
         html = make_valid_product_page("FREE delivery Mon, Mar 3")
         result = _parse_html("ASIN123456", html)
         assert result.verified is True
-        assert result.ships_to_israel is True
-        assert result.is_free_shipping is True
-        assert "free" in result.note.lower()
+        assert result.ships_to_israel is False
 
-    def test_free_delivery_with_israel_mentioned(self):
+    def test_free_delivery_with_israel_mentioned_yellow_tier(self):
+        # FREE delivery phrase (0.35) + "israel" in delivery section (0.20) = 0.55
+        # → yellow tier: ships=True, is_free_shipping=False (not high enough for green)
         html = make_valid_product_page(
             "FREE delivery to Israel on orders over $49"
         )
         result = _parse_html("ASIN123456", html)
         assert result.ships_to_israel is True
-        assert result.is_free_shipping is True
-        # Should have higher-confidence note mentioning Israel
-        assert "israel" in result.note.lower()
+        assert result.is_free_shipping is False
 
-    def test_free_shipping_phrase(self):
+    def test_free_shipping_with_prime_yellow_tier(self):
+        # "Ships Free" (0.35) + "prime" in delivery section (0.20) = 0.55
+        # → yellow tier: ships=True, is_free_shipping=False
         html = make_valid_product_page("Ships Free with Prime")
         result = _parse_html("ASIN123456", html)
         assert result.ships_to_israel is True
-        assert result.is_free_shipping is True
+        assert result.is_free_shipping is False
 
     # ── Ships but paid (now uses confidence scoring) ───────────────────────────
     def test_ships_paid_no_signals_returns_unlikely(self):

@@ -542,6 +542,41 @@ _FREE_SHIP_PHRASES = [
 ]
 
 
+def _score_shipping_confidence(html_lower: str, delivery_section: str) -> float:
+    """Compute a weighted confidence score (0.0–1.0) that an item ships to Israel.
+
+    Signal weights:
+        Strong   (0.35 each): free-shipping phrase, FBA/ships-from-Amazon
+        Medium   (0.20 each): Prime in delivery section, Israel/deliver-to-IL mention
+        Weak     (0.10):      "add to cart" present AND "currently unavailable" absent
+
+    Definitive negative signals are handled before calling this function and
+    cause an early return in _parse_html(), so they are not re-checked here.
+
+    Returns min(sum_of_weights, 1.0).
+    """
+    score = 0.0
+    delivery_lower = delivery_section.lower() if delivery_section else ""
+
+    # Strong signals (0.35 each)
+    if any(p in html_lower for p in _FREE_SHIP_PHRASES):
+        score += 0.35
+    if "fulfilled by amazon" in html_lower or "ships from amazon" in html_lower:
+        score += 0.35
+
+    # Medium signals (0.20 each)
+    if "prime" in delivery_lower:
+        score += 0.20
+    if "israel" in delivery_lower or "deliver to il" in delivery_lower:
+        score += 0.20
+
+    # Weak positive signal (0.10): add-to-cart present, not OOS
+    if "add to cart" in html_lower and "currently unavailable" not in html_lower:
+        score += 0.10
+
+    return min(score, 1.0)
+
+
 def _parse_html(asin: str, html: str) -> IsraelShippingResult:
     html_lower = html.lower()
 
@@ -549,7 +584,7 @@ def _parse_html(asin: str, html: str) -> IsraelShippingResult:
     if "producttitle" not in html_lower and "dp/" not in html_lower:
         return _unverified(asin, "Not a product page")
 
-    # ── Definitive negative signals ────────────────────────────────────────────
+    # ── Definitive negative signals (early return) ─────────────────────────────
     for phrase in _NO_SHIP_PHRASES:
         if phrase in html_lower:
             return IsraelShippingResult(
@@ -560,15 +595,12 @@ def _parse_html(asin: str, html: str) -> IsraelShippingResult:
                 note             = "Does not ship to Israel",
             )
 
-    # ── Free shipping ──────────────────────────────────────────────────────────
-    has_free = any(p in html_lower for p in _FREE_SHIP_PHRASES)
+    # ── Confidence scoring ─────────────────────────────────────────────────────
     delivery_section = _extract_delivery_section(html)
-    israel_mentioned = (
-        "israel" in delivery_section.lower()
-        or "deliver to il" in delivery_section.lower()
-    )
+    score = _score_shipping_confidence(html_lower, delivery_section)
 
-    if has_free and israel_mentioned:
+    # Green tier (>= 0.7): high confidence ships free
+    if score >= 0.7:
         return IsraelShippingResult(
             asin             = asin,
             verified         = True,
@@ -577,22 +609,23 @@ def _parse_html(asin: str, html: str) -> IsraelShippingResult:
             note             = f"Verified: ships free to Israel (cart >= ${int(config.FREE_DELIVERY_THRESHOLD)})",
         )
 
-    if has_free:
+    # Yellow tier (>= 0.4): likely ships, paid or unknown shipping cost
+    if score >= 0.4:
         return IsraelShippingResult(
             asin             = asin,
             verified         = True,
             ships_to_israel  = True,
-            is_free_shipping = True,
-            note             = "Verified: FBA — likely ships free to Israel",
+            is_free_shipping = False,
+            note             = "Likely ships to Israel (shipping cost may apply)",
         )
 
-    # ── Ships but free status unknown ──────────────────────────────────────────
+    # Red tier (< 0.4): insufficient signals to confirm shipping
     return IsraelShippingResult(
         asin             = asin,
         verified         = True,
-        ships_to_israel  = True,
+        ships_to_israel  = False,
         is_free_shipping = False,
-        note             = "Verified: ships to Israel (shipping cost may apply)",
+        note             = "Unlikely to ship to Israel",
     )
 
 
