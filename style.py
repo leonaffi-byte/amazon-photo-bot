@@ -311,6 +311,71 @@ def product_caption(
     return caption
 
 
+def render_price_bar(ph, bar_width: int = 10) -> str:
+    """
+    Render an ASCII price bar showing where the current price sits in the 90-day range.
+
+    Output format (3 lines):
+      $89 ████████── $149
+           ^ $112 now
+      🔥 All-time low
+
+    Returns empty string if current is None or range is invalid.
+    Does NOT escape for MarkdownV2 — the caller handles escaping.
+    """
+    if not ph or ph.current is None:
+        return ""
+
+    current = ph.current
+
+    # Range low: prefer low_90d, fall back to low_all_time
+    range_low = ph.low_90d if ph.low_90d is not None else ph.low_all_time
+    if range_low is None:
+        return ""
+
+    # Range high: prefer avg_90d, fall back to synthetic (current * 1.3)
+    range_high = ph.avg_90d if ph.avg_90d is not None else current * 1.3
+
+    # Handle equal range: create a synthetic range to avoid division by zero
+    if range_high <= range_low:
+        range_high = range_low * 1.3 if range_low > 0 else range_low + 10
+
+    # Calculate ratio clamped 0.0-1.0
+    ratio = (current - range_low) / (range_high - range_low)
+    ratio = max(0.0, min(1.0, ratio))
+
+    # Build the bar: filled blocks then dashes
+    filled = round(ratio * bar_width)
+    empty  = bar_width - filled
+    bar_chars = "█" * filled + "─" * empty
+
+    # Format price labels (no decimal if whole number)
+    def fmt_price(v: float) -> str:
+        return f"${v:.0f}" if v == int(v) else f"${v:.2f}"
+
+    low_label     = fmt_price(range_low)
+    high_label    = fmt_price(range_high)
+    current_label = fmt_price(current)
+
+    # Line 1: $LOW [bar] $HIGH
+    bar_line = f"{low_label} {bar_chars} {high_label}"
+
+    # Line 2: pointer below the bar — offset to align ^ under the filled region
+    # The prefix before the bar is the low_label + 1 space
+    prefix_len = len(low_label) + 1  # e.g. "$89 " = 4 chars
+    pointer_pos = prefix_len + filled
+    pointer_line = " " * pointer_pos + f"^ {current_label} now"
+
+    lines = [bar_line, pointer_line]
+
+    # Line 3: deal label if present
+    deal = ph.deal_label
+    if deal:
+        lines.append(deal)
+
+    return "\n".join(lines)
+
+
 def _price_history_line(ph) -> str:
     """
     Format a compact price history line for the product caption.

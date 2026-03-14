@@ -333,3 +333,100 @@ class TestPriceHistoryLine:
         ph = PriceHistory("B001", "ccc", low_all_time=24.99, avg_90d=38.50)
         line = _price_history_line(ph)
         assert line.startswith("\n📊")
+
+
+# ── render_price_bar() ────────────────────────────────────────────────────────
+
+from style import render_price_bar
+
+
+class TestPriceBar:
+    def test_normal_case_returns_multiline_string(self):
+        """Bar for current=112, low_90d=89, avg_90d=149 is non-empty and multi-line."""
+        ph = PriceHistory("B001", "ccc", current=112.0, low_90d=89.0, avg_90d=149.0)
+        bar = render_price_bar(ph)
+        assert bar != ""
+        assert "\n" in bar
+
+    def test_normal_case_contains_price_labels(self):
+        """Bar output contains $ amounts for low and high boundaries."""
+        ph = PriceHistory("B001", "ccc", current=112.0, low_90d=89.0, avg_90d=149.0)
+        bar = render_price_bar(ph)
+        assert "$89" in bar
+        assert "$149" in bar
+
+    def test_normal_case_contains_current_price(self):
+        """Bar output contains the current price."""
+        ph = PriceHistory("B001", "ccc", current=112.0, low_90d=89.0, avg_90d=149.0)
+        bar = render_price_bar(ph)
+        assert "$112" in bar
+
+    def test_current_at_low_pointer_at_left(self):
+        """When current == low_90d, pointer is at left edge (position 0 or close)."""
+        ph = PriceHistory("B001", "ccc", current=89.0, low_90d=89.0, avg_90d=149.0)
+        bar = render_price_bar(ph)
+        assert bar != ""
+        # The pointer line should start with ^ near the beginning
+        lines = bar.splitlines()
+        pointer_line = next((l for l in lines if "^" in l), "")
+        assert pointer_line != ""
+        # ^ should appear before position 5 (left-leaning)
+        caret_pos = pointer_line.index("^")
+        assert caret_pos <= 5
+
+    def test_current_at_high_pointer_at_right(self):
+        """When current == avg_90d, pointer is at right edge."""
+        ph = PriceHistory("B001", "ccc", current=149.0, low_90d=89.0, avg_90d=149.0)
+        bar = render_price_bar(ph)
+        assert bar != ""
+        lines = bar.splitlines()
+        pointer_line = next((l for l in lines if "^" in l), "")
+        assert pointer_line != ""
+        # ^ should appear near the right side (position >= 10 in a 10-wide bar)
+        caret_pos = pointer_line.index("^")
+        assert caret_pos >= 8
+
+    def test_current_none_returns_empty_string(self):
+        """When current is None, render_price_bar returns empty string."""
+        ph = PriceHistory("B001", "ccc", current=None, low_90d=89.0, avg_90d=149.0)
+        assert render_price_bar(ph) == ""
+
+    def test_low_90d_none_falls_back_to_low_all_time(self):
+        """When low_90d is None but low_all_time is set, use low_all_time as range low."""
+        ph = PriceHistory("B001", "ccc", current=112.0, low_90d=None, low_all_time=50.0, avg_90d=149.0)
+        bar = render_price_bar(ph)
+        assert bar != ""
+        assert "$50" in bar   # low_all_time used as range low
+
+    def test_equal_range_handled_gracefully(self):
+        """When low_90d == avg_90d, a synthetic range is created (no division by zero)."""
+        ph = PriceHistory("B001", "ccc", current=100.0, low_90d=100.0, avg_90d=100.0)
+        bar = render_price_bar(ph)
+        # Should not raise, should return a non-empty bar
+        assert bar != ""
+
+    def test_bar_contains_block_chars_or_dashes(self):
+        """Bar line contains Unicode block chars or ASCII fill/empty indicators."""
+        ph = PriceHistory("B001", "ccc", current=112.0, low_90d=89.0, avg_90d=149.0)
+        bar = render_price_bar(ph)
+        # Should contain filled blocks (█) or dashes (─/-)
+        has_fill = any(c in bar for c in ["█", "▓", "▒", "░", "■"])
+        has_empty = any(c in bar for c in ["─", "-", "·", "·"])
+        assert has_fill or has_empty
+
+    def test_deal_label_included_when_present(self):
+        """Deal label from ph.deal_label appears in the output when applicable."""
+        ph = PriceHistory("B001", "ccc", current=25.0, low_all_time=24.50,
+                          low_90d=24.0, avg_90d=40.0)
+        bar = render_price_bar(ph)
+        # deal_label should be "🔥 All-time low"
+        assert "🔥" in bar or "low" in bar.lower()
+
+    def test_no_deal_label_when_not_applicable(self):
+        """When price is not a deal, deal label line is absent or empty."""
+        ph = PriceHistory("B001", "ccc", current=149.0, low_90d=89.0, avg_90d=149.0)
+        bar = render_price_bar(ph)
+        # No deal label expected (current == avg = not a deal)
+        assert "🔥" not in bar
+        assert "💸" not in bar
+        assert "✅" not in bar
