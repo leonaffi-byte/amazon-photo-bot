@@ -29,7 +29,7 @@ RUN mkdir -p /app/data
 RUN useradd -m -s /bin/bash botuser && chown -R botuser:botuser /app/data
 USER botuser
 
-HEALTHCHECK --interval=60s --timeout=5s --retries=3 \
-    CMD python -c "import sys; sys.exit(0)" || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=15s \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')" || exit 1
 
 CMD ["python", "main.py"]

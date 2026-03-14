@@ -13,39 +13,23 @@ services:
       # DB and logs live under /app/data so the volume mount persists them
       DATA_DIR: /app/data
     ports:
-      # URL shortener — Nginx proxies amznl.cc → this port
+      # Consolidated gateway: URL shortener + webhooks + Israel Shipping API
+      # Nginx proxies amznl.cc → this port
       - "8080:8080"
     volumes:
       # Single directory mount — contains both bot_data.db and bot.log
       - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
-
-  amazon-api:
-    image: amazon-photo-bot
-    build: .
-    container_name: amazon-api
-    restart: unless-stopped
-    stop_grace_period: 30s
-    command: python api_server.py
-    env_file:
-      - .env
-    environment:
-      DATA_DIR: /app/data/api
-    ports:
-      - "8001:8001"
-    volumes:
-      - ./data:/app/data
-    depends_on:
-      - amazon-bot
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "5m"
-        max-file: "2"
 
   test-bot:
     image: amazon-photo-bot          # reuse same image (built above)

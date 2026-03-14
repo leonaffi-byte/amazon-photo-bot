@@ -1,19 +1,20 @@
 """
 main.py -- Single entry point.
 
-Runs all configured platform adapters and the custom URL shortener web server
+Runs all configured platform adapters and the consolidated FastAPI gateway
 in the same asyncio event loop -- no threads, no subprocesses.
 
 Architecture:
   asyncio event loop
     +-- TelegramAdapter -> BotCore  (polling)
     +-- DiscordAdapter  -> BotCore  (gateway WebSocket)
-    +-- Webhook server on :8081    (WhatsApp, Instagram, Messenger, Viber, LINE)
-    +-- aiohttp web server on :8080 (shortener -- redirect + click tracking)
-         Only started when SHORTENER_ENABLED=true and SHORTENER_BASE_URL is set.
+    +-- FastAPI gateway on :8080   (shortener + webhooks + Israel API)
+         Shortener only active when SHORTENER_ENABLED=true and SHORTENER_BASE_URL is set.
+         Webhook routes registered for any adapter that implements handle_webhook().
 """
 import asyncio
 import logging
+import os
 import signal
 import sys
 import warnings
@@ -28,7 +29,6 @@ import config
 
 # Log file lives in the same data/ directory as the database so that a single
 # Docker volume mount (./data:/app/data) captures both.
-import os
 from pathlib import Path
 _data_dir = Path(os.getenv("DATA_DIR", "data"))
 _data_dir.mkdir(parents=True, exist_ok=True)
@@ -46,6 +46,17 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
+
+# ── In-flight task tracking for graceful shutdown ─────────────────────────────
+# Tasks registered here are awaited during shutdown with a 10s grace period.
+_active_tasks: set[asyncio.Task] = set()
+
+
+def track_task(task: asyncio.Task) -> asyncio.Task:
+    """Register a task for graceful-shutdown tracking. Returns the task."""
+    _active_tasks.add(task)
+    task.add_done_callback(_active_tasks.discard)
+    return task
 
 
 def _make_callbacks(bot_core_ref):
@@ -194,28 +205,26 @@ async def run() -> None:
         import log_group
         log_group.init(tg_adapter._app)
 
-    # -- Start webhook server for webhook-based adapters -------------------
+    # -- Start consolidated FastAPI gateway (shortener + webhooks + API) ------
     webhook_adapters = [a for a in adapters if hasattr(a, "handle_webhook")]
-    webhook_runner = None
-    if webhook_adapters:
-        from aiohttp import web
-        from webhook_server import create_webhook_app
-        webhook_app = create_webhook_app(webhook_adapters)
-        webhook_runner = web.AppRunner(webhook_app)
-        await webhook_runner.setup()
-        site = web.TCPSite(webhook_runner, "0.0.0.0", 8081)
-        await site.start()
-        logger.info("Webhook server listening on port 8081 (%d adapter(s))", len(webhook_adapters))
-
-    # -- Start custom URL shortener server if configured -------------------
-    web_runner = None
-    if config.SHORTENER_ENABLED and config.SHORTENER_BASE_URL:
-        from shortener_server import start_shortener
-        try:
-            web_runner = await start_shortener()
-        except Exception as exc:
-            logger.error("Failed to start shortener server: %s", exc)
-            logger.warning("Continuing without custom shortener.")
+    from gateway import create_app
+    import uvicorn
+    gateway_app = create_app(webhook_adapters=webhook_adapters if webhook_adapters else None)
+    uvi_config = uvicorn.Config(
+        gateway_app,
+        host      = "0.0.0.0",
+        port      = int(os.getenv("SHORTENER_PORT", str(config.SHORTENER_PORT))),
+        log_level = "info",
+        loop      = "none",   # Don't create a new event loop — use the running one
+    )
+    uvi_server = uvicorn.Server(uvi_config)
+    server_task = track_task(asyncio.create_task(uvi_server.serve()))
+    logger.info(
+        "Gateway listening on port %d (shortener=%s, webhook_adapters=%d)",
+        uvi_config.port,
+        "enabled" if config.SHORTENER_ENABLED and config.SHORTENER_BASE_URL else "disabled",
+        len(webhook_adapters),
+    )
 
     # -- Start periodic cleanup tasks --------------------------------------
     cleanup_tasks = []
@@ -245,7 +254,7 @@ async def run() -> None:
         len(adapters),
         ", ".join(a.platform_name for a in adapters),
     )
-    if web_runner:
+    if config.SHORTENER_ENABLED and config.SHORTENER_BASE_URL:
         logger.info(
             "Shortener: %s  (port %d)",
             config.SHORTENER_BASE_URL,
@@ -261,6 +270,30 @@ async def run() -> None:
     # -- Graceful shutdown -------------------------------------------------
     logger.info("Shutting down...")
 
+    # 1. Stop the Uvicorn gateway and await in-flight analysis tasks
+    uvi_server.should_exit = True
+
+    # Wait for in-flight tasks (analysis, click logging, etc.) with 10s grace period
+    # Remove the server_task itself from the set so we don't double-await it
+    _active_tasks.discard(server_task)
+    if _active_tasks:
+        logger.info("Waiting for %d in-flight task(s)...", len(_active_tasks))
+        done, pending = await asyncio.wait(list(_active_tasks), timeout=10.0)
+        if pending:
+            logger.warning("Cancelling %d timed-out task(s)", len(pending))
+            for t in pending:
+                t.cancel()
+            # Give cancelled tasks a moment to clean up
+            await asyncio.gather(*pending, return_exceptions=True)
+
+    # Await the server task itself
+    try:
+        await asyncio.wait_for(server_task, timeout=10.0)
+    except (asyncio.CancelledError, asyncio.TimeoutError):
+        pass
+    logger.info("Gateway stopped.")
+
+    # 2. Stop scheduler
     sched.stop()
     sched_task.cancel()
     try:
@@ -268,6 +301,7 @@ async def run() -> None:
     except (asyncio.CancelledError, asyncio.TimeoutError):
         pass
 
+    # 3. Stop periodic cleanup tasks
     for task in cleanup_tasks:
         task.cancel()
         try:
@@ -275,16 +309,9 @@ async def run() -> None:
         except (asyncio.CancelledError, asyncio.TimeoutError):
             pass
 
+    # 4. Stop platform adapters
     for adapter in reversed(adapters):
         await adapter.stop()
-
-    if webhook_runner:
-        await webhook_runner.cleanup()
-        logger.info("Webhook server stopped.")
-
-    if web_runner:
-        await web_runner.cleanup()
-        logger.info("Shortener server stopped.")
 
     from database import close_db
     await close_db()
