@@ -640,6 +640,44 @@ async def get_stats() -> dict:
     }
 
 
+async def get_daily_search_counts(days: int = 7) -> list[int]:
+    """
+    Return daily search counts for the last `days` days, oldest-to-newest.
+
+    Each element in the returned list represents the number of searches
+    on that day, with index 0 = oldest and index -1 = today.
+    Days with no searches are filled with 0.
+
+    Args:
+        days: Number of days to include in the result (default 7).
+
+    Returns:
+        A list of `days` integers.
+    """
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    async with _get_conn() as db:
+        async with db.execute(
+            """SELECT date(searched_at) as day, COUNT(*) as cnt
+               FROM search_logs
+               WHERE searched_at >= ?
+               GROUP BY day
+               ORDER BY day""",
+            (cutoff,),
+        ) as cur:
+            rows = await cur.fetchall()
+
+    # Build a lookup dict from the query results
+    counts_by_day: dict[str, int] = {row[0]: row[1] for row in rows}
+
+    # Fill in each of the last `days` dates (oldest first)
+    result = []
+    for i in range(days - 1, -1, -1):
+        day_str = (datetime.now(timezone.utc) - timedelta(days=i)).strftime("%Y-%m-%d")
+        result.append(counts_by_day.get(day_str, 0))
+
+    return result
+
+
 # ── API key operations ────────────────────────────────────────────────────────
 
 async def get_api_key(key_name: str) -> Optional[str]:

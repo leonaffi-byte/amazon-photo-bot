@@ -10,6 +10,9 @@ aiofiles==23.2.1
 Pillow~=10.4.0
 aiosqlite~=0.20.0
 tzdata
+python-multipart>=0.0.9
+itsdangerous>=2.1.2
+jinja2>=3.1.0
 
 # Vision providers — install only what you need
 openai>=1.50.0                  # OpenAI gpt-4o / gpt-4o-mini
