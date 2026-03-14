@@ -2,7 +2,7 @@
 
 ## What This Is
 
-A multi-platform bot that identifies products in user-submitted photos using AI vision models and finds matching items on Amazon, earning revenue through affiliate links. Currently works on Telegram with 7 vision providers and 4 search backends. Targeting Israeli consumers who want to find Amazon products that ship free to Israel.
+A multi-platform product identification service that uses AI vision to identify products in user photos and finds matching items on Amazon with Israel shipping information. Supports Telegram, WhatsApp, Instagram, and a public web application. Features a browser-based admin dashboard, confidence-scored shipping badges, annotated photo overlays, and price history visualization. Earns revenue through Amazon Associates affiliate links targeting Israeli consumers.
 
 ## Core Value
 
@@ -11,8 +11,6 @@ When a user sends a photo of any product, the bot must reliably identify it and 
 ## Requirements
 
 ### Validated
-
-<!-- Shipped and confirmed valuable. Inferred from existing code. -->
 
 - ✓ Vision analysis via 7 providers (OpenAI, Anthropic, Gemini, Groq, Azure, OpenRouter) — existing
 - ✓ Amazon search via 4 backends (PA-API, RapidAPI, DataForSEO, Playwright) — existing
@@ -24,74 +22,56 @@ When a user sends a photo of any product, the bot must reliably identify it and 
 - ✓ Custom URL shortener with click tracking — existing
 - ✓ Price history via CamelCamelCamel + Keepa — existing
 - ✓ Scheduled admin reports (daily/weekly/monthly) — existing
-- ✓ Multi-adapter architecture (Telegram, WhatsApp, Discord, Instagram, etc.) — existing (adapters coded, untested)
 - ✓ Provider health tracking with auto-disable/recovery — existing
-- ✓ Enforce timeouts on all vision provider API calls — Phase 1
-- ✓ Wrap multi-step DB operations in transactions — Phase 1
-- ✓ Fix graceful shutdown race condition — Phase 1
-- ✓ Fix settings cache invalidation (admin changes take effect immediately) — Phase 1
-- ✓ Add proper error messages showing which backend/provider failed — Phase 1
-- ✓ Consolidated single FastAPI gateway for all HTTP services — Phase 1
-- ✓ Admin service layer decoupled from Telegram — Phase 1
-- ✓ ASCII price bar visualization in product captions — Phase 2
-- ✓ Multi-signal Israel shipping confidence scoring (replaces binary detection) — Phase 2
-- ✓ Semi-transparent overlay annotations on detected products — Phase 2
-- ✓ Shipping badges (green/yellow/red/gray) in product results — Phase 2
-- ✓ 4-stage progress messages during analysis — Phase 2
+- ✓ Enforce timeouts on all vision provider API calls — v1.0
+- ✓ Wrap multi-step DB operations in transactions — v1.0
+- ✓ Fix graceful shutdown race condition — v1.0
+- ✓ Fix settings cache invalidation (admin changes take effect immediately) — v1.0
+- ✓ Add proper error messages showing which backend/provider failed — v1.0
+- ✓ Consolidated single FastAPI gateway for all HTTP services — v1.0
+- ✓ Admin service layer decoupled from Telegram — v1.0
+- ✓ ASCII price bar visualization in product captions — v1.0
+- ✓ Multi-signal Israel shipping confidence scoring (replaces binary detection) — v1.0
+- ✓ Semi-transparent overlay annotations on detected products — v1.0
+- ✓ Shipping badges (green/yellow/red/gray) in product results — v1.0
+- ✓ 4-stage progress messages during analysis — v1.0
+- ✓ Web admin dashboard with auth, stats, key/tag/settings management — v1.0
+- ✓ Provider health monitoring and reset via web UI — v1.0
+- ✓ WhatsApp Business API integration with opt-in compliance — v1.0
+- ✓ Instagram DM integration with opt-in and quick replies — v1.0
+- ✓ WhatsApp 24h window enforcement with template fallback — v1.0
+- ✓ Public web app with photo upload, SSE progress, shareable result pages — v1.0
+- ✓ Hebrew/English i18n with RTL support — v1.0
+- ✓ Mobile-responsive web application — v1.0
+- ✓ Cross-platform visual parity (overlays, badges, price bars on all platforms) — v1.0
 
 ### Active
 
-<!-- Current scope. Building toward these. -->
-
-**Stability & Reliability:**
-- [ ] Fix model health tracking (add time-window reset, not permanent disable)
-- [ ] Add photo size validation before vision API
-- [ ] Fix Israel shipping filter accuracy (both false positives and false negatives)
-
-**Performance:**
 - [ ] Reduce end-to-end latency (photo → results)
-- [ ] Cache settings, active tag, disabled models with TTL
-- [ ] Parallelize proxy attempts in price history
-- [ ] Optimize Playwright selector resilience and speed
-
-**Photo Annotations:**
 - [ ] Let user tap/select which detected product to search for
-
-**Israel Shipping Filter Improvements:**
-- [ ] Improve detection accuracy for Israel-eligible products (beyond confidence scoring)
-
-**Price History:**
-- [ ] Show price chart image alongside product results
-
-**Multi-Platform:**
-- [ ] WhatsApp Business API integration (production-ready)
-- [ ] Web application for photo upload + results browsing
-- [ ] Instagram DM integration
-
-**Web Interface:**
-- [ ] Public-facing web app for users (photo upload, results, price history)
-- [ ] Admin dashboard (replace Telegram-based admin panel)
-
-**UX & Design:**
-- [ ] Better message formatting and visual design
+- [ ] Price chart image alongside product results (rendered visual, not ASCII)
+- [ ] Improve Israel shipping detection accuracy beyond confidence scoring
+- [ ] Click tracking in DB for dashboard analytics
 
 ### Out of Scope
 
-- Discord integration — low priority for Israeli audience
-- LINE / Viber adapters — low demand
-- Mobile native app — web-first approach
+- Discord / LINE / Viber integrations — low demand in Israeli market
+- Mobile native app — web PWA provides app-like experience
 - Real-time price monitoring / deal alerts — future milestone
 - Multi-language support beyond Hebrew/English — future milestone
 - Payment processing / premium tiers — future milestone
+- Open-ended AI chatbot conversation — Meta banned on WhatsApp; unpredictable costs
+- Multi-marketplace search (eBay, AliExpress) — Amazon Associates TOS concerns
+- Automatic purchase / one-click buy — Amazon Associates TOS violation
 
 ## Context
 
 - **Audience:** Israeli consumers shopping on Amazon (Hebrew + English speakers)
 - **Monetization:** Amazon Associates affiliate commission on purchases via bot links
-- **Current state:** Working Telegram bot with hardened stability and enhanced visual experience (price bars, shipping badges, photo overlays, progress messages). Israel filter now uses multi-signal confidence scoring.
-- **Existing adapters:** WhatsApp, Discord, Instagram, Messenger, Viber, LINE adapter code exists in `adapters/` but is untested
-- **Tech stack:** Python 3.11+ async, SQLite, FastAPI (single gateway), Playwright, Docker
-- **68 known issues** documented in `.planning/codebase/CONCERNS.md` ranging from critical bugs to code quality
+- **Current state:** v1.0 shipped with 22,651 LOC Python across 250 files. All 40 requirements satisfied. 8 phases, 21 plans executed over 19 days.
+- **Platforms:** Telegram (primary), WhatsApp, Instagram, Web — all with visual parity
+- **Tech stack:** Python 3.11+ async, SQLite, FastAPI (single gateway), HTMX+Jinja2, Playwright, Docker
+- **Tech debt:** `total_clicks` hardcoded to 0, WhatsApp `edit_text` double-guards, legacy adapters (messenger/viber/line) use stale aiohttp types
 
 ## Constraints
 
@@ -105,15 +85,18 @@ When a user sends a photo of any product, the bot must reliably identify it and 
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Stay on SQLite | Works for current scale, migration cost high | — Pending |
-| Web app for public access | Telegram alone limits reach; web enables SEO + sharing | — Pending |
-| Semi-transparent overlays for detection | User preference, better UX than bounding boxes | ✓ Phase 2 |
-| Confidence-based Israel shipping tiers | Replaces binary yes/no with green/yellow/red scoring | ✓ Phase 2 |
-| 4-stage progress messages | Perceived speed improvement during analysis flow | ✓ Phase 2 |
-| WhatsApp + Instagram priority | Largest platforms in Israel after Telegram | — Pending |
-| Fix stability before new features | Unreliable core undermines everything built on top | ✓ Phase 1 |
-| Consolidate HTTP servers into single gateway | 3 ports → 1, simpler ops and Docker config | ✓ Phase 1 |
-| Extract admin service layer | Enables web dashboard to reuse admin logic without Telegram coupling | ✓ Phase 1 |
+| Stay on SQLite | Works for current scale, migration cost high | ⚠️ Revisit if multi-platform write contention appears |
+| Fix stability before new features | Unreliable core undermines everything built on top | ✓ Good (v1.0 Phase 1) |
+| Consolidate HTTP servers into single gateway | 3 ports → 1, simpler ops and Docker config | ✓ Good (v1.0 Phase 1) |
+| Extract admin service layer | Enables web dashboard to reuse admin logic without Telegram coupling | ✓ Good (v1.0 Phase 1) |
+| Semi-transparent overlays for detection | User preference, better UX than bounding boxes | ✓ Good (v1.0 Phase 2) |
+| Confidence-based Israel shipping tiers | Replaces binary yes/no with green/yellow/red scoring | ✓ Good (v1.0 Phase 2) |
+| 4-stage progress messages | Perceived speed improvement during analysis flow | ✓ Good (v1.0 Phase 2) |
+| FastAPI+HTMX+Jinja2 for web surfaces | Lightweight, server-rendered, works with existing async stack | ✓ Good (v1.0 Phase 3/5) |
+| WhatsApp + Instagram priority | Largest platforms in Israel after Telegram | ✓ Good (v1.0 Phase 4) |
+| Web app for public access | Telegram alone limits reach; web enables SEO + sharing | ✓ Good (v1.0 Phase 5) |
+| Hebrew-first default (lang='he') | Target market is Israeli users | ✓ Good (v1.0 Phase 5) |
+| Guard pattern for WhatsApp 24h window | _guard_window returns no-op instead of exceptions | ✓ Good (v1.0 Phase 8) |
 
 ---
-*Last updated: 2026-03-14 after Phase 2*
+*Last updated: 2026-03-14 after v1.0 milestone*
