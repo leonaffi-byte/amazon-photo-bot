@@ -1,0 +1,42 @@
+{% extends "web_base.html" %}
+
+{% block og_tags %}
+<!-- Open Graph meta tags for social sharing -->
+<meta property="og:type" content="website" />
+<meta property="og:title" content="{{ og_title }}" />
+<meta property="og:description" content="{{ og_description }}" />
+<meta property="og:image" content="{{ og_image }}" />
+<meta property="og:url" content="{{ og_url }}" />
+<!-- Prevent search engine indexing of result pages -->
+<meta name="robots" content="noindex, nofollow" />
+{% endblock %}
+
+{% block title %}{{ og_title }} — Amazon Photo Search{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+  <!-- Annotated photo (collapsible) -->
+  <details open class="bg-gray-50 rounded-xl overflow-hidden border border-gray-100">
+    <summary class="cursor-pointer px-4 py-3 text-sm font-medium text-gray-600 hover:text-gray-800 select-none">
+      Photo with detected products
+    </summary>
+    <div class="px-4 pb-4">
+      <img
+        src="/search/{{ short_id }}/image"
+        alt="Annotated products"
+        class="w-full rounded-lg shadow object-contain max-h-96"
+      />
+    </div>
+  </details>
+
+  <!-- Multi-product tabs (only shown when more than 1 product) -->
+  {% if products|length > 1 %}
+    {% include "partials/product_tabs.html" %}
+  {% endif %}
+
+  <!-- Product result cards for the active product -->
+  {% include "partials/product_cards.html" %}
+
+</div>
+{% endblock %}

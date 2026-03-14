@@ -259,39 +259,134 @@ async def result_image(short_id: str):
 @router.get("/search/{short_id}", response_class=HTMLResponse, include_in_schema=False)
 async def result_page(request: Request, short_id: str):
     """
-    Result page stub — Plan 02 will add full rendering with OG tags.
+    Full result page with product cards, tabs, OG tags, price history, and shipping badges.
     Returns 200 for valid results, 404 for missing, 410 for expired.
     """
-    from web_app import search_store
+    import json as _json
     import time as _time
+    import database as _db
+    from price_history import get_price_history, PriceHistory
+    from web_app import search_store
 
-    # First check if the row exists at all (including expired)
-    async with __import__("database")._get_conn() as db:
+    # Check if the row exists (including expired)
+    async with _db._get_conn() as db:
         async with db.execute(
             "SELECT short_id, expires_at FROM web_searches WHERE short_id = ?",
             (short_id,),
         ) as cursor:
-            row = await cursor.fetchone()
+            meta_row = await cursor.fetchone()
 
-    if row is None:
-        return HTMLResponse(
-            content="<h1>Not found</h1>",
+    if meta_row is None:
+        return templates.TemplateResponse(
+            request,
+            "error.html",
+            {"lang": "he", "error_title": "Not Found", "error_message": "This result does not exist."},
             status_code=404,
         )
 
-    if row["expires_at"] < _time.time():
-        return HTMLResponse(
-            content="<h1>This result has expired</h1>",
+    if meta_row["expires_at"] < _time.time():
+        return templates.TemplateResponse(
+            request,
+            "error.html",
+            {"lang": "he", "error_title": "Result Expired", "error_message": "This result has expired and is no longer available."},
             status_code=410,
         )
 
-    # Stub response — Plan 02 will render full results page
-    return HTMLResponse(
-        content=(
-            f'<html><body>'
-            f'<p>Results loaded for: {short_id}</p>'
-            f'<img src="/search/{short_id}/image" alt="Annotated product" />'
-            f'</body></html>'
-        ),
-        status_code=200,
+    # Load full result data
+    row = await search_store.get_web_search(short_id)
+    if row is None:
+        # Shouldn't happen but guard anyway
+        return templates.TemplateResponse(
+            request,
+            "error.html",
+            {"lang": "he", "error_title": "Not Found", "error_message": "This result does not exist."},
+            status_code=404,
+        )
+
+    lang = row.get("lang", "he")
+    if lang not in ("he", "en"):
+        lang = "he"
+
+    # Parse JSON data
+    all_results: list[list[dict]] = _json.loads(row.get("results_json") or "[]")
+    products: list[dict] = _json.loads(row.get("products_json") or "[]")
+
+    # Determine active product index from query param
+    try:
+        active_idx = int(request.query_params.get("product", 0))
+    except (ValueError, TypeError):
+        active_idx = 0
+    if active_idx < 0 or active_idx >= max(len(products), 1):
+        active_idx = 0
+
+    active_results: list[dict] = all_results[active_idx] if active_idx < len(all_results) else []
+
+    # Get active affiliate tag
+    affiliate_tag = await _db.get_active_tag()
+
+    # Pre-compute affiliate URLs and shipping badges for each item
+    def _affiliate_url(asin: str) -> str:
+        if affiliate_tag:
+            return f"https://www.amazon.com/dp/{asin}?tag={affiliate_tag}&linkCode=ogi&th=1&psc=1"
+        return f"https://www.amazon.com/dp/{asin}?th=1&psc=1"
+
+    def _shipping_badge(item: dict) -> dict:
+        """Return badge info dict with text, bg_class, text_class."""
+        if item.get("is_sold_by_amazon") or item.get("is_amazon_fulfilled"):
+            return {"text": "Ships to Israel", "bg": "bg-green-100", "color": "text-green-800"}
+        if item.get("is_prime"):
+            return {"text": "Likely ships", "bg": "bg-yellow-100", "color": "text-yellow-800"}
+        return {"text": "May not ship", "bg": "bg-red-100", "color": "text-red-800"}
+
+    # Enrich active_results with affiliate URL and shipping badge
+    enriched_results = []
+    for item in active_results:
+        item = dict(item)
+        item["affiliate_url"] = _affiliate_url(item.get("asin", ""))
+        item["badge"] = _shipping_badge(item)
+        enriched_results.append(item)
+
+    # Fetch price history for active product items (concurrent, max 10)
+    price_histories: dict[str, dict] = {}
+    if enriched_results:
+        ph_tasks = [get_price_history(item["asin"]) for item in enriched_results[:10]]
+        ph_results = await asyncio.gather(*ph_tasks, return_exceptions=True)
+        for item, ph in zip(enriched_results[:10], ph_results):
+            if isinstance(ph, PriceHistory) and ph is not None:
+                price_histories[item["asin"]] = {
+                    "current": ph.current,
+                    "low_all_time": ph.low_all_time,
+                    "avg_90d": ph.avg_90d,
+                    "low_90d": ph.low_90d,
+                    "deal_label": ph.deal_label,
+                }
+
+    # Build OG meta data
+    import config as _config
+    base_url = (_config.SHORTENER_BASE_URL or "").rstrip("/")
+    og_image = f"{base_url}/search/{short_id}/image" if base_url else f"/search/{short_id}/image"
+    og_title = products[0].get("product_name", "Amazon Product Search") if products else "Amazon Product Search"
+    product_count = len(products)
+    og_description = (
+        f"Found {product_count} product{'s' if product_count != 1 else ''} — "
+        "click to see prices, ratings, and Amazon links."
+    )
+
+    return templates.TemplateResponse(
+        request,
+        "search.html",
+        {
+            "lang": lang,
+            "short_id": short_id,
+            "products": products,
+            "active_product_idx": active_idx,
+            "active_results": enriched_results,
+            "all_results": all_results,
+            "affiliate_tag": affiliate_tag,
+            "price_histories": price_histories,
+            "og_title": og_title,
+            "og_description": og_description,
+            "og_image": og_image,
+            "og_url": f"{base_url}/search/{short_id}" if base_url else f"/search/{short_id}",
+        },
     )
