@@ -22,6 +22,7 @@ from israel_scraper import (
     _extract_csrf,
     _is_captcha,
     _parse_html,
+    _score_shipping_confidence,
     _unverified,
     is_configured,
 )
@@ -151,13 +152,24 @@ class TestParseHtml:
         assert result.ships_to_israel is True
         assert result.is_free_shipping is True
 
-    # ── Ships but paid ─────────────────────────────────────────────────────────
-    def test_ships_paid(self):
+    # ── Ships but paid (now uses confidence scoring) ───────────────────────────
+    def test_ships_paid_no_signals_returns_unlikely(self):
+        # Under confidence scoring, "$5.99 shipping" with no FBA/Prime/Israel
+        # signals scores below 0.4 → unlikely to ship to Israel
         html = make_valid_product_page("$5.99 shipping to your location.")
         result = _parse_html("ASIN123456", html)
+        assert result.verified is True
+        assert result.ships_to_israel is False
+
+    def test_ships_fba_with_israel_mention(self):
+        # FBA + Israel in delivery section → score >= 0.7 → ships_to_israel=True, free=True
+        html = make_valid_product_page(
+            "Ships from Amazon. Fulfilled by Amazon. Free delivery to Israel."
+        )
+        result = _parse_html("ASIN123456", html)
+        assert result.verified is True
         assert result.ships_to_israel is True
-        assert result.is_free_shipping is False
-        assert "Verified" in result.note
+        assert result.is_free_shipping is True
 
     # ── Invalid / unknown page ─────────────────────────────────────────────────
     def test_empty_page_unverified(self):
@@ -394,3 +406,225 @@ class TestCheckShippingScrape:
 
         assert result.verified is False
         mock_set.assert_not_called()
+
+
+# ── _score_shipping_confidence ─────────────────────────────────────────────────
+
+class TestScoreShippingConfidence:
+    """Unit tests for _score_shipping_confidence() weighted scoring."""
+
+    def test_empty_html_returns_zero(self):
+        assert _score_shipping_confidence("", "") == 0.0
+
+    def test_free_ship_phrase_alone_scores_035(self):
+        score = _score_shipping_confidence("free delivery today", "free delivery today")
+        assert score == pytest.approx(0.35)
+
+    def test_fulfilled_by_amazon_alone_scores_035(self):
+        score = _score_shipping_confidence("fulfilled by amazon", "")
+        assert score == pytest.approx(0.35)
+
+    def test_ships_from_amazon_alone_scores_035(self):
+        score = _score_shipping_confidence("ships from amazon", "")
+        assert score == pytest.approx(0.35)
+
+    def test_prime_in_delivery_section_scores_02(self):
+        score = _score_shipping_confidence("some content", "prime eligible")
+        assert score == pytest.approx(0.20)
+
+    def test_israel_in_delivery_section_scores_02(self):
+        score = _score_shipping_confidence("some content", "deliver to israel")
+        assert score == pytest.approx(0.20)
+
+    def test_deliver_to_il_in_delivery_section_scores_02(self):
+        score = _score_shipping_confidence("deliver to il available", "deliver to il available")
+        assert score == pytest.approx(0.20)
+
+    def test_add_to_cart_without_unavailable_scores_01(self):
+        score = _score_shipping_confidence("add to cart", "")
+        assert score == pytest.approx(0.10)
+
+    def test_add_to_cart_with_currently_unavailable_no_weak_signal(self):
+        score = _score_shipping_confidence("add to cart currently unavailable", "")
+        assert score == pytest.approx(0.0)
+
+    def test_green_tier_free_ship_plus_fba(self):
+        # free_ship_phrase (0.35) + "fulfilled by amazon" (0.35) = 0.70
+        score = _score_shipping_confidence(
+            "free delivery fulfilled by amazon", "free delivery fulfilled by amazon"
+        )
+        assert score >= 0.7
+
+    def test_green_tier_free_ship_plus_israel(self):
+        # free_ship_phrase (0.35) + israel in delivery (0.20) = 0.55 → not green
+        # But free_ship + fba + israel should be green
+        score = _score_shipping_confidence(
+            "free delivery fulfilled by amazon",
+            "free delivery fulfilled by amazon deliver to israel"
+        )
+        assert score >= 0.7
+
+    def test_yellow_tier_prime_plus_israel(self):
+        # prime (0.20) + israel (0.20) = 0.40 → yellow tier
+        score = _score_shipping_confidence(
+            "prime eligible",
+            "prime eligible deliver to israel"
+        )
+        assert 0.4 <= score < 0.7
+
+    def test_score_capped_at_1(self):
+        # All signals together should not exceed 1.0
+        score = _score_shipping_confidence(
+            "free delivery fulfilled by amazon add to cart ships from amazon",
+            "free delivery prime israel deliver to il"
+        )
+        assert score <= 1.0
+
+    def test_no_positive_signals_scores_zero(self):
+        score = _score_shipping_confidence(
+            "buy now click here",
+            "some delivery info"
+        )
+        assert score == 0.0
+
+
+# ── TestFalsePositive: known-negative fixtures ─────────────────────────────────
+
+# These are HTML snippets for products that do NOT ship to Israel.
+# Each should score below 0.4 (i.e., return ships_to_israel=False from _parse_html).
+# Note: items caught by _NO_SHIP_PHRASES are handled before scoring (early return),
+# so these fixtures test the scoring path for items that appear available but aren't.
+
+_NEGATIVE_FIXTURES = [
+    # 1. US-only marketplace seller with no international shipping
+    make_valid_product_page(
+        "Ships from and sold by US-Only-Seller. This seller does not offer "
+        "international shipping. Delivery available within the United States only."
+    ),
+    # 2. Out-of-stock item with no shipping signals
+    make_valid_product_page(
+        "Currently unavailable. We don't know when or if this item will be back in stock."
+    ),
+    # 3. Sold by third-party, no Amazon fulfillment, no Israel/Prime/free signals
+    make_valid_product_page(
+        "Sold by LocalStore. Ships in 5-7 business days. Standard shipping applies."
+    ),
+    # 4. Product with only domestic US signals
+    make_valid_product_page(
+        "Get it by Thursday if you order within 2 hours. Free returns on orders over $35 within the US."
+    ),
+    # 5. Digital/downloadable product (no physical shipping)
+    make_valid_product_page(
+        "This is a digital download. No physical item will be shipped. "
+        "Instant access after purchase."
+    ),
+]
+
+_POSITIVE_FIXTURES = [
+    # 1. FBA item with free shipping phrase
+    make_valid_product_page(
+        "FREE delivery Tue, Jan 14 to Israel. Ships from and Fulfilled by Amazon."
+    ),
+    # 2. Prime item with Israel in delivery section
+    make_valid_product_page(
+        "Prime eligible. FREE delivery to Israel on orders over $49."
+    ),
+    # 3. Item with "ships from Amazon" + Israel delivery
+    make_valid_product_page(
+        "Ships from Amazon. Free shipping to Israel available."
+    ),
+    # 4. FBA with Prime, Israel mentioned
+    make_valid_product_page(
+        "Fulfilled by Amazon. Prime. Deliver to IL — FREE delivery."
+    ),
+    # 5. Free delivery phrase + Israel in delivery block
+    make_valid_product_page(
+        "FREE delivery. Shipping to Israel available via Amazon International."
+    ),
+]
+
+
+class TestFalsePositive:
+    """Known-negative fixtures: items that do NOT ship to Israel should score < 0.4."""
+
+    def test_us_only_seller_scores_below_threshold(self):
+        result = _parse_html("ASIN_NEG_01", _NEGATIVE_FIXTURES[0])
+        assert result.ships_to_israel is False, (
+            f"Expected ships_to_israel=False for US-only seller, got note={result.note}"
+        )
+
+    def test_out_of_stock_scores_below_threshold(self):
+        result = _parse_html("ASIN_NEG_02", _NEGATIVE_FIXTURES[1])
+        assert result.ships_to_israel is False, (
+            f"Expected ships_to_israel=False for OOS item, got note={result.note}"
+        )
+
+    def test_third_party_no_signals_scores_below_threshold(self):
+        result = _parse_html("ASIN_NEG_03", _NEGATIVE_FIXTURES[2])
+        assert result.ships_to_israel is False, (
+            f"Expected ships_to_israel=False for 3P seller, got note={result.note}"
+        )
+
+    def test_us_domestic_only_scores_below_threshold(self):
+        result = _parse_html("ASIN_NEG_04", _NEGATIVE_FIXTURES[3])
+        assert result.ships_to_israel is False, (
+            f"Expected ships_to_israel=False for US-domestic, got note={result.note}"
+        )
+
+    def test_digital_product_scores_below_threshold(self):
+        result = _parse_html("ASIN_NEG_05", _NEGATIVE_FIXTURES[4])
+        assert result.ships_to_israel is False, (
+            f"Expected ships_to_israel=False for digital product, got note={result.note}"
+        )
+
+    def test_fp_rate(self):
+        """FP rate across all negative fixtures must be below 10%."""
+        false_positives = sum(
+            1 for html in _NEGATIVE_FIXTURES
+            if _parse_html("ASIN_FP", html).ships_to_israel is True
+        )
+        fp_rate = false_positives / len(_NEGATIVE_FIXTURES)
+        assert fp_rate < 0.10, f"FP rate {fp_rate:.0%} >= 10% ({false_positives}/{len(_NEGATIVE_FIXTURES)} false positives)"
+
+
+class TestFalseNegative:
+    """Known-positive fixtures: items that DO ship to Israel should score >= 0.4."""
+
+    def test_fba_free_delivery_to_israel(self):
+        result = _parse_html("ASIN_POS_01", _POSITIVE_FIXTURES[0])
+        assert result.ships_to_israel is True, (
+            f"Expected ships_to_israel=True for FBA+Israel, got note={result.note}"
+        )
+
+    def test_prime_free_delivery_to_israel(self):
+        result = _parse_html("ASIN_POS_02", _POSITIVE_FIXTURES[1])
+        assert result.ships_to_israel is True, (
+            f"Expected ships_to_israel=True for Prime+Israel, got note={result.note}"
+        )
+
+    def test_ships_from_amazon_plus_israel(self):
+        result = _parse_html("ASIN_POS_03", _POSITIVE_FIXTURES[2])
+        assert result.ships_to_israel is True, (
+            f"Expected ships_to_israel=True for ships_from_amazon+Israel, got note={result.note}"
+        )
+
+    def test_fba_prime_deliver_to_il(self):
+        result = _parse_html("ASIN_POS_04", _POSITIVE_FIXTURES[3])
+        assert result.ships_to_israel is True, (
+            f"Expected ships_to_israel=True for FBA+Prime+IL, got note={result.note}"
+        )
+
+    def test_free_delivery_amazon_international(self):
+        result = _parse_html("ASIN_POS_05", _POSITIVE_FIXTURES[4])
+        assert result.ships_to_israel is True, (
+            f"Expected ships_to_israel=True for free_delivery+Israel, got note={result.note}"
+        )
+
+    def test_fn_rate(self):
+        """FN rate across all positive fixtures must be below 15%."""
+        false_negatives = sum(
+            1 for html in _POSITIVE_FIXTURES
+            if _parse_html("ASIN_FN", html).ships_to_israel is not True
+        )
+        fn_rate = false_negatives / len(_POSITIVE_FIXTURES)
+        assert fn_rate < 0.15, f"FN rate {fn_rate:.0%} >= 15% ({false_negatives}/{len(_POSITIVE_FIXTURES)} false negatives)"
