@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-stopped_at: Completed 03-web-admin-dashboard/03-01-PLAN.md
-last_updated: "2026-03-14T07:42:40.989Z"
+stopped_at: Completed 03-web-admin-dashboard/03-02-PLAN.md
+last_updated: "2026-03-14T08:00:38.962Z"
 last_activity: 2026-03-14 -- Phase 2 complete (4/4 plans, verification passed)
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 11
-  completed_plans: 9
+  completed_plans: 10
 ---
 
 ---
@@ -89,6 +89,7 @@ Progress: [████████████████████] 8/8 pla
 | Phase 02-enhanced-visual-experience P01 | 12 | 2 tasks | 3 files |
 | Phase 02-enhanced-visual-experience P04 | 8 | 2 tasks | 4 files |
 | Phase 03-web-admin-dashboard P01 | 18 | 2 tasks | 15 files |
+| Phase 03-web-admin-dashboard P02 | 17 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -112,6 +113,9 @@ Recent decisions affecting current work:
 - [Phase 03-web-admin-dashboard]: Fallback token uses module-level state (not DB) for zero-dependency startup auth
 - [Phase 03-web-admin-dashboard]: require_admin raises HTTPException(307) rather than returning RedirectResponse (FastAPI dependency pattern)
 - [Phase 03-web-admin-dashboard]: HTMX outerHTML hx-swap on partial wrappers so polling attributes survive DOM replacement
+- [Phase 03-web-admin-dashboard]: TagInfo uses .name field (not .tag) — templates adapted to match actual admin_service.py dataclass
+- [Phase 03-web-admin-dashboard]: FastAPI route ordering: POST /tags/add defined before POST /tags/{tag_id}/* to avoid path conflict
+- [Phase 03-web-admin-dashboard]: notifications.admin() called directly for admin actions (no send_admin_notification wrapper exists)
 
 ### Pending Todos
 
@@ -125,6 +129,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-14T07:42:40.987Z
-Stopped at: Completed 03-web-admin-dashboard/03-01-PLAN.md
+Last session: 2026-03-14T08:00:38.960Z
+Stopped at: Completed 03-web-admin-dashboard/03-02-PLAN.md
 Resume file: None
