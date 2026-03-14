@@ -15,7 +15,7 @@ from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from typing import Optional
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputFile, InputMediaPhoto, Update
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -40,6 +40,7 @@ from amazon_search import AmazonItem, search_amazon, backend_name
 from translator import detect_language, translate_and_refine
 from metrics import REQUESTS_TOTAL
 from dataforseo_labs import DataForSEOLabs
+from image_annotator import annotate_with_overlays
 
 logger = logging.getLogger(__name__)
 
@@ -153,6 +154,12 @@ class UserSession:
 
     # Store raw image bytes so "Try differently" can re-analyse without re-upload
     image_bytes: Optional[bytes] = None
+
+    # Annotated photo bytes produced by image_annotator (overlays + legend)
+    annotated_bytes: Optional[bytes] = None
+
+    # Message ID of the progress/identification card message (handle_photo → handle_callback)
+    progress_msg_id: Optional[int] = None
 
     # Cached admin flag — resolved once per session
     is_admin: Optional[bool] = None
@@ -454,10 +461,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             en_caption = raw_caption
         context_hint = en_caption
 
+    # Stage 1: immediate progress message
     msg = await update.message.reply_text(
-        style.loading_vision(n_providers, config.VISION_MODE, context_hint=context_hint),
+        "🔍 Analysing your photo\\.\\.\\.",
         parse_mode="MarkdownV2",
     )
+    session.progress_msg_id = msg.message_id
     photo_file = await context.bot.get_file(photo.file_id)
     raw_bytes = bytes(await photo_file.download_as_bytearray())
     image_bytes = await _compress_image_async(raw_bytes)
@@ -502,11 +511,15 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     session.chosen_result = winner
     session.product_info  = winner.to_product_info()
 
-    await msg.edit_text(
-        style.identification_card(winner, show_cost=config.SHOW_COST_INFO, is_admin=is_admin),
-        parse_mode="MarkdownV2",
-        reply_markup=filter_keyboard(),
-    )
+    # Stage 2: identification card (replaces stage 1 message)
+    try:
+        await msg.edit_text(
+            style.identification_card(winner, show_cost=config.SHOW_COST_INFO, is_admin=is_admin),
+            parse_mode="MarkdownV2",
+            reply_markup=filter_keyboard(),
+        )
+    except Exception:
+        pass  # "message not modified" or already deleted — acceptable
 
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -610,10 +623,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         israel_only  = data == CB_FILTER_YES
         filter_label = "free delivery to 🇮🇱 Israel" if israel_only else "all items"
 
-        await query.edit_message_text(
-            style.loading_search(session.product_info.product_name, filter_label),
-            parse_mode="MarkdownV2",
-        )
+        # Stage 3: comparing prices
+        try:
+            await query.edit_message_text(
+                "🛒 Comparing prices\\.\\.\\.",
+                parse_mode="MarkdownV2",
+            )
+        except Exception:
+            pass
 
         try:
             all_items = await search_amazon(session.product_info, max_results=config.MAX_RESULTS)
@@ -653,6 +670,26 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if not session.filtered_items:
             await query.edit_message_text(style.error_no_results(is_admin=bool(session.is_admin)), parse_mode="MarkdownV2")
             return
+
+        # Stage 4: checking Israel shipping + generate annotated photo
+        try:
+            await query.edit_message_text(
+                "🇮🇱 Checking Israel shipping\\.\\.\\.",
+                parse_mode="MarkdownV2",
+            )
+        except Exception:
+            pass
+
+        # Generate annotated photo overlay (non-blocking thread, never fails the flow)
+        if session.chosen_result is not None and session.image_bytes is not None:
+            try:
+                products = session.chosen_result.to_product_info_list()
+                session.annotated_bytes = await asyncio.to_thread(
+                    annotate_with_overlays, session.image_bytes, products
+                )
+            except Exception as exc:
+                logger.debug("annotate_with_overlays failed (non-fatal): %s", exc)
+                session.annotated_bytes = None
 
         await _render_results(query, context, session)
 
@@ -1072,9 +1109,14 @@ async def _render_results(query, context, session: UserSession) -> None:
     # ── First render: text msg → send new photo, delete old msg ───────────────
     if session.results_msg_id is None:
         try:
+            # Use annotated photo bytes if available, otherwise fall back to URL
+            if session.annotated_bytes is not None:
+                photo_arg = InputFile(_io.BytesIO(session.annotated_bytes), filename="results.jpg")
+            else:
+                photo_arg = image_url
             sent = await context.bot.send_photo(
                 chat_id       = query.message.chat_id,
-                photo         = image_url,
+                photo         = photo_arg,
                 caption       = caption,
                 parse_mode    = "MarkdownV2",
                 reply_markup  = keyboard,

@@ -987,6 +987,181 @@ class TestCompressImageAsync:
         mock_thread.assert_called_once_with(_compress_image, b"raw_image_data")
         assert result == b"compressed"
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 10. 4-stage progress messages (02-04)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestHandlePhotoProgressStages:
+    """Verify handle_photo uses the new 4-stage progress messages."""
+
+    @pytest.mark.asyncio
+    async def test_handle_photo_progress_stage1(self):
+        """Stage 1: reply_text is called with 'Analysing your photo'."""
+        update = _make_update(user_id=10, has_photo=True)
+        ctx = _make_context()
+
+        winner = _make_provider_result()
+        fake_providers = {"openai/gpt-4o": MagicMock()}
+        reply_msg = MagicMock()
+        reply_msg.message_id = 100
+        reply_msg.edit_text = AsyncMock()
+        update.message.reply_text = AsyncMock(return_value=reply_msg)
+
+        with patch("bot._is_rate_limited", new=AsyncMock(return_value=(False, 5, 60))), \
+             patch("bot.get_providers", new=AsyncMock(return_value=fake_providers)), \
+             patch("bot.analyse_image", new=AsyncMock(return_value=(winner, [winner]))), \
+             patch("bot._compress_image", side_effect=lambda x: x), \
+             patch("style.identification_card", return_value="ID card"), \
+             patch.object(config, "VISION_MODE", "best"):
+            await handle_photo(update, ctx)
+
+        # Stage 1: reply_text called with "Analysing" text
+        update.message.reply_text.assert_called_once()
+        stage1_text = update.message.reply_text.call_args[0][0]
+        assert "Analysing" in stage1_text or "nalysing" in stage1_text
+
+    @pytest.mark.asyncio
+    async def test_handle_photo_progress_stage2(self):
+        """Stage 2: edit_text is called with identification card after analysis."""
+        update = _make_update(user_id=10, has_photo=True)
+        ctx = _make_context()
+
+        winner = _make_provider_result()
+        fake_providers = {"openai/gpt-4o": MagicMock()}
+        reply_msg = MagicMock()
+        reply_msg.message_id = 100
+        reply_msg.edit_text = AsyncMock()
+        update.message.reply_text = AsyncMock(return_value=reply_msg)
+
+        with patch("bot._is_rate_limited", new=AsyncMock(return_value=(False, 5, 60))), \
+             patch("bot.get_providers", new=AsyncMock(return_value=fake_providers)), \
+             patch("bot.analyse_image", new=AsyncMock(return_value=(winner, [winner]))), \
+             patch("bot._compress_image", side_effect=lambda x: x), \
+             patch("style.identification_card", return_value="ID card result"), \
+             patch.object(config, "VISION_MODE", "best"):
+            await handle_photo(update, ctx)
+
+        # Stage 2: edit_text called with identification card
+        reply_msg.edit_text.assert_called()
+        last_call_text = reply_msg.edit_text.call_args[0][0]
+        assert last_call_text == "ID card result"
+
+    @pytest.mark.asyncio
+    async def test_handle_photo_stores_progress_msg_id(self):
+        """progress_msg_id is stored on session after stage 1."""
+        update = _make_update(user_id=10, has_photo=True)
+        ctx = _make_context()
+
+        winner = _make_provider_result()
+        fake_providers = {"openai/gpt-4o": MagicMock()}
+        reply_msg = MagicMock()
+        reply_msg.message_id = 999
+        reply_msg.edit_text = AsyncMock()
+        update.message.reply_text = AsyncMock(return_value=reply_msg)
+
+        with patch("bot._is_rate_limited", new=AsyncMock(return_value=(False, 5, 60))), \
+             patch("bot.get_providers", new=AsyncMock(return_value=fake_providers)), \
+             patch("bot.analyse_image", new=AsyncMock(return_value=(winner, [winner]))), \
+             patch("bot._compress_image", side_effect=lambda x: x), \
+             patch("style.identification_card", return_value="ID card"), \
+             patch.object(config, "VISION_MODE", "best"):
+            await handle_photo(update, ctx)
+
+        from bot import _sessions
+        session = _sessions.get(10)
+        assert session is not None
+        assert session.progress_msg_id == 999
+
+
+class TestHandleCallbackFilterProgress:
+    """Verify handle_callback filter branch shows stages 3 and 4."""
+
+    def _make_session_with_product(self, user_id=42):
+        session = get_session(user_id)
+        session.product_info = ProductInfo(
+            product_name="Headphones", brand="Sony", category="Electronics",
+            key_features=["noise cancelling"], amazon_search_query="sony headphones",
+            alternative_query="wireless headphones", confidence="high", notes="",
+        )
+        session.chosen_result = _make_provider_result()
+        session.image_bytes = b"fake_image"
+        return session
+
+    @pytest.mark.asyncio
+    async def test_handle_callback_filter_stage3_comparing_prices(self):
+        """Stage 3: edit_message_text called with 'Comparing prices' after filter click."""
+        user_id = 42
+        session = self._make_session_with_product(user_id)
+        items = [_make_amazon_item(asin="RESULT0001", is_prime=True)]
+
+        update = _make_callback_update(user_id=user_id, data=CB_FILTER_YES)
+        ctx = _make_context()
+
+        with patch("bot.search_amazon", new=AsyncMock(return_value=items)), \
+             patch("bot._render_results", new=AsyncMock()), \
+             patch("bot.annotate_with_overlays", return_value=b"annotated"), \
+             patch("database.get_active_tag", new=AsyncMock(return_value=None)), \
+             patch("database.log_search", new=AsyncMock()), \
+             patch.object(config, "MAX_RESULTS", 20):
+            await handle_callback(update, ctx)
+
+        # Verify edit_message_text was called with "Comparing prices" at some point
+        calls = update.callback_query.edit_message_text.call_args_list
+        texts = [c[0][0] if c[0] else c[1].get("text", "") for c in calls]
+        assert any("Comparing prices" in t or "Comparing" in t for t in texts), (
+            f"Expected 'Comparing prices' in edit_message_text calls, got: {texts}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_handle_callback_filter_stage4_checking_shipping(self):
+        """Stage 4: edit_message_text called with 'Checking Israel shipping' after search."""
+        user_id = 42
+        session = self._make_session_with_product(user_id)
+        items = [_make_amazon_item(asin="RESULT0001", is_prime=True)]
+
+        update = _make_callback_update(user_id=user_id, data=CB_FILTER_YES)
+        ctx = _make_context()
+
+        with patch("bot.search_amazon", new=AsyncMock(return_value=items)), \
+             patch("bot._render_results", new=AsyncMock()), \
+             patch("bot.annotate_with_overlays", return_value=b"annotated"), \
+             patch("database.get_active_tag", new=AsyncMock(return_value=None)), \
+             patch("database.log_search", new=AsyncMock()), \
+             patch.object(config, "MAX_RESULTS", 20):
+            await handle_callback(update, ctx)
+
+        calls = update.callback_query.edit_message_text.call_args_list
+        texts = [c[0][0] if c[0] else c[1].get("text", "") for c in calls]
+        assert any("Checking Israel shipping" in t or "Israel shipping" in t for t in texts), (
+            f"Expected 'Checking Israel shipping' in edit_message_text calls, got: {texts}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_annotate_with_overlays_called_in_filter_branch(self):
+        """annotate_with_overlays is called via asyncio.to_thread in handle_callback filter branch."""
+        user_id = 42
+        session = self._make_session_with_product(user_id)
+        items = [_make_amazon_item(asin="RESULT0001", is_prime=True)]
+
+        update = _make_callback_update(user_id=user_id, data=CB_FILTER_YES)
+        ctx = _make_context()
+
+        mock_annotate = MagicMock(return_value=b"annotated_photo_bytes")
+
+        with patch("bot.search_amazon", new=AsyncMock(return_value=items)), \
+             patch("bot._render_results", new=AsyncMock()), \
+             patch("bot.annotate_with_overlays", mock_annotate), \
+             patch("database.get_active_tag", new=AsyncMock(return_value=None)), \
+             patch("database.log_search", new=AsyncMock()), \
+             patch.object(config, "MAX_RESULTS", 20):
+            await handle_callback(update, ctx)
+
+        # annotate_with_overlays should have been called (via asyncio.to_thread)
+        mock_annotate.assert_called_once()
+        # And session should have annotated_bytes set
+        assert session.annotated_bytes == b"annotated_photo_bytes"
+
     @pytest.mark.asyncio
     async def test_compress_image_async_propagates_exception(self):
         """Exceptions from the sync compress function propagate correctly."""
