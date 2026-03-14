@@ -22,12 +22,12 @@ Requirements for this milestone. Each maps to roadmap phases.
 - [x] **ANNO-01**: Vision providers return bounding box coordinates for detected products
 - [x] **ANNO-02**: Bot sends back annotated photo with semi-transparent overlays on each detected product
 - [x] **ANNO-03**: If bounding box quality is low, fall back to numbered circles at approximate positions
-- [ ] **ANNO-04**: User sees streaming progress updates during analysis ("Analyzing photo...", "Found 3 products...", "Searching Amazon...")
+- [x] **ANNO-04**: User sees streaming progress updates during analysis ("Analyzing photo...", "Found 3 products...", "Searching Amazon...")
 
 ### Israel Shipping
 
 - [x] **ISRL-01**: Israel shipping detection uses multi-signal approach (FBA status + seller identity + Prime status + address verification)
-- [ ] **ISRL-02**: Each product result shows confidence-scored shipping badge (green = ships free, yellow = likely, red = won't ship)
+- [x] **ISRL-02**: Each product result shows confidence-scored shipping badge (green = ships free, yellow = likely, red = won't ship)
 - [x] **ISRL-03**: False positive rate for Israel shipping reduced below 10%
 - [x] **ISRL-04**: False negative rate for Israel shipping reduced below 15%
 
@@ -123,9 +123,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ANNO-01 | Phase 2 | Complete |
 | ANNO-02 | Phase 2 | Complete |
 | ANNO-03 | Phase 2 | Complete |
-| ANNO-04 | Phase 2 | Pending |
+| ANNO-04 | Phase 2 | Complete |
 | ISRL-01 | Phase 2 | Complete |
-| ISRL-02 | Phase 2 | Pending |
+| ISRL-02 | Phase 2 | Complete |
 | ISRL-03 | Phase 2 | Complete |
 | ISRL-04 | Phase 2 | Complete |
 | PRCE-01 | Phase 2 | Complete |

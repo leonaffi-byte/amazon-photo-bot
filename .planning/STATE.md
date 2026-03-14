@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-stopped_at: Completed 02-enhanced-visual-experience/02-01-PLAN.md
-last_updated: "2026-03-14T01:39:24.883Z"
+stopped_at: Completed 02-enhanced-visual-experience/02-04-PLAN.md
+last_updated: "2026-03-14T01:49:45.887Z"
 last_activity: 2026-03-14 -- Phase 1 complete (4/4 plans, verification passed)
 progress:
   total_phases: 5
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 8
-  completed_plans: 7
+  completed_plans: 8
 ---
 
 ---
@@ -72,6 +72,7 @@ Progress: [████████████████████] 4/4 pla
 | Phase 02-enhanced-visual-experience P02 | 10 | 1 tasks | 2 files |
 | Phase 02-enhanced-visual-experience P03 | 4 | 2 tasks | 3 files |
 | Phase 02-enhanced-visual-experience P01 | 12 | 2 tasks | 3 files |
+| Phase 02-enhanced-visual-experience P04 | 8 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -90,6 +91,8 @@ Recent decisions affecting current work:
 - [Phase 02-enhanced-visual-experience]: Bbox area threshold < 1% or > 90% of image area is unreliable; overlay fallback strategy: use overlay when any reliable bbox exists
 - [Phase 02-enhanced-visual-experience]: render_price_bar does not escape for MarkdownV2 — caller handles escaping and monospace wrapping
 - [Phase 02-enhanced-visual-experience]: Bar lines wrapped in backtick monospace blocks for proper Unicode block char rendering in Telegram
+- [Phase 02-enhanced-visual-experience]: shipping_badge uses result.ships_to_israel + result.is_free_shipping to select emoji tier (green/yellow/red/gray)
+- [Phase 02-enhanced-visual-experience]: annotate_with_overlays failure is non-fatal in bot flow — session.annotated_bytes set to None
 
 ### Pending Todos
 
@@ -103,6 +106,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-14T01:39:24.880Z
-Stopped at: Completed 02-enhanced-visual-experience/02-01-PLAN.md
+Last session: 2026-03-14T01:49:45.884Z
+Stopped at: Completed 02-enhanced-visual-experience/02-04-PLAN.md
 Resume file: None
