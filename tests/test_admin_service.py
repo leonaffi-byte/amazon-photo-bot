@@ -360,6 +360,32 @@ class TestStatsService:
         assert stats.total_searches >= 1
         assert stats.total_users >= 1
 
+    async def test_today_searches_reflects_actual_data(self):
+        """get_stats() returns today_searches >= 1 after logging a search today."""
+        import admin_service
+        await db.seed_admins({1})
+        await db.log_search(1, "Camera", "test-tag", "openai/gpt-4o", 3, False)
+
+        stats = await admin_service.get_stats()
+        assert stats.today_searches >= 1
+
+    async def test_today_users_reflects_actual_data(self):
+        """get_stats() returns today_users >= 1 after logging a search today."""
+        import admin_service
+        await db.seed_admins({1})
+        await db.log_search(1, "Laptop", "test-tag", "openai/gpt-4o", 5, False)
+
+        stats = await admin_service.get_stats()
+        assert stats.today_users >= 1
+
+    async def test_today_stats_zero_when_no_searches(self):
+        """get_stats() returns today_searches == 0 and today_users == 0 on fresh DB."""
+        import admin_service
+
+        stats = await admin_service.get_stats()
+        assert stats.today_searches == 0
+        assert stats.today_users == 0
+
     async def test_get_shortener_stats_returns_dict(self):
         """get_shortener_stats() returns a dict."""
         import admin_service
