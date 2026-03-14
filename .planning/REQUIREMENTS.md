@@ -33,9 +33,9 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Price History
 
-- [ ] **PRCE-01**: Product results include text summary of price history ("Lowest: $X (3mo ago) / Current: $Y")
-- [ ] **PRCE-02**: Product results include ASCII-style price bar showing current price position within 90-day range
-- [ ] **PRCE-03**: Deal quality indicator shown on results ("Good deal" / "Average price" / "Overpriced")
+- [x] **PRCE-01**: Product results include text summary of price history ("Lowest: $X (3mo ago) / Current: $Y")
+- [x] **PRCE-02**: Product results include ASCII-style price bar showing current price position within 90-day range
+- [x] **PRCE-03**: Deal quality indicator shown on results ("Good deal" / "Average price" / "Overpriced")
 
 ### Web Admin Dashboard
 
@@ -128,9 +128,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ISRL-02 | Phase 2 | Pending |
 | ISRL-03 | Phase 2 | Complete |
 | ISRL-04 | Phase 2 | Complete |
-| PRCE-01 | Phase 2 | Pending |
-| PRCE-02 | Phase 2 | Pending |
-| PRCE-03 | Phase 2 | Pending |
+| PRCE-01 | Phase 2 | Complete |
+| PRCE-02 | Phase 2 | Complete |
+| PRCE-03 | Phase 2 | Complete |
 | ADMN-01 | Phase 3 | Pending |
 | ADMN-02 | Phase 3 | Pending |
 | ADMN-03 | Phase 3 | Pending |
