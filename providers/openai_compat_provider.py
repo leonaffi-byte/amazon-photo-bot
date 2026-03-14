@@ -8,7 +8,6 @@ with vision support can use this class.
 """
 from __future__ import annotations
 
-import asyncio
 import base64
 import logging
 import time
@@ -74,26 +73,26 @@ class OpenAICompatibleProvider(VisionProvider):
         media_type = detect_media_type(image_bytes)
         t0 = time.monotonic()
 
-        response = await asyncio.wait_for(
-            self._client.chat.completions.create(
-                model=self.model_id,
-                max_tokens=self._max_tokens,
-                temperature=0,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "image_url",
-                                "image_url": {"url": f"data:{media_type};base64,{b64}"},
-                            },
-                            {"type": "text", "text": build_user_prompt(context_hint)},
-                        ],
-                    },
-                ],
-            ),
-            timeout=PROVIDER_TIMEOUT_SECONDS,
+        # Timeout is enforced by the manager's _safe_run via asyncio.wait_for.
+        # The HTTP client timeout (PROVIDER_TIMEOUT_SECONDS) provides a second
+        # layer of protection at the network level.
+        response = await self._client.chat.completions.create(
+            model=self.model_id,
+            max_tokens=self._max_tokens,
+            temperature=0,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{media_type};base64,{b64}"},
+                        },
+                        {"type": "text", "text": build_user_prompt(context_hint)},
+                    ],
+                },
+            ],
         )
 
         latency_ms = int((time.monotonic() - t0) * 1000)

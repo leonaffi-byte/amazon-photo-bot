@@ -13,7 +13,6 @@ Pricing (as of early 2025):
 """
 from __future__ import annotations
 
-import asyncio
 import time
 import logging
 
@@ -77,14 +76,17 @@ class GeminiProvider(VisionProvider):
 
         t0 = time.monotonic()
 
-        response = await asyncio.wait_for(self._client.aio.models.generate_content(
+        # Timeout is enforced by the manager's _safe_run via asyncio.wait_for.
+        # The HTTP client timeout in genai.Client (PROVIDER_TIMEOUT_SECONDS * 1000 ms)
+        # provides a second layer of protection at the network level.
+        response = await self._client.aio.models.generate_content(
             model=self.model_id,
             contents=[
                 genai_types.Part.from_bytes(data=image_bytes, mime_type=mime),
                 build_user_prompt(context_hint),
             ],
             config=gen_config,
-        ), timeout=45)
+        )
 
         latency_ms = int((time.monotonic() - t0) * 1000)
         raw = response.text

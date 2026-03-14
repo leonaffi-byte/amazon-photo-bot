@@ -16,8 +16,10 @@ logger = logging.getLogger(__name__)
 
 # ── Shared utilities ──────────────────────────────────────────────────────────
 
-# Timeout for all provider API calls (seconds)
-PROVIDER_TIMEOUT_SECONDS = 60
+# Timeout for individual provider API calls (seconds).
+# The manager enforces a 60s total deadline across all fallback attempts,
+# while each provider gets at most PROVIDER_TIMEOUT_SECONDS per call.
+PROVIDER_TIMEOUT_SECONDS = 30
 
 
 def detect_media_type(image_bytes: bytes) -> str:

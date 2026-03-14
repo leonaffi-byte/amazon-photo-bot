@@ -32,7 +32,7 @@ import time
 from typing import Optional
 
 from correlation import get_correlation_id
-from providers.base import ProviderResult, VisionProvider
+from providers.base import PROVIDER_TIMEOUT_SECONDS, ProviderResult, VisionProvider
 from circuit_breaker import CircuitOpenError, registry as cb_registry
 from metrics import VISION_REQUESTS_TOTAL, VISION_LATENCY, API_COST_DOLLARS, ERRORS_TOTAL
 
@@ -452,6 +452,9 @@ async def analyse_image(
     else:
         targets = list(providers.values())
 
+    # 60s total deadline across all provider attempts (fallback chains included)
+    deadline = asyncio.get_event_loop().time() + 60
+
     cid = get_correlation_id()
     logger.info(
         "analyse_image mode=%s targets=[%s] cid=%s",
@@ -468,10 +471,18 @@ async def analyse_image(
         )
         last_exc: Exception | None = None
 
+        # Compute per-call timeout: at most PROVIDER_TIMEOUT_SECONDS, but also
+        # bounded by how much of the 60s total budget remains.
+        remaining = max(1.0, deadline - asyncio.get_event_loop().time())
+        call_timeout = min(PROVIDER_TIMEOUT_SECONDS, remaining)
+
         for attempt in range(2):  # 1 initial + 1 retry
             try:
-                result = await cb.call(
-                    provider.analyse(image_bytes, context_hint=context_hint)
+                result = await asyncio.wait_for(
+                    cb.call(
+                        provider.analyse(image_bytes, context_hint=context_hint)
+                    ),
+                    timeout=call_timeout,
                 )
                 logger.info(
                     "[%s] OK -- confidence=%s cost=%s latency=%dms",
