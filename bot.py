@@ -570,7 +570,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
         if not session.filtered_items:
             await query.edit_message_text(
-                style.error_no_results(), parse_mode="MarkdownV2"
+                style.error_no_results(is_admin=bool(session.is_admin)), parse_mode="MarkdownV2"
             )
             return
 
@@ -618,7 +618,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         try:
             all_items = await search_amazon(session.product_info, max_results=config.MAX_RESULTS)
         except RuntimeError:
-            await query.edit_message_text(style.error_no_backend(), parse_mode="MarkdownV2")
+            _is_admin = session.is_admin if session.is_admin is not None else (
+                user_id in config.ADMIN_IDS or await db.is_admin_in_db(user_id)
+            )
+            await query.edit_message_text(style.error_no_backend(is_admin=_is_admin), parse_mode="MarkdownV2")
             return
         except Exception as exc:
             logger.error("Amazon search failed: %s", exc)
@@ -648,7 +651,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await db.increment_tag_search_count(active_tag)
 
         if not session.filtered_items:
-            await query.edit_message_text(style.error_no_results(), parse_mode="MarkdownV2")
+            await query.edit_message_text(style.error_no_results(is_admin=bool(session.is_admin)), parse_mode="MarkdownV2")
             return
 
         await _render_results(query, context, session)
@@ -720,13 +723,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         session.apply_filter(session.israel_only)
 
         if not session.filtered_items:
+            _no_res_msg = style.error_no_results(is_admin=bool(session.is_admin))
             try:
                 await query.edit_message_caption(
-                    caption=style.error_no_results(), parse_mode="MarkdownV2"
+                    caption=_no_res_msg, parse_mode="MarkdownV2"
                 )
             except Exception:
                 await query.edit_message_text(
-                    style.error_no_results(), parse_mode="MarkdownV2"
+                    _no_res_msg, parse_mode="MarkdownV2"
                 )
             return
 
@@ -1013,7 +1017,7 @@ async def _handle_similar(query, context, session: UserSession, asin: str) -> No
 
         if not session.filtered_items:
             await query.edit_message_caption(
-                caption    = style.error_no_results(),
+                caption    = style.error_no_results(is_admin=bool(session.is_admin)),
                 parse_mode = "MarkdownV2",
             )
             return
@@ -1050,7 +1054,7 @@ async def _render_results(query, context, session: UserSession) -> None:
     total = len(session.filtered_items)
 
     if not item:
-        await query.edit_message_text(style.error_no_results(), parse_mode="MarkdownV2")
+        await query.edit_message_text(style.error_no_results(is_admin=bool(session.is_admin)), parse_mode="MarkdownV2")
         return
 
     caption  = style.product_caption(

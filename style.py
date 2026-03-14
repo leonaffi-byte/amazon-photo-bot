@@ -415,49 +415,60 @@ def error_no_providers(is_admin: bool = False) -> str:
     return base
 
 
-def error_no_backend() -> str:
+def error_no_backend(is_admin: bool = False) -> str:
+    if is_admin:
+        return (
+            f"⚠️ *No Search Backend Configured*\n"
+            f"{DIV}\n\n"
+            f"An admin needs to add a search API key\\.\n\n"
+            f"▸ /admin → 🔑 *API Keys*\n"
+            f"▸ Add RapidAPI key \\(free tier available\\)\n\n"
+            f"_Sign up free at rapidapi\\.com_"
+        )
     return (
-        f"⚠️ *No Search Backend Configured*\n"
+        f"⚠️ *Search Temporarily Unavailable*\n"
         f"{DIV}\n\n"
-        f"An admin needs to add a search API key\\.\n\n"
-        f"▸ /admin → 🔑 *API Keys*\n"
-        f"▸ Add RapidAPI key \\(free tier available\\)\n\n"
-        f"_Sign up free at rapidapi\\.com_"
+        f"We couldn't search for products right now\\.\n\n"
+        f"_Please try again later\\._"
     )
 
 
-def error_no_results() -> str:
+def error_no_results(is_admin: bool = False) -> str:
+    if is_admin:
+        return (
+            f"😔 *No Results Found*\n"
+            f"{DIV}\n\n"
+            f"Search returned no matching products\\.\n\n"
+            f"Try:\n"
+            f"▸ A clearer, better\\-lit photo\n"
+            f"▸ Including brand text in frame\n"
+            f"▸ Disabling the Israel delivery filter\n"
+        )
     return (
-        f"😔 *No Results Found*\n"
+        f"😔 *No Matching Products*\n"
         f"{DIV}\n\n"
-        f"Try:\n"
-        f"▸ A clearer, better\\-lit photo\n"
-        f"▸ Including brand text in frame\n"
-        f"▸ Disabling the Israel delivery filter\n"
+        f"We couldn't find matching products\\.\n\n"
+        f"Try a clearer photo or a different angle\\."
     )
 
 
 def error_analysis_failed(is_admin: bool = False) -> str:
-    base = (
-        f"❌ *Analysis Failed*\n"
-        f"{DIV}\n\n"
-    )
     if is_admin:
-        base += (
+        return (
+            f"❌ *Analysis Failed*\n"
+            f"{DIV}\n\n"
             "Couldn't identify this product\\. Try:\n"
             "▸ Better lighting\n"
             "▸ Less angle / closer shot\n"
             "▸ Include the product label\n\n"
             "_Check /admin → 🏥 Model Health for provider errors\\._"
         )
-    else:
-        base += (
-            "Couldn't identify this product\\. Try:\n"
-            "▸ Better lighting\n"
-            "▸ Less angle / closer shot\n"
-            "▸ Include the product label\n"
-        )
-    return base
+    return (
+        f"❌ *Photo Analysis Failed*\n"
+        f"{DIV}\n\n"
+        "We couldn't analyze your photo right now\\.\n\n"
+        "_Please try again in a few minutes\\._"
+    )
 
 
 def not_a_photo() -> str:
