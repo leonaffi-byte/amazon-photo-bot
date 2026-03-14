@@ -11,7 +11,8 @@ import logging
 from typing import Any, Callable, Awaitable
 
 import aiohttp
-from aiohttp import web
+from fastapi import Request
+from fastapi.responses import PlainTextResponse
 
 import config
 from adapters.base import Button, MessageRef, PlatformAdapter
@@ -67,26 +68,26 @@ class InstagramAdapter(PlatformAdapter):
 
     # ── Webhook handlers (mounted by webhook_server.py) ────────────────────
 
-    async def handle_webhook_verify(self, request: web.Request) -> web.Response:
+    async def handle_webhook_verify(self, request: Request) -> PlainTextResponse:
         """GET handler — Meta webhook verification challenge."""
-        mode = request.query.get("hub.mode")
-        token = request.query.get("hub.verify_token")
-        challenge = request.query.get("hub.challenge")
+        mode = request.query_params.get("hub.mode")
+        token = request.query_params.get("hub.verify_token")
+        challenge = request.query_params.get("hub.challenge")
 
         if mode == "subscribe" and token == self._verify_token:
             logger.info("Instagram webhook verified.")
-            return web.Response(text=challenge or "", status=200)
+            return PlainTextResponse(challenge or "", status_code=200)
         logger.warning("Instagram webhook verification failed (bad token).")
-        return web.Response(text="Forbidden", status=403)
+        return PlainTextResponse("Forbidden", status_code=403)
 
-    async def handle_webhook(self, request: web.Request) -> web.Response:
+    async def handle_webhook(self, request: Request) -> PlainTextResponse:
         """POST handler — incoming Instagram messages."""
-        payload = await request.read()
+        payload = await request.body()
         signature = request.headers.get("X-Hub-Signature-256", "")
 
         if self._app_secret and not verify_webhook_signature(payload, signature, self._app_secret):
             logger.warning("Instagram webhook: invalid signature.")
-            return web.Response(text="Invalid signature", status=403)
+            return PlainTextResponse("Invalid signature", status_code=403)
 
         body = await request.json()
 
@@ -97,7 +98,7 @@ class InstagramAdapter(PlatformAdapter):
         except Exception:
             logger.exception("Error processing Instagram webhook")
 
-        return web.Response(text="OK", status=200)
+        return PlainTextResponse("OK")
 
     # ── Internal message routing ───────────────────────────────────────────
 
