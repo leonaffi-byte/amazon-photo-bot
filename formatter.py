@@ -229,6 +229,10 @@ class Formatter:
         """Warning emoji + translated error by key."""
         return "\u26a0\ufe0f " + self._esc(t(key, lang=self.lang))
 
+    def no_israel_results(self, total_count: int) -> str:
+        """Message when Israel filter returns no results but items exist."""
+        return self._esc(t("no_israel_results", lang=self.lang, count=total_count))
+
     # -- Identification card ---------------------------------------------------
 
     def identification_card(

@@ -146,15 +146,14 @@ class UserSession:
         self.page = 0
         if israel_only:
             eligible = [i for i in self.all_items if self._israel_eligible(i)]
-            self.filtered_items = eligible if eligible else list(self.all_items)
+            self.filtered_items = eligible
         else:
             self.filtered_items = list(self.all_items)
 
     def append_items(self, new_items: list[AmazonItem]) -> None:
         self.all_items.extend(new_items)
         if self.israel_only:
-            eligible = [i for i in self.all_items if self._israel_eligible(i)]
-            self.filtered_items = eligible if eligible else list(self.all_items)
+            self.filtered_items = [i for i in self.all_items if self._israel_eligible(i)]
         else:
             self.filtered_items = list(self.all_items)
 
@@ -722,11 +721,21 @@ class BotCore:
                 session.annotated_bytes = None
 
         if not session.filtered_items:
-            err_text = fmt.error("err_no_results")
-            if loading_msg_ref:
-                await self.adapter.edit_text(loading_msg_ref, text=err_text)
+            if session.israel_only and session.all_items:
+                # Items exist but none ship to Israel — offer to show all
+                n = len(session.all_items)
+                no_israel_text = fmt.no_israel_results(n)
+                buttons = [[Button(label=t("filter_show_all", lang=lang), callback_data=CB_CHANGE_FILTER)]]
+                if loading_msg_ref:
+                    await self.adapter.edit_text(loading_msg_ref, text=no_israel_text, buttons=buttons)
+                else:
+                    await self.adapter.send_text(chat_id, no_israel_text, buttons=buttons)
             else:
-                await self.adapter.send_text(chat_id, err_text)
+                err_text = fmt.error("err_no_results")
+                if loading_msg_ref:
+                    await self.adapter.edit_text(loading_msg_ref, text=err_text)
+                else:
+                    await self.adapter.send_text(chat_id, err_text)
             return
 
         await self._render_product(

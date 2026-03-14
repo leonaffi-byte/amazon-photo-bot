@@ -146,18 +146,26 @@ def _is_bbox_reliable(bbox: tuple[float, float, float, float]) -> bool:
     if w <= 0 or h <= 0:
         return False
 
-    # Reject area too small or too large.
-    # w and h are percentages (0-100); area fraction = (w/100)*(h/100) = w*h/10000
-    area_fraction = (w * h) / 10000.0  # fraction of total image area (0.0-1.0)
-    if area_fraction < 0.01:  # less than 1% of image
-        return False
-    if area_fraction > 0.90:  # more than 90% of image
+    # Reject non-finite or clearly hallucinated values
+    if not all(isinstance(v, (int, float)) for v in bbox):
         return False
 
-    # Reject out-of-bounds coordinates (allow 5% tolerance)
-    if x < -5.0 or y < -5.0:
+    # Reject area too small or too large.
+    area_fraction = (w * h) / 10000.0
+    if area_fraction < 0.02:  # less than 2% of image (tighter than before)
         return False
-    if (x + w) > 105.0 or (y + h) > 105.0:
+    if area_fraction > 0.85:  # more than 85% of image
+        return False
+
+    # Reject out-of-bounds coordinates (strict — no tolerance)
+    if x < 0 or y < 0:
+        return False
+    if (x + w) > 100.0 or (y + h) > 100.0:
+        return False
+
+    # Reject suspiciously round default-looking boxes that suggest AI guessing
+    # e.g. [0, 0, 100, 100] or [0, 0, 50, 50] — likely "whole image" guesses
+    if x == 0 and y == 0 and w % 10 == 0 and h % 10 == 0:
         return False
 
     return True
@@ -272,8 +280,10 @@ def annotate_with_overlays(
         color = _COLORS[orig_i % len(_COLORS)]
         img_rgba = _draw_overlay(img_rgba, product.bbox, color, orig_i + 1)
 
-    # Convert RGBA back to RGB and save as JPEG
+    # Convert back to RGB, then add legend strip below for clarity
     result_img = img_rgba.convert("RGB")
-    buf = io.BytesIO()
-    result_img.save(buf, format="JPEG", quality=85)
-    return buf.getvalue()
+    overlay_bytes = io.BytesIO()
+    result_img.save(overlay_bytes, format="JPEG", quality=85)
+
+    # Add legend strip below the overlay image so users can identify products by name
+    return annotate_products(overlay_bytes.getvalue(), products)

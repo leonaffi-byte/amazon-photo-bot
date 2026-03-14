@@ -329,13 +329,17 @@ def render_price_bar(ph, bar_width: int = 10) -> str:
 
     current = ph.current
 
-    # Range low: prefer low_90d, fall back to low_all_time
+    # Range low: prefer low_90d, then low_all_time
     range_low = ph.low_90d if ph.low_90d is not None else ph.low_all_time
     if range_low is None:
         return ""
 
-    # Range high: prefer avg_90d, fall back to synthetic (current * 1.3)
-    range_high = ph.avg_90d if ph.avg_90d is not None else current * 1.3
+    # Range high: use the maximum of avg_90d and current price to show full range
+    # avg_90d alone is wrong as the high end — current price can be above average
+    if ph.avg_90d is not None:
+        range_high = max(ph.avg_90d, current) * 1.1  # 10% headroom
+    else:
+        range_high = current * 1.3
 
     # Handle equal range: create a synthetic range to avoid division by zero
     if range_high <= range_low:

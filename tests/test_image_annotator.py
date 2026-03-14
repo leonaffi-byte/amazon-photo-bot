@@ -145,8 +145,8 @@ class TestAnnotateWithOverlays:
         # Legend strip adds height
         assert result_img.height > 200
 
-    def test_overlay_mixed_products_only_draws_reliable(self):
-        """Some products with bbox, some without — overlay mode active, no strip added."""
+    def test_overlay_mixed_products_adds_legend(self):
+        """Overlay mode draws overlays for reliable bboxes and adds legend strip below."""
         original = make_white_image(200, 200)
         products = [
             make_product("Product 1", bbox=(10.0, 10.0, 40.0, 40.0)),
@@ -154,18 +154,18 @@ class TestAnnotateWithOverlays:
         ]
         result = annotate_with_overlays(original, products)
         result_img = Image.open(io.BytesIO(result))
-        # Height should not increase (no legend strip added for mixed case)
-        assert result_img.height == 200
+        # Legend strip adds height below the overlay image
+        assert result_img.height > 200
 
     def test_overlay_single_product_draws_overlay(self):
-        """Single product with bbox still draws overlay (unlike annotate_products which skips)."""
+        """Single product with bbox draws overlay. Single product legend strip is skipped by annotate_products."""
         original = make_white_image(200, 200)
         products = [make_product("Product 1", bbox=(10.0, 10.0, 80.0, 80.0))]
         result = annotate_with_overlays(original, products)
         result_img = Image.open(io.BytesIO(result))
-        # Height unchanged — no strip, just overlay
+        # Single product — annotate_products skips the legend strip
         assert result_img.height == 200
-        # But image content differs
+        # But image content differs (overlay drawn)
         assert result != original
 
     def test_overlay_returns_jpeg(self):

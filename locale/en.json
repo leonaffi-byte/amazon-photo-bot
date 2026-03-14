@@ -52,5 +52,7 @@
   "err_translation_failed": "Translation failed, searching with original text.",
   "filter_ask_text": "Filter results?",
   "pick_product": "I found {count} products in your photo. Which one do you want to search for?",
-  "pick_product_hint": "Tip: Circle a product or add a caption to search it directly."
+  "pick_product_hint": "Tip: Circle a product or add a caption to search it directly.",
+  "no_israel_results": "None of the {count} results ship to Israel. Tap below to see all products.",
+  "filter_show_all": "Show All Products"
 }
