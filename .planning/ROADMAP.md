@@ -12,7 +12,7 @@ This roadmap transforms the Amazon Photo Bot from a working but unreliable Teleg
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Stability and Infrastructure** - Fix critical bugs, enforce timeouts, consolidate servers into single FastAPI gateway
+- [x] **Phase 1: Stability and Infrastructure** - Fix critical bugs, enforce timeouts, consolidate servers into single FastAPI gateway (completed 2026-03-14)
 - [ ] **Phase 2: Enhanced Visual Experience** - Photo annotations, Israel shipping badges, price history summaries, progress streaming
 - [ ] **Phase 3: Web Admin Dashboard** - Browser-based admin panel replacing Telegram-only admin commands
 - [ ] **Phase 4: Messaging Platform Expansion** - WhatsApp Business API and Instagram DM integrations
@@ -30,7 +30,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Admin changes to settings, tags, or model config take effect on the next user request without bot restart
   4. Sending a >10MB photo returns a friendly "photo too large" message instead of a silent failure or API error
   5. All bot HTTP endpoints (shortener, webhooks, API) are served from a single FastAPI process on one port
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans complete
 
 Plans:
 - [ ] 01-01-PLAN.md -- Provider stability: timeout unification, health tracking, error messages (STAB-01, STAB-02, STAB-07)
@@ -108,7 +108,7 @@ Note: Phase 3 depends only on Phase 1 (not Phase 2), so Phases 2 and 3 could the
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Stability and Infrastructure | 3/4 | In Progress|  |
+| 1. Stability and Infrastructure | 4/4 | Complete   | 2026-03-14 |
 | 2. Enhanced Visual Experience | 0/3 | Not started | - |
 | 3. Web Admin Dashboard | 0/2 | Not started | - |
 | 4. Messaging Platform Expansion | 0/3 | Not started | - |

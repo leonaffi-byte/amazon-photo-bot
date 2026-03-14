@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-stopped_at: Completed 01-stability-and-infrastructure 01-04-PLAN.md
-last_updated: "2026-03-14T00:24:40.945Z"
+stopped_at: Completed 01-stability-and-infrastructure 01-03-PLAN.md
+last_updated: "2026-03-14T00:25:47.007Z"
 last_activity: 2026-03-14 -- Completed 01-01 (timeout unification + error differentiation)
 progress:
   total_phases: 5
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 4
-  completed_plans: 3
+  completed_plans: 4
   percent: 75
 ---
 
@@ -69,6 +69,7 @@ Progress: [=.........] 5%
 | Phase 01-stability-and-infrastructure P02 | 15 | 2 tasks | 6 files |
 | Phase 01-stability-and-infrastructure P01 | 14 | 3 tasks | 18 files |
 | Phase 01-stability-and-infrastructure P04 | 7 | 2 tasks | 3 files |
+| Phase 01-stability-and-infrastructure P03 | 15 | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -87,6 +88,9 @@ Recent decisions affecting current work:
 - [Phase 01-stability-and-infrastructure]: SEARCH_TIMEOUT_SECONDS = 15 unified constant in search_backends/base.py; all backends import it
 - [Phase 01-stability-and-infrastructure]: error_no_results/error_no_backend/error_analysis_failed all accept is_admin param; user messages omit Amazon/technical details
 - [Phase 01-stability-and-infrastructure]: admin_service.py returns plain dataclasses (TagInfo, KeyGroupStatus, BotStats, ProviderHealth) with no Telegram imports — enables Phase 3 web dashboard to share business logic
+- [Phase 01-stability-and-infrastructure]: Shortener /{code} catch-all router mounted LAST in gateway.py to avoid intercepting /health, /docs, /api/v1/*, /stats/*
+- [Phase 01-stability-and-infrastructure]: docker-compose.yml amazon-api service removed; all endpoints consolidated into amazon-bot on port 8080
+- [Phase 01-stability-and-infrastructure]: main.py _active_tasks set + track_task() tracks in-flight tasks; shutdown drains with 10s grace period before cancel
 
 ### Pending Todos
 
@@ -100,6 +104,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-14T00:24:40.942Z
-Stopped at: Completed 01-stability-and-infrastructure 01-04-PLAN.md
+Last session: 2026-03-14T00:25:47.005Z
+Stopped at: Completed 01-stability-and-infrastructure 01-03-PLAN.md
 Resume file: None
