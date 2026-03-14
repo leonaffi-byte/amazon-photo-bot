@@ -79,7 +79,7 @@ Plans:
   2. WhatsApp 24-hour conversation window is respected: if the window closes before results are ready, the bot sends an approved template message to re-engage rather than silently failing
   3. WhatsApp users complete an opt-in flow before receiving any messages (Meta compliance)
   4. An Instagram user can send a product photo via DM and receive product results with proper formatting
-**Plans:** 3 plans
+**Plans:** 1/3 plans executed
 
 Plans:
 - [ ] 04-01-PLAN.md -- Foundation: aiohttp-to-FastAPI webhook migration + DB opt-in columns (INST-02)
@@ -112,5 +112,5 @@ Note: Phase 3 depends only on Phase 1 (not Phase 2), so Phases 2 and 3 could the
 | 1. Stability and Infrastructure | 4/4 | Complete   | 2026-03-14 |
 | 2. Enhanced Visual Experience | 3/4 | In Progress|  |
 | 3. Web Admin Dashboard | 3/3 | Complete   | 2026-03-14 |
-| 4. Messaging Platform Expansion | 0/3 | Not started | - |
+| 4. Messaging Platform Expansion | 1/3 | In Progress|  |
 | 5. Public Web Application | 0/2 | Not started | - |

@@ -65,7 +65,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 ### Instagram Integration
 
 - [ ] **INST-01**: Bot responds to photo messages in Instagram DMs with product results
-- [ ] **INST-02**: Instagram adapter uses Meta Graph API with proper authentication
+- [x] **INST-02**: Instagram adapter uses Meta Graph API with proper authentication
 - [ ] **INST-03**: Instagram interactions use structured replies where supported
 
 ### Infrastructure
@@ -148,7 +148,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | WHAT-04 | Phase 4 | Pending |
 | WHAT-05 | Phase 4 | Pending |
 | INST-01 | Phase 4 | Pending |
-| INST-02 | Phase 4 | Pending |
+| INST-02 | Phase 4 | Complete |
 | INST-03 | Phase 4 | Pending |
 | INFR-01 | Phase 1 | Complete |
 | INFR-02 | Phase 1 | Complete |

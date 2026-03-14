@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-stopped_at: Phase 4 context gathered
-last_updated: "2026-03-14T09:08:17.557Z"
+stopped_at: Completed 04-messaging-platform-expansion/04-01-PLAN.md
+last_updated: "2026-03-14T09:50:52.526Z"
 last_activity: 2026-03-14 -- Phase 2 complete (4/4 plans, verification passed)
 progress:
   total_phases: 5
   completed_phases: 3
-  total_plans: 11
-  completed_plans: 11
+  total_plans: 14
+  completed_plans: 12
 ---
 
 ---
@@ -91,6 +91,7 @@ Progress: [████████████████████] 8/8 pla
 | Phase 03-web-admin-dashboard P01 | 18 | 2 tasks | 15 files |
 | Phase 03-web-admin-dashboard P02 | 17 | 2 tasks | 5 files |
 | Phase 03-web-admin-dashboard P03 | 14 | 2 tasks | 9 files |
+| Phase 04-messaging-platform-expansion P01 | 8 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -120,6 +121,8 @@ Recent decisions affecting current work:
 - [Phase 03-web-admin-dashboard]: ProviderHealth dataclass has name/status/failure_count/last_failure only - templates adapted to actual fields
 - [Phase 03-web-admin-dashboard]: reset_provider_health() uses global _providers = {} to force provider cache rebuild after reset
 - [Phase 03-web-admin-dashboard]: health routes use provider_name:path type annotation to handle slash-containing provider names like openai/gpt-4o
+- [Phase 04-messaging-platform-expansion]: FastAPI Request/PlainTextResponse replaces aiohttp.web types in adapter webhook handlers — purely mechanical type swap, no logic changes
+- [Phase 04-messaging-platform-expansion]: WhatsApp opt-in tracked as INTEGER (0/1) in SQLite; wa_last_msg_at as REAL unix timestamp for 24-hour window enforcement
 
 ### Pending Todos
 
@@ -133,6 +136,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-14T09:08:17.548Z
-Stopped at: Phase 4 context gathered
-Resume file: .planning/phases/04-messaging-platform-expansion/04-CONTEXT.md
+Last session: 2026-03-14T09:50:52.521Z
+Stopped at: Completed 04-messaging-platform-expansion/04-01-PLAN.md
+Resume file: None
