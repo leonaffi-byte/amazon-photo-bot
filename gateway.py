@@ -11,7 +11,8 @@ Route mounting order is critical:
   1. /api/v1/*  (API routes)
   2. /webhook/* (webhook routes — only if adapters present)
   3. /admin/*   (admin dashboard — with SessionMiddleware)
-  4. /{code}    (shortener catch-all — MUST BE LAST)
+  4. /*         (public web app — before shortener catch-all)
+  5. /{code}    (shortener catch-all — MUST BE LAST)
 
 Usage:
     from gateway import create_app
@@ -95,7 +96,17 @@ def create_app(webhook_adapters: list[Any] | None = None) -> FastAPI:
     app.include_router(admin_router, prefix="/admin")
     logger.info("Mounted admin dashboard at /admin")
 
-    # 4. Shortener catch-all at /{code} — MUST BE LAST to avoid catching other routes
+    # 4. Public web app at /* — must come before shortener catch-all
+    from web_app import router as web_router
+    from slowapi import _rate_limit_exceeded_handler
+    from slowapi.errors import RateLimitExceeded
+    from web_app.deps import limiter
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    app.include_router(web_router)
+    logger.info("Mounted web app router at /")
+
+    # 5. Shortener catch-all at /{code} — MUST BE LAST to avoid catching other routes
     from shortener_routes import router as shortener_router
     app.include_router(shortener_router)
     logger.info("Mounted shortener router at /{code} (catch-all, last)")

@@ -265,6 +265,21 @@ CREATE TABLE IF NOT EXISTS users (
     lang        TEXT,
     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Public web app search results (30-day TTL, indexed by short_id)
+CREATE TABLE IF NOT EXISTS web_searches (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    short_id        TEXT NOT NULL UNIQUE,
+    photo_hash      TEXT NOT NULL,
+    annotated_photo BLOB,
+    results_json    TEXT NOT NULL,
+    products_json   TEXT NOT NULL,
+    lang            TEXT NOT NULL DEFAULT 'he',
+    created_at      REAL NOT NULL,
+    expires_at      REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_web_searches_short_id ON web_searches(short_id);
+CREATE INDEX IF NOT EXISTS idx_web_searches_expires ON web_searches(expires_at);
 """
 
 _MIGRATIONS = [

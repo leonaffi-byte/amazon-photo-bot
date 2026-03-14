@@ -177,6 +177,16 @@ async def _scheduler_loop() -> None:
                     if now.day == 1:
                         await _send_report("MONTHLY", 30 * 24)
 
+            # ── Web search purge (daily, alongside reports) ───────────────
+            if now.hour == config.REPORT_HOUR and now.minute <= 2 and today == last_fired_date:
+                try:
+                    from web_app.search_store import purge_expired
+                    purged = await purge_expired()
+                    if purged:
+                        logger.info("Purged %d expired web searches", purged)
+                except Exception as exc:
+                    logger.error("Web search purge error: %s", exc)
+
             # ── Backups ───────────────────────────────────────────────────────
             if (config.BACKUP_ENABLED
                     and now.hour == config.BACKUP_HOUR

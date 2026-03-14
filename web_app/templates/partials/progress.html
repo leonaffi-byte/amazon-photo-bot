@@ -1,0 +1,42 @@
+<!-- SSE progress listener fragment — returned by POST /upload -->
+<div class="mt-4">
+  <!-- Uploaded photo thumbnail -->
+  {% if thumbnail_b64 %}
+  <div class="flex justify-center mb-4">
+    <img
+      src="data:image/jpeg;base64,{{ thumbnail_b64 }}"
+      alt="Uploaded photo"
+      class="w-24 h-24 object-cover rounded-xl shadow"
+      style="width:96px; height:96px;"
+    />
+  </div>
+  {% endif %}
+
+  <!-- Processing status header -->
+  <p class="text-center text-gray-500 text-sm mb-4">Analyzing your photo...</p>
+
+  <!-- SSE progress container -->
+  <div
+    hx-ext="sse"
+    sse-connect="/stream/{{ session_id }}"
+    sse-close="done"
+    class="max-w-md mx-auto"
+  >
+    <!-- Progress steps appended here as SSE events arrive -->
+    <ol
+      id="progress-steps"
+      sse-swap="progress"
+      hx-swap="beforeend"
+      class="space-y-2"
+    >
+    </ol>
+
+    <!-- Done event handler — redirects to results page -->
+    <div
+      id="sse-done-handler"
+      sse-swap="done"
+      hx-swap="none"
+      hx-on::sse-message="window.location = event.detail.data"
+    ></div>
+  </div>
+</div>

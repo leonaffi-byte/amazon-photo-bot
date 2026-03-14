@@ -1,0 +1,109 @@
+{% extends "web_base.html" %}
+
+{% block title %}Find Products on Amazon — Upload a Photo{% endblock %}
+
+{% block content %}
+<!-- Upload hero zone -->
+<section class="text-center py-8">
+  <h1 class="text-3xl font-bold text-gray-900 mb-3">
+    Find Any Product on Amazon
+  </h1>
+  <p class="text-gray-500 mb-8 text-lg">
+    Upload a photo — our AI identifies the product and finds it on Amazon instantly.
+  </p>
+
+  <!-- Upload form with HTMX -->
+  <form
+    id="upload-form"
+    hx-post="/upload"
+    hx-target="#results-area"
+    hx-swap="innerHTML"
+    hx-encoding="multipart/form-data"
+    enctype="multipart/form-data"
+    class="relative"
+  >
+    <!-- Drop zone -->
+    <div
+      id="drop-zone"
+      class="border-2 border-dashed border-gray-300 rounded-2xl p-12 cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors duration-200"
+      ondragover="event.preventDefault(); this.classList.add('border-blue-400', 'bg-blue-50');"
+      ondragleave="this.classList.remove('border-blue-400', 'bg-blue-50');"
+      ondrop="handleDrop(event)"
+      onclick="document.getElementById('photo-input').click()"
+    >
+      <div class="flex flex-col items-center gap-3">
+        <!-- Camera icon -->
+        <svg class="w-16 h-16 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+            d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+            d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+        </svg>
+        <p class="text-gray-500 font-medium">Drop a photo here or click to upload</p>
+        <p class="text-gray-400 text-sm">Supports JPG, PNG, WEBP — max 10 MB</p>
+      </div>
+    </div>
+
+    <!-- Hidden file input -->
+    <input
+      id="photo-input"
+      type="file"
+      name="photo"
+      accept="image/*"
+      class="hidden"
+      onchange="submitForm()"
+    />
+  </form>
+</section>
+
+<!-- Results target -->
+<div id="results-area" class="mt-6"></div>
+
+<!-- How it works section -->
+<section class="mt-16 border-t border-gray-100 pt-12">
+  <h2 class="text-xl font-semibold text-gray-800 mb-8 text-center">How It Works</h2>
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-8 text-center">
+    <div class="flex flex-col items-center gap-3">
+      <div class="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-lg">1</div>
+      <h3 class="font-semibold text-gray-800">Upload a Photo</h3>
+      <p class="text-gray-500 text-sm">Take or upload a photo of any product you want to find.</p>
+    </div>
+    <div class="flex flex-col items-center gap-3">
+      <div class="w-12 h-12 rounded-full bg-purple-100 flex items-center justify-center text-purple-600 font-bold text-lg">2</div>
+      <h3 class="font-semibold text-gray-800">AI Identifies It</h3>
+      <p class="text-gray-500 text-sm">Advanced vision AI recognizes the product, brand, and category.</p>
+    </div>
+    <div class="flex flex-col items-center gap-3">
+      <div class="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center text-green-600 font-bold text-lg">3</div>
+      <h3 class="font-semibold text-gray-800">Amazon Results</h3>
+      <p class="text-gray-500 text-sm">Get matching products from Amazon with prices and availability.</p>
+    </div>
+  </div>
+</section>
+
+<script>
+  function handleDrop(event) {
+    event.preventDefault();
+    const dropZone = document.getElementById('drop-zone');
+    dropZone.classList.remove('border-blue-400', 'bg-blue-50');
+
+    const files = event.dataTransfer.files;
+    if (files.length > 0) {
+      const input = document.getElementById('photo-input');
+      // Create a DataTransfer to assign files to the input
+      const dt = new DataTransfer();
+      dt.items.add(files[0]);
+      input.files = dt.files;
+      submitForm();
+    }
+  }
+
+  function submitForm() {
+    const form = document.getElementById('upload-form');
+    // Show loading state
+    const dropZone = document.getElementById('drop-zone');
+    dropZone.innerHTML = '<div class="flex flex-col items-center gap-3 py-4"><p class="text-gray-400">Uploading...</p></div>';
+    htmx.trigger(form, 'submit');
+  }
+</script>
+{% endblock %}

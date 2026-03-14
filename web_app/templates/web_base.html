@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}" dir="{{ 'rtl' if lang == 'he' else 'ltr' }}">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Amazon Photo Search{% endblock %}</title>
+
+  {% block og_tags %}{% endblock %}
+
+  <!-- Tailwind CSS CDN (Play) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- HTMX -->
+  <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.8/dist/htmx.min.js"></script>
+
+  <!-- HTMX SSE extension -->
+  <script src="https://cdn.jsdelivr.net/npm/htmx-ext-sse@2.2.4/sse.js"></script>
+</head>
+<body class="bg-white min-h-screen flex flex-col text-gray-800">
+
+  <!-- Site header -->
+  <header class="border-b border-gray-100 py-4">
+    <div class="max-w-4xl mx-auto px-4 flex items-center justify-between">
+      <a href="/" class="font-bold text-lg text-gray-900 hover:text-gray-700">
+        Amazon Photo Search
+      </a>
+      <nav class="text-sm text-gray-500 space-x-3 rtl:space-x-reverse">
+        <a href="?lang=he" class="hover:text-gray-700">עברית</a>
+        <span>|</span>
+        <a href="?lang=en" class="hover:text-gray-700">English</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Page content -->
+  <main class="flex-1 max-w-4xl mx-auto w-full px-4 py-8">
+    {% block content %}{% endblock %}
+  </main>
+
+  <!-- Footer -->
+  <footer class="border-t border-gray-100 py-6 mt-auto">
+    <div class="max-w-4xl mx-auto px-4 text-center text-xs text-gray-400">
+      <p>As an Amazon Associate, we earn from qualifying purchases.</p>
+      <p class="mt-1">Product availability and prices are subject to change.</p>
+    </div>
+  </footer>
+
+</body>
+</html>
