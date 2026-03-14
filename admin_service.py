@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
 
 import database as db
@@ -509,12 +510,14 @@ class BotStats:
 async def get_stats() -> BotStats:
     """Return aggregated bot usage statistics."""
     raw = await db.get_stats()
+    today_midnight = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    today_raw = await db.get_stats_since(today_midnight)
     return BotStats(
         total_users=raw.get("unique_users", 0),
         total_searches=raw.get("total_searches", 0),
         total_clicks=0,  # not tracked separately in current DB schema
-        today_searches=0,  # not tracked separately yet
-        today_users=0,
+        today_searches=today_raw.get("total_searches", 0),
+        today_users=today_raw.get("unique_users", 0),
         searches_per_tag=raw.get("searches_per_tag", {}),
         israel_filter_uses=raw.get("israel_filter_uses", 0),
         last_search=raw.get("last_search"),

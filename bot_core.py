@@ -868,6 +868,18 @@ class BotCore:
                 "OK, now add me to a group and send any message there\. "
                 "I will capture that group as the log group\."
             )
+
+        elif command == "webtoken":
+            if not await self._is_admin(user_id):
+                await self.adapter.send_text(chat_id, "Unauthorized\.")
+                return
+            from admin_dashboard.auth import generate_fallback_token
+            token = generate_fallback_token()
+            await self.adapter.send_text(
+                chat_id,
+                f"Web admin token \\(expires in 24h\\):\n`{token}`\n\nVisit /admin/login and paste this token\\.",
+            )
+
     async def handle_photo(
         self,
         event: Any,

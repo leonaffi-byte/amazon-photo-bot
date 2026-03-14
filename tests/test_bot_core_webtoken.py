@@ -56,7 +56,7 @@ class TestWebtokenCommand:
                 "admin_dashboard.auth.generate_fallback_token",
                 return_value=known_token,
             ):
-                await core.handle_command(admin_id, chat_id, "webtoken")
+                await core.handle_command(admin_id, chat_id, "webtoken", [])
 
         adapter.send_text.assert_called_once()
         call_args = adapter.send_text.call_args
@@ -74,7 +74,7 @@ class TestWebtokenCommand:
 
         with patch.object(config, "ADMIN_IDS", set()):
             with patch.object(db, "is_admin_in_db", AsyncMock(return_value=False)):
-                await core.handle_command(nonadmin_id, chat_id, "webtoken")
+                await core.handle_command(nonadmin_id, chat_id, "webtoken", [])
 
         # Either no message sent, or message contains "Unauthorized"
         if adapter.send_text.called:

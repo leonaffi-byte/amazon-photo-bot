@@ -1349,6 +1349,7 @@ async def cmd_shorten(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await update.message.reply_text(msg, parse_mode="MarkdownV2")
 
 
+# DEAD CODE — production uses TelegramAdapter + BotCore.handle_command("webtoken")
 async def webtoken_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send the current web admin fallback token to the requesting admin.
 

@@ -75,6 +75,7 @@ class TelegramAdapter(PlatformAdapter):
         app.add_handler(CommandHandler("language", self._handle_command))
         app.add_handler(CommandHandler("providers", self._handle_command))
         app.add_handler(CommandHandler("setloggroup", self._handle_command))
+        app.add_handler(CommandHandler("webtoken", self._handle_command))
 
         # Photo handler
         app.add_handler(MessageHandler(filters.PHOTO, self._handle_photo))
