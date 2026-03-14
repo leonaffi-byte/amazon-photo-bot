@@ -144,10 +144,10 @@ Plans:
   1. Every outbound WhatsApp message checks _is_window_open() before sending
   2. When the 24h window is closed, the adapter calls send_template() instead of sending a free-form message
   3. Template fallback is tested with unit tests covering window-open and window-closed scenarios
-**Plans:** 0/0 plans complete
+**Plans:** 1 plan
 
 Plans:
-- TBD
+- [ ] 08-01-PLAN.md -- Window guard + template fallback in all send methods, TDD with TestWindowEnforcement (WHAT-03, WHAT-04)
 
 ## Progress
 
@@ -164,4 +164,4 @@ Note: Phase 3 depends only on Phase 1 (not Phase 2), so Phases 2 and 3 could the
 | 5. Public Web Application | 3/3 | Complete   | 2026-03-14 |
 | 6. Admin Tech Debt Cleanup | 1/1 | Complete   | 2026-03-14 |
 | 7. Multi-Platform Visual Parity | 2/2 | Complete   | 2026-03-14 |
-| 8. WhatsApp Compliance Hardening | 0/0 | Not Started |  |
+| 8. WhatsApp Compliance Hardening | 0/1 | Not Started |  |
