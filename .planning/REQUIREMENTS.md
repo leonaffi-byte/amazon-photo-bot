@@ -43,8 +43,8 @@ Requirements for this milestone. Each maps to roadmap phases.
 - [x] **ADMN-02**: Dashboard shows bot statistics (users, searches, clicks, revenue estimates)
 - [x] **ADMN-03**: Admin can manage API keys (add, remove, view status) via web UI
 - [x] **ADMN-04**: Admin can manage affiliate tags (activate, deactivate, add) via web UI
-- [ ] **ADMN-05**: Admin can edit bot settings (vision mode, search backend, thresholds) via web UI
-- [ ] **ADMN-06**: Admin can view and manage provider health status via web UI
+- [x] **ADMN-05**: Admin can edit bot settings (vision mode, search backend, thresholds) via web UI
+- [x] **ADMN-06**: Admin can view and manage provider health status via web UI
 
 ### Public Web Application
 
@@ -135,8 +135,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ADMN-02 | Phase 3 | Complete |
 | ADMN-03 | Phase 3 | Complete |
 | ADMN-04 | Phase 3 | Complete |
-| ADMN-05 | Phase 3 | Pending |
-| ADMN-06 | Phase 3 | Pending |
+| ADMN-05 | Phase 3 | Complete |
+| ADMN-06 | Phase 3 | Complete |
 | WEBA-01 | Phase 5 | Pending |
 | WEBA-02 | Phase 5 | Pending |
 | WEBA-03 | Phase 5 | Pending |
