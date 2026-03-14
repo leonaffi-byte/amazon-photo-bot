@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-stopped_at: Completed 05-public-web-application/05-01-PLAN.md
-last_updated: "2026-03-14T12:29:36.866Z"
+stopped_at: Completed 05-public-web-application/05-02-PLAN.md
+last_updated: "2026-03-14T12:35:12.456Z"
 last_activity: 2026-03-14 -- Phase 2 complete (4/4 plans, verification passed)
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 17
-  completed_plans: 15
+  completed_plans: 16
 ---
 
 ---
@@ -95,6 +95,7 @@ Progress: [████████████████████] 8/8 pla
 | Phase 04-messaging-platform-expansion P03 | 10 | 2 tasks | 3 files |
 | Phase 04-messaging-platform-expansion P02 | 10 | 3 tasks | 3 files |
 | Phase 05-public-web-application P01 | 27 | 3 tasks | 12 files |
+| Phase 05-public-web-application P02 | 3 | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -132,6 +133,8 @@ Recent decisions affecting current work:
 - [Phase 04-messaging-platform-expansion]: WhatsApp send_list_message uses hasattr check in BotCore for platform-agnostic safety without base class change
 - [Phase 05-public-web-application]: Lazy imports inside SSE generator to avoid circular imports between web_app and providers/amazon_search at module load time
 - [Phase 05-public-web-application]: Starlette 2.x TemplateResponse API: request as first arg, context dict does not include request key
+- [Phase 05-public-web-application]: Affiliate URL built inline in router (f-string) since results are dicts not AmazonItem objects at template render time
+- [Phase 05-public-web-application]: get_price_history patched at price_history module level in tests (lazy import creates local binding in router)
 
 ### Pending Todos
 
@@ -145,6 +148,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-14T12:29:36.861Z
-Stopped at: Completed 05-public-web-application/05-01-PLAN.md
+Last session: 2026-03-14T12:34:55.532Z
+Stopped at: Completed 05-public-web-application/05-02-PLAN.md
 Resume file: None
