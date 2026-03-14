@@ -933,3 +933,65 @@ class TestSpawnBackgroundCheck:
         mock_task.assert_called_once()
         # Close the coroutine to avoid RuntimeWarning if create_task was mocked
         coro.close()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 9. Photo size validation and async Pillow offloading
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestOversizedPhoto:
+    @pytest.mark.asyncio
+    async def test_oversized_photo_rejected_with_friendly_message(self):
+        """When photo.file_size > 10MB, handle_photo returns a friendly message."""
+        update = _make_update(user_id=42, has_photo=True)
+        ctx = _make_context()
+        # Set file_size above the 10MB limit
+        update.message.photo[-1].file_size = 11 * 1024 * 1024  # 11 MB
+
+        with patch("bot._is_rate_limited", new=AsyncMock(return_value=(False, 5, 60))), \
+             patch("bot.get_providers", new=AsyncMock(return_value={"openai/gpt-4o": MagicMock()})):
+            await handle_photo(update, ctx)
+
+        update.message.reply_text.assert_called_once()
+        call_text = update.message.reply_text.call_args[0][0]
+        # Must mention size problem in a user-friendly way
+        assert "large" in call_text.lower() or "10" in call_text or "MB" in call_text
+
+    @pytest.mark.asyncio
+    async def test_oversized_photo_stops_processing(self):
+        """After sending the size rejection, no further processing occurs."""
+        update = _make_update(user_id=42, has_photo=True)
+        ctx = _make_context()
+        update.message.photo[-1].file_size = 15 * 1024 * 1024  # 15 MB
+
+        mock_analyse = AsyncMock()
+
+        with patch("bot._is_rate_limited", new=AsyncMock(return_value=(False, 5, 60))), \
+             patch("bot.get_providers", new=AsyncMock(return_value={"openai/gpt-4o": MagicMock()})), \
+             patch("bot.analyse_image", mock_analyse):
+            await handle_photo(update, ctx)
+
+        # analyse_image must NOT be called — we stopped at the size check
+        mock_analyse.assert_not_called()
+
+
+class TestCompressImageAsync:
+    @pytest.mark.asyncio
+    async def test_compress_image_async_uses_to_thread(self):
+        """_compress_image_async must delegate to asyncio.to_thread."""
+        from bot import _compress_image_async, _compress_image
+
+        with patch("asyncio.to_thread", new=AsyncMock(return_value=b"compressed")) as mock_thread:
+            result = await _compress_image_async(b"raw_image_data")
+
+        mock_thread.assert_called_once_with(_compress_image, b"raw_image_data")
+        assert result == b"compressed"
+
+    @pytest.mark.asyncio
+    async def test_compress_image_async_propagates_exception(self):
+        """Exceptions from the sync compress function propagate correctly."""
+        from bot import _compress_image_async
+
+        with patch("asyncio.to_thread", new=AsyncMock(side_effect=ValueError("bad image"))):
+            with pytest.raises(ValueError, match="bad image"):
+                await _compress_image_async(b"broken")

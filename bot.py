@@ -88,6 +88,11 @@ def _compress_image(raw: bytes) -> bytes:
     return buf.getvalue()
 
 
+async def _compress_image_async(raw: bytes) -> bytes:
+    """Offload synchronous Pillow compression to a thread so the event loop stays free."""
+    return await asyncio.to_thread(_compress_image, raw)
+
+
 async def _periodic_cleanup() -> None:
     while True:
         await asyncio.sleep(_CLEANUP_INTERVAL)
@@ -455,7 +460,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     )
     photo_file = await context.bot.get_file(photo.file_id)
     raw_bytes = bytes(await photo_file.download_as_bytearray())
-    image_bytes = _compress_image(raw_bytes)
+    image_bytes = await _compress_image_async(raw_bytes)
     session.image_bytes = image_bytes
 
     # Check dedup cache to avoid re-analyzing the same photo within TTL
