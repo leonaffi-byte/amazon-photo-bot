@@ -11,10 +11,10 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 - [ ] **STAB-01**: All vision provider API calls enforce timeout (max 60s per provider)
 - [ ] **STAB-02**: Model health tracking resets failure counter after configurable time window (not permanent disable)
-- [ ] **STAB-03**: Multi-step database operations wrapped in atomic transactions
+- [x] **STAB-03**: Multi-step database operations wrapped in atomic transactions
 - [ ] **STAB-04**: Graceful shutdown properly awaits all background tasks before exit
-- [ ] **STAB-05**: Photo size validated before sending to vision API (reject >10MB with user-friendly message)
-- [ ] **STAB-06**: Settings, active tag, and disabled models cached with TTL and invalidated on admin changes
+- [x] **STAB-05**: Photo size validated before sending to vision API (reject >10MB with user-friendly message)
+- [x] **STAB-06**: Settings, active tag, and disabled models cached with TTL and invalidated on admin changes
 - [ ] **STAB-07**: Error messages specify which provider/backend failed (not generic "something went wrong")
 
 ### Photo Annotation
@@ -71,7 +71,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 ### Infrastructure
 
 - [ ] **INFR-01**: Consolidate 3 HTTP servers (aiohttp shortener, aiohttp webhooks, FastAPI API) into single FastAPI gateway
-- [ ] **INFR-02**: Pillow CPU-bound operations (photo annotation) offloaded to executor (not blocking async loop)
+- [x] **INFR-02**: Pillow CPU-bound operations (photo annotation) offloaded to executor (not blocking async loop)
 - [ ] **INFR-03**: Admin service layer extracted from admin.py (shared between Telegram admin and web dashboard)
 
 ## v2 Requirements
@@ -115,10 +115,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 |-------------|-------|--------|
 | STAB-01 | Phase 1 | Pending |
 | STAB-02 | Phase 1 | Pending |
-| STAB-03 | Phase 1 | Pending |
+| STAB-03 | Phase 1 | Complete |
 | STAB-04 | Phase 1 | Pending |
-| STAB-05 | Phase 1 | Pending |
-| STAB-06 | Phase 1 | Pending |
+| STAB-05 | Phase 1 | Complete |
+| STAB-06 | Phase 1 | Complete |
 | STAB-07 | Phase 1 | Pending |
 | ANNO-01 | Phase 2 | Pending |
 | ANNO-02 | Phase 2 | Pending |
@@ -151,7 +151,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INST-02 | Phase 4 | Pending |
 | INST-03 | Phase 4 | Pending |
 | INFR-01 | Phase 1 | Pending |
-| INFR-02 | Phase 1 | Pending |
+| INFR-02 | Phase 1 | Complete |
 | INFR-03 | Phase 1 | Pending |
 
 **Coverage:**

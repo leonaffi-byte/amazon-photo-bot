@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: planning
-stopped_at: Phase 1 context gathered
-last_updated: "2026-03-13T23:31:24.654Z"
+stopped_at: Completed 01-stability-and-infrastructure plan 02
+last_updated: "2026-03-14T00:03:35.094Z"
 last_activity: 2026-03-13 -- Roadmap created
 progress:
   total_phases: 5
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 4
+  completed_plans: 1
   percent: 0
 ---
 
@@ -50,6 +50,7 @@ Progress: [..........] 0%
 - Trend: -
 
 *Updated after each plan completion*
+| Phase 01-stability-and-infrastructure P02 | 15 | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -61,6 +62,9 @@ Recent decisions affecting current work:
 - Fix stability before new features (PROJECT.md)
 - Stay on SQLite for now; PostgreSQL migration deferred unless scaling requires it (PROJECT.md)
 - FastAPI+HTMX+Jinja2 for all web surfaces (research recommendation)
+- [Phase 01-stability-and-infrastructure]: import_tags_csv uses _get_conn + BEGIN IMMEDIATE for atomic CSV imports (not separate aiosqlite.connect)
+- [Phase 01-stability-and-infrastructure]: settings_store.set/delete invalidate _active_tag_cache and _disabled_models_cache after every successful write
+- [Phase 01-stability-and-infrastructure]: Pillow image compression wrapped in asyncio.to_thread via _compress_image_async to avoid blocking the event loop
 
 ### Pending Todos
 
@@ -74,6 +78,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-13T23:31:24.652Z
-Stopped at: Phase 1 context gathered
-Resume file: .planning/phases/01-stability-and-infrastructure/01-CONTEXT.md
+Last session: 2026-03-14T00:03:35.092Z
+Stopped at: Completed 01-stability-and-infrastructure plan 02
+Resume file: None
