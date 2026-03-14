@@ -167,7 +167,8 @@ class TestListMessage:
         adapter = _make_adapter()
         sections = [{"title": "Products", "rows": [{"id": "pick:0", "title": "Widget"}]}]
 
-        with patch(_WA_GAPI, new=AsyncMock(return_value=_FAKE_GRAPH_RESPONSE)) as mock_api:
+        with patch(_WA_GAPI, new=AsyncMock(return_value=_FAKE_GRAPH_RESPONSE)) as mock_api, \
+             patch(f"{_WA_DB}.get_wa_last_msg_at", new=AsyncMock(return_value=time.time() - 3600)):
             result = await adapter.send_list_message(
                 chat_id="777",
                 body="Choose a product:",
@@ -191,7 +192,8 @@ class TestListMessage:
         adapter = _make_adapter()
         long_body = "x" * 2000
 
-        with patch(_WA_GAPI, new=AsyncMock(return_value=_FAKE_GRAPH_RESPONSE)) as mock_api:
+        with patch(_WA_GAPI, new=AsyncMock(return_value=_FAKE_GRAPH_RESPONSE)) as mock_api, \
+             patch(f"{_WA_DB}.get_wa_last_msg_at", new=AsyncMock(return_value=time.time() - 3600)):
             await adapter.send_list_message(
                 chat_id="777", body=long_body, button_label="View", sections=[],
             )
@@ -204,7 +206,8 @@ class TestListMessage:
         adapter = _make_adapter()
         long_label = "A" * 50
 
-        with patch(_WA_GAPI, new=AsyncMock(return_value=_FAKE_GRAPH_RESPONSE)) as mock_api:
+        with patch(_WA_GAPI, new=AsyncMock(return_value=_FAKE_GRAPH_RESPONSE)) as mock_api, \
+             patch(f"{_WA_DB}.get_wa_last_msg_at", new=AsyncMock(return_value=time.time() - 3600)):
             await adapter.send_list_message(
                 chat_id="777", body="Pick one", button_label=long_label, sections=[],
             )
@@ -364,7 +367,8 @@ class TestAnnotatedPhoto:
         mock_session.post = MagicMock(return_value=mock_upload_resp)
         adapter._session = mock_session
 
-        with patch(_WA_GAPI, new=AsyncMock(return_value=_FAKE_GRAPH_RESPONSE)) as mock_api:
+        with patch(_WA_GAPI, new=AsyncMock(return_value=_FAKE_GRAPH_RESPONSE)) as mock_api, \
+             patch(f"{_WA_DB}.get_wa_last_msg_at", new=AsyncMock(return_value=time.time() - 3600)):
             result = await adapter.send_photo(
                 chat_id="user123",
                 image=b"fake_annotated_bytes",
@@ -382,7 +386,8 @@ class TestAnnotatedPhoto:
         """adapter.send_photo with URL sends image directly without upload."""
         adapter = _make_adapter()
 
-        with patch(_WA_GAPI, new=AsyncMock(return_value=_FAKE_GRAPH_RESPONSE)) as mock_api:
+        with patch(_WA_GAPI, new=AsyncMock(return_value=_FAKE_GRAPH_RESPONSE)) as mock_api, \
+             patch(f"{_WA_DB}.get_wa_last_msg_at", new=AsyncMock(return_value=time.time() - 3600)):
             result = await adapter.send_photo(
                 chat_id="user456",
                 image="https://example.com/photo.jpg",

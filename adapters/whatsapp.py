@@ -57,6 +57,7 @@ class WhatsAppAdapter(PlatformAdapter):
         self._verify_token: str = getattr(config, "WHATSAPP_VERIFY_TOKEN", "")
         self._app_secret: str = getattr(config, "META_APP_SECRET", "")
         self._session: aiohttp.ClientSession | None = None
+        self._template_sent: dict[str, bool] = {}
 
     # ── Lifecycle ──────────────────────────────────────────────────────────
 
@@ -125,6 +126,8 @@ class WhatsAppAdapter(PlatformAdapter):
 
         # Record last message timestamp for 24h window tracking
         await database.update_wa_last_msg_at(user_key, _time.time())
+        # Reset template-sent flag so next closed-window event fires a new template
+        self._template_sent.pop(user_id, None)
 
         # Check for opt-in callback first (before opt-in gate blocks it)
         if msg_type == "interactive":
@@ -217,6 +220,31 @@ class WhatsAppAdapter(PlatformAdapter):
             return False
         return (_time.time() - ts) < 86400
 
+    async def _guard_window(self, chat_id: str) -> "MessageRef | None":
+        """Check the 24-hour conversation window before dispatching outbound messages.
+
+        Returns None if the window is open (caller should proceed normally).
+        Returns a no-op MessageRef if the window is closed (caller should return it immediately).
+
+        When the window is first detected as closed, fires send_template() exactly once
+        per chat_id to re-engage the user via a pre-approved Meta template. Subsequent
+        calls for the same closed window return the no-op MessageRef silently.
+        """
+        user_key = f"whatsapp:{chat_id}"
+        if await self._is_window_open(user_key):
+            return None
+
+        # Window is closed — check whether we already sent the template for this user
+        if not self._template_sent.get(chat_id, False):
+            lang_code = await database.get_user_lang(user_key) or "en"
+            await self.send_template(chat_id, template_name="product_results_ready", lang_code=lang_code)
+            self._template_sent[chat_id] = True
+            logger.info("WhatsApp 24h window closed for %s -- sent template re-engagement", chat_id)
+        else:
+            logger.debug("WhatsApp 24h window closed for %s -- no-op (template already sent)", chat_id)
+
+        return MessageRef(platform="whatsapp", chat_id=chat_id, message_id="", raw=None)
+
     async def send_list_message(
         self,
         chat_id: str,
@@ -225,6 +253,9 @@ class WhatsAppAdapter(PlatformAdapter):
         sections: list[dict],
     ) -> MessageRef:
         """Send a WhatsApp list-type interactive message (up to 10 rows total)."""
+        guard = await self._guard_window(chat_id)
+        if guard is not None:
+            return guard
         assert self._session is not None
         data = {
             "messaging_product": "whatsapp",
@@ -301,6 +332,9 @@ class WhatsAppAdapter(PlatformAdapter):
         text: str,
         buttons: list[list[Button]] | None = None,
     ) -> MessageRef:
+        guard = await self._guard_window(chat_id)
+        if guard is not None:
+            return guard
         assert self._session is not None
         endpoint = f"{self._phone_number_id}/messages"
 
@@ -348,6 +382,8 @@ class WhatsAppAdapter(PlatformAdapter):
         text: str,
         buttons: list[list[Button]] | None = None,
     ) -> None:
+        if await self._guard_window(ref.chat_id) is not None:
+            return
         # WhatsApp does not support editing — send a new message instead
         await self.send_text(ref.chat_id, text, buttons)
 
@@ -360,6 +396,9 @@ class WhatsAppAdapter(PlatformAdapter):
         caption: str = "",
         buttons: list[list[Button]] | None = None,
     ) -> MessageRef:
+        guard = await self._guard_window(chat_id)
+        if guard is not None:
+            return guard
         assert self._session is not None
         endpoint = f"{self._phone_number_id}/messages"
 
