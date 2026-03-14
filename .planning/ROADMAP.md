@@ -63,11 +63,12 @@ Plans:
   2. Admin can add, remove, and view status of all API keys through the web UI without touching .env or Telegram
   3. Admin can activate/deactivate affiliate tags and change bot settings (vision mode, search backend, thresholds) through the web UI, with changes taking effect immediately
   4. Admin can view real-time provider health status (healthy, degraded, disabled) and manually reset a provider through the web UI
-**Plans**: TBD
+**Plans:** 3 plans
 
 Plans:
-- [ ] 03-01: TBD
-- [ ] 03-02: TBD
+- [ ] 03-01-PLAN.md -- Module scaffold, auth system (Telegram widget + fallback token), home page with stats and sparklines (ADMN-01, ADMN-02)
+- [ ] 03-02-PLAN.md -- API key management and affiliate tag management pages (ADMN-03, ADMN-04)
+- [ ] 03-03-PLAN.md -- Bot settings editor, provider health management, /webtoken command (ADMN-05, ADMN-06)
 
 ### Phase 4: Messaging Platform Expansion
 **Goal**: Israeli users can send product photos via WhatsApp or Instagram DMs and receive the same quality results as Telegram users, with platform-appropriate UX
@@ -110,6 +111,6 @@ Note: Phase 3 depends only on Phase 1 (not Phase 2), so Phases 2 and 3 could the
 |-------|----------------|--------|-----------|
 | 1. Stability and Infrastructure | 4/4 | Complete   | 2026-03-14 |
 | 2. Enhanced Visual Experience | 3/4 | In Progress|  |
-| 3. Web Admin Dashboard | 0/2 | Not started | - |
+| 3. Web Admin Dashboard | 0/3 | Not started | - |
 | 4. Messaging Platform Expansion | 0/3 | Not started | - |
 | 5. Public Web Application | 0/2 | Not started | - |
