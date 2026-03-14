@@ -7,7 +7,7 @@ wave_0_complete: false
 created: 2026-03-14
 ---
 
-# Phase 5 — Validation Strategy
+# Phase 5 -- Validation Strategy
 
 > Per-phase validation contract for feedback sampling during execution.
 
@@ -38,31 +38,31 @@ created: 2026-03-14
 
 | Task ID | Plan | Wave | Requirement | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|-----------|-------------------|-------------|--------|
-| 05-01-01 | 01 | 1 | WEBA-01 | unit | `pytest tests/test_web_app.py::TestUpload::test_valid_upload -x` | ❌ W0 | ⬜ pending |
-| 05-01-02 | 01 | 1 | WEBA-01 | unit | `pytest tests/test_web_app.py::TestUpload::test_oversized_file -x` | ❌ W0 | ⬜ pending |
-| 05-01-03 | 01 | 1 | WEBA-01 | unit | `pytest tests/test_web_app.py::TestUpload::test_non_image_rejected -x` | ❌ W0 | ⬜ pending |
-| 05-01-04 | 01 | 1 | WEBA-01 | unit | `pytest tests/test_web_app.py::TestSSE::test_stream_stages -x` | ❌ W0 | ⬜ pending |
-| 05-02-01 | 02 | 1 | WEBA-02 | unit | `pytest tests/test_web_app.py::TestResultPage::test_product_card_fields -x` | ❌ W0 | ⬜ pending |
-| 05-02-02 | 02 | 1 | WEBA-02 | unit | `pytest tests/test_web_app.py::TestResultPage::test_affiliate_url -x` | ❌ W0 | ⬜ pending |
-| 05-02-03 | 02 | 1 | WEBA-03 | unit | `pytest tests/test_web_app.py::TestResultPage::test_price_history_bar -x` | ❌ W0 | ⬜ pending |
-| 05-02-04 | 02 | 1 | WEBA-04 | unit | `pytest tests/test_web_app.py::TestResultPage::test_og_tags -x` | ❌ W0 | ⬜ pending |
-| 05-02-05 | 02 | 1 | WEBA-04 | unit | `pytest tests/test_web_app.py::TestResultPage::test_expired_result -x` | ❌ W0 | ⬜ pending |
-| 05-02-06 | 02 | 1 | WEBA-04 | unit | `pytest tests/test_web_app.py::TestSearchStore::test_purge_expired -x` | ❌ W0 | ⬜ pending |
-| 05-02-07 | 02 | 1 | WEBA-05 | smoke | `pytest tests/test_web_app.py::TestHomePage::test_mobile_viewport -x` | ❌ W0 | ⬜ pending |
-| 05-02-08 | 02 | 1 | WEBA-05 | unit | `pytest tests/test_web_app.py::TestResultPage::test_rtl_dir_attr -x` | ❌ W0 | ⬜ pending |
+| 05-01-01 | 01 | 1 | WEBA-01 | unit | `pytest tests/test_web_app.py::TestUpload::test_valid_upload -x` | W0 | pending |
+| 05-01-02 | 01 | 1 | WEBA-01 | unit | `pytest tests/test_web_app.py::TestUpload::test_oversized_file -x` | W0 | pending |
+| 05-01-03 | 01 | 1 | WEBA-01 | unit | `pytest tests/test_web_app.py::TestUpload::test_non_image_rejected -x` | W0 | pending |
+| 05-01-04 | 01 | 1 | WEBA-01 | unit | `pytest tests/test_web_app.py::TestSSE::test_stream_stages -x` | W0 | pending |
+| 05-02-01 | 02 | 2 | WEBA-02 | unit | `pytest tests/test_web_app.py::TestResultPage::test_product_card_fields -x` | W0 | pending |
+| 05-02-02 | 02 | 2 | WEBA-02 | unit | `pytest tests/test_web_app.py::TestResultPage::test_affiliate_url -x` | W0 | pending |
+| 05-02-03 | 02 | 2 | WEBA-03 | unit | `pytest tests/test_web_app.py::TestPriceHistoryBar::test_price_history_bar_rendered -x` | W0 | pending |
+| 05-02-04 | 02 | 2 | WEBA-04 | unit | `pytest tests/test_web_app.py::TestResultPage::test_og_tags -x` | W0 | pending |
+| 05-02-05 | 02 | 2 | WEBA-04 | unit | `pytest tests/test_web_app.py::TestResultPage::test_expired_result -x` | W0 | pending |
+| 05-02-06 | 02 | 2 | WEBA-04 | unit | `pytest tests/test_web_app.py::TestSearchStore::test_purge_expired -x` | W0 | pending |
+| 05-02-07 | 02 | 2 | WEBA-05 | smoke | `pytest tests/test_web_app.py::TestHomePage::test_mobile_viewport -x` | W0 | pending |
+| 05-02-08 | 02 | 2 | WEBA-05 | unit | `pytest tests/test_web_app.py::TestResultPage::test_rtl_dir_attr -x` | W0 | pending |
 
-*Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
+*Status: pending / green / red / flaky*
 
 ---
 
 ## Wave 0 Requirements
 
-- [ ] `tests/test_web_app.py` — stubs for WEBA-01 through WEBA-05
-- [ ] `web_app/__init__.py` — exports router
-- [ ] `web_app/router.py` — FastAPI APIRouter (stub with placeholder routes)
-- [ ] `web_app/search_store.py` — DB functions for web_searches table
-- [ ] `web_app/deps.py` — SlowAPI limiter setup
-- [ ] `web_app/templates/web_base.html` — public base template
+- [ ] `tests/test_web_app.py` -- stubs for WEBA-01 through WEBA-05
+- [ ] `web_app/__init__.py` -- exports router
+- [ ] `web_app/router.py` -- FastAPI APIRouter (stub with placeholder routes)
+- [ ] `web_app/search_store.py` -- DB functions for web_searches table
+- [ ] `web_app/deps.py` -- SlowAPI limiter setup
+- [ ] `web_app/templates/web_base.html` -- public base template
 - [ ] DB migration: `web_searches` table added to `database.init_db()`
 
 ---
