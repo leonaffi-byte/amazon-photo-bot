@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-stopped_at: Completed 06-admin-tech-debt-cleanup/06-01-PLAN.md
-last_updated: "2026-03-14T13:51:21.060Z"
+stopped_at: Completed 07-multi-platform-visual-parity/07-01-PLAN.md
+last_updated: "2026-03-14T14:35:00.780Z"
 last_activity: 2026-03-14 -- Phase 2 complete (4/4 plans, verification passed)
 progress:
-  total_phases: 6
+  total_phases: 8
   completed_phases: 6
-  total_plans: 18
-  completed_plans: 18
+  total_plans: 20
+  completed_plans: 19
 ---
 
 ---
@@ -98,6 +98,7 @@ Progress: [████████████████████] 8/8 pla
 | Phase 05-public-web-application P02 | 3 | 2 tasks | 6 files |
 | Phase 05-public-web-application P03 | 7 | 1 tasks | 9 files |
 | Phase 06-admin-tech-debt-cleanup P01 | 13 | 1 tasks | 6 files |
+| Phase 07-multi-platform-visual-parity P01 | 3 | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -142,6 +143,9 @@ Recent decisions affecting current work:
 - [Phase 05-public-web-application]: Result page lang determined by: request ?lang= param → cookie → stored row.lang
 - [Phase 06-admin-tech-debt-cleanup]: get_stats_since returns unique_users and total_searches keys — used directly for today_searches/today_users without aliasing
 - [Phase 06-admin-tech-debt-cleanup]: webtoken non-admin path sends Unauthorized message (not silent return) — matches legacy bot.py behavior
+- [Phase 07-multi-platform-visual-parity]: israel_result parameter added after israel_status in product_caption() for backward compatibility — existing callers unaffected
+- [Phase 07-multi-platform-visual-parity]: Telegram backtick wrapping applied per-line around each bar line; WhatsApp/Instagram use plain escaped text (backticks render literally)
+- [Phase 07-multi-platform-visual-parity]: render_price_bar() imported from style.py into formatter.py — style.py remains single source of truth for bar rendering logic
 
 ### Pending Todos
 
@@ -155,6 +159,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-14T13:48:20.912Z
-Stopped at: Completed 06-admin-tech-debt-cleanup/06-01-PLAN.md
+Last session: 2026-03-14T14:35:00.774Z
+Stopped at: Completed 07-multi-platform-visual-parity/07-01-PLAN.md
 Resume file: None
