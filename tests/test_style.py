@@ -229,3 +229,111 @@ class TestResultsPage:
         s_israel = make_session(israel_only=True)
         assert "All" in style.results_page(s_all) or "🌐" in style.results_page(s_all)
         assert "Israel" in style.results_page(s_israel) or "✈️" in style.results_page(s_israel)
+
+
+# ── Error message differentiation tests ──────────────────────────────────────
+
+class TestErrorAnalysisFailed:
+    """error_analysis_failed(is_admin) must behave differently for admin vs user."""
+
+    def test_user_message_is_friendly(self):
+        msg = style.error_analysis_failed(is_admin=False)
+        # User-facing: must contain the exact wording from CONTEXT.md
+        # Unescape MarkdownV2 for comparison
+        plain = msg.replace("\\.", ".").replace("\\-", "-").replace("\\!", "!")
+        assert "couldn't analyze your photo" in plain.lower() or "couldn't analyze" in plain.lower(), (
+            f"User error_analysis_failed must say 'couldn't analyze your photo', got: {plain!r}"
+        )
+
+    def test_user_message_no_technical_details(self):
+        msg = style.error_analysis_failed(is_admin=False)
+        # Must not contain provider names, model names, or admin panel links
+        assert "/admin" not in msg.lower(), "User error must not contain /admin link"
+        assert "provider" not in msg.lower(), "User error must not mention 'provider'"
+        assert "model" not in msg.lower(), "User error must not mention 'model'"
+
+    def test_admin_message_has_admin_link(self):
+        msg = style.error_analysis_failed(is_admin=True)
+        assert "/admin" in msg.lower(), "Admin error_analysis_failed must include /admin link"
+
+    def test_admin_and_user_messages_differ(self):
+        user_msg  = style.error_analysis_failed(is_admin=False)
+        admin_msg = style.error_analysis_failed(is_admin=True)
+        assert user_msg != admin_msg, "Admin and user messages must differ"
+
+
+class TestErrorNoResults:
+    """error_no_results must accept is_admin parameter."""
+
+    def test_accepts_is_admin_false(self):
+        # Must not raise TypeError even if is_admin is not yet a parameter
+        try:
+            msg = style.error_no_results(is_admin=False)
+        except TypeError as e:
+            pytest.fail(f"error_no_results must accept is_admin=False: {e}")
+
+    def test_accepts_is_admin_true(self):
+        try:
+            msg = style.error_no_results(is_admin=True)
+        except TypeError as e:
+            pytest.fail(f"error_no_results must accept is_admin=True: {e}")
+
+    def test_user_message_does_not_mention_amazon(self):
+        msg = style.error_no_results(is_admin=False)
+        # "Amazon" must NOT appear in user-facing no-results message
+        assert "Amazon" not in msg, (
+            f"User error_no_results must not mention 'Amazon', got: {msg!r}"
+        )
+
+    def test_user_message_suggests_clearer_photo(self):
+        msg = style.error_no_results(is_admin=False)
+        plain = msg.replace("\\.", ".").replace("\\-", "-")
+        assert "photo" in plain.lower() or "angle" in plain.lower(), (
+            f"User error_no_results should suggest a clearer photo, got: {plain!r}"
+        )
+
+
+class TestErrorNoBackend:
+    """error_no_backend must accept is_admin parameter."""
+
+    def test_accepts_is_admin_false(self):
+        try:
+            msg = style.error_no_backend(is_admin=False)
+        except TypeError as e:
+            pytest.fail(f"error_no_backend must accept is_admin=False: {e}")
+
+    def test_accepts_is_admin_true(self):
+        try:
+            msg = style.error_no_backend(is_admin=True)
+        except TypeError as e:
+            pytest.fail(f"error_no_backend must accept is_admin=True: {e}")
+
+    def test_admin_message_has_admin_link(self):
+        msg = style.error_no_backend(is_admin=True)
+        assert "/admin" in msg.lower(), "Admin error_no_backend must include /admin link"
+
+    def test_user_message_is_generic(self):
+        msg = style.error_no_backend(is_admin=False)
+        assert "/admin" not in msg.lower(), "User error_no_backend must not contain /admin link"
+
+    def test_admin_and_user_messages_differ(self):
+        user_msg  = style.error_no_backend(is_admin=False)
+        admin_msg = style.error_no_backend(is_admin=True)
+        assert user_msg != admin_msg, "Admin and user messages must differ"
+
+
+class TestErrorNoProviders:
+    """error_no_providers already has is_admin — verify the differentiation."""
+
+    def test_user_message_is_generic(self):
+        msg = style.error_no_providers(is_admin=False)
+        assert "/admin" not in msg.lower(), "User error_no_providers must not contain /admin link"
+
+    def test_admin_message_has_admin_link(self):
+        msg = style.error_no_providers(is_admin=True)
+        assert "/admin" in msg.lower(), "Admin error_no_providers must include /admin link"
+
+    def test_admin_and_user_messages_differ(self):
+        user_msg  = style.error_no_providers(is_admin=False)
+        admin_msg = style.error_no_providers(is_admin=True)
+        assert user_msg != admin_msg
