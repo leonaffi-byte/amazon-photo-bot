@@ -205,6 +205,14 @@ async def run() -> None:
         import log_group
         log_group.init(tg_adapter._app)
 
+    # -- Generate web admin fallback token (for initial login via /webtoken) --
+    try:
+        from admin_dashboard.auth import generate_fallback_token
+        generate_fallback_token()
+        logger.info("Web admin fallback token generated. Use /webtoken in Telegram or paste at /admin/login")
+    except Exception as _tok_exc:
+        logger.warning("Could not pre-generate web admin fallback token: %s", _tok_exc)
+
     # -- Start consolidated FastAPI gateway (shortener + webhooks + API) ------
     webhook_adapters = [a for a in adapters if hasattr(a, "handle_webhook")]
     from gateway import create_app

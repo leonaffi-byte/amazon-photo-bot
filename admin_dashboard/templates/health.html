@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Provider Health{% endblock %}
+{% block content %}
+<div class="max-w-5xl mx-auto">
+  <div class="mb-6">
+    <h2 class="text-2xl font-bold text-gray-800">Provider Health</h2>
+    <p class="text-gray-500 mt-1 text-sm">Real-time provider health status. Auto-refreshes every 30 seconds.</p>
+  </div>
+
+  <div
+    id="provider-health"
+    hx-get="/admin/partials/health"
+    hx-trigger="every 30s"
+    hx-swap="outerHTML">
+    {% if not providers %}
+    <div class="bg-white rounded-lg shadow-sm border border-gray-100 p-8 text-center text-gray-400">
+      No provider health data available. Providers appear here after their first use.
+    </div>
+    {% else %}
+    <div class="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden">
+      <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+          <tr>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Provider</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Failures</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Failure</th>
+            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="bg-white divide-y divide-gray-100">
+          {% for provider in providers %}{% include "partials/provider_health_row.html" %}{% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -442,8 +442,6 @@ async def setting_reset(
     )
 
 
-# ── Settings management routes ────────────────────────────────────────────────
-
 @router.post("/tags/{tag_id}/remove", response_class=HTMLResponse, name="admin_tag_remove")
 async def tag_remove(
     request: Request,
@@ -460,3 +458,43 @@ async def tag_remove(
     except Exception:
         logger.warning("Failed to send admin notification for tag remove", exc_info=True)
     return HTMLResponse("", status_code=200)
+
+
+# ── Provider health management routes ─────────────────────────────────────────
+
+@router.get("/health", response_class=HTMLResponse, name="admin_health")
+async def health_page(request: Request, admin_id: int = Depends(require_admin)):
+    """Provider health detail page — full table with status, latency, failure count."""
+    try:
+        providers = await admin_service.get_provider_health()
+    except Exception:
+        logger.warning("get_provider_health() failed", exc_info=True)
+        providers = []
+    return templates.TemplateResponse(
+        "health.html",
+        {"request": request, "providers": providers},
+    )
+
+
+@router.post("/health/{provider_name:path}/reset", response_class=HTMLResponse, name="admin_health_reset")
+async def health_reset(
+    request: Request,
+    provider_name: str,
+    admin_id: int = Depends(require_admin),
+):
+    """Reset provider failure count and return updated provider row fragment."""
+    import providers.manager as pm
+    await pm.reset_provider_health(provider_name)
+    try:
+        await notifications.admin(
+            f"Provider `{provider_name}` health reset via web by admin {admin_id}",
+            parse_mode="MarkdownV2",
+        )
+    except Exception:
+        logger.warning("Failed to send admin notification for health reset", exc_info=True)
+    all_providers = await admin_service.get_provider_health()
+    provider = next((p for p in all_providers if p.name == provider_name), None)
+    return templates.TemplateResponse(
+        "partials/provider_health_row.html",
+        {"request": request, "provider": provider},
+    )

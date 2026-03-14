@@ -1349,6 +1349,23 @@ async def cmd_shorten(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await update.message.reply_text(msg, parse_mode="MarkdownV2")
 
 
+async def webtoken_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send the current web admin fallback token to the requesting admin.
+
+    Admin-only command. Generates a fresh 24h token and DMs it to the admin.
+    """
+    user_id = update.effective_user.id
+    if not (user_id in config.ADMIN_IDS or await db.is_admin_in_db(user_id)):
+        await update.message.reply_text("Unauthorized.")
+        return
+    from admin_dashboard.auth import generate_fallback_token
+    token = generate_fallback_token()
+    await update.message.reply_text(
+        f"Web admin token \\(expires in 24h\\):\n`{token}`\n\nVisit /admin/login and paste this token\\.",
+        parse_mode="MarkdownV2",
+    )
+
+
 async def handle_unsupported(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Reply to non-photo/text messages (video, voice, sticker, etc.)."""
     await update.message.reply_text(style.not_a_photo(), parse_mode="MarkdownV2")
@@ -1371,6 +1388,7 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("help",      cmd_help))
     app.add_handler(CommandHandler("providers", cmd_providers))
     app.add_handler(CommandHandler("shorten",   cmd_shorten))
+    app.add_handler(CommandHandler("webtoken",  webtoken_command))
     app.add_handler(MessageHandler(filters.PHOTO,                   handle_photo))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_search))

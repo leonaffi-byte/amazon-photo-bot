@@ -20,31 +20,14 @@
         <tr>
           <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Provider</th>
           <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Success Rate</th>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Avg Latency</th>
           <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Failures</th>
-          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Failure</th>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
         </tr>
       </thead>
       <tbody class="bg-white divide-y divide-gray-100">
-        {% for p in providers %}
-        <tr class="hover:bg-gray-50">
-          <td class="px-4 py-3 text-sm font-medium text-gray-800">{{ p.name }}</td>
-          <td class="px-4 py-3 text-sm">
-            {% if p.status == "healthy" %}
-              <span class="text-green-600 font-medium">Healthy</span>
-            {% elif p.status == "degraded" %}
-              <span class="text-yellow-500 font-medium">Degraded</span>
-            {% elif p.status == "disabled" %}
-              <span class="text-red-600 font-medium">Disabled</span>
-            {% else %}
-              <span class="text-gray-500">{{ p.status }}</span>
-            {% endif %}
-          </td>
-          <td class="px-4 py-3 text-sm text-gray-600">{{ p.failure_count }}</td>
-          <td class="px-4 py-3 text-sm text-gray-400 truncate max-w-xs">
-            {{ p.last_failure or "—" }}
-          </td>
-        </tr>
-        {% endfor %}
+        {% for provider in providers %}{% include "partials/provider_health_row.html" %}{% endfor %}
       </tbody>
     </table>
   </div>

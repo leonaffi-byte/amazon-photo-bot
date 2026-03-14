@@ -1,0 +1,27 @@
+<tr id="health-row-{{ provider.name | replace('/', '-') }}" class="hover:bg-gray-50">
+  <td class="px-4 py-3 text-sm font-medium text-gray-800">{{ provider.name }}</td>
+  <td class="px-4 py-3 text-sm">
+    {% if provider.status == "healthy" %}
+      <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">Healthy</span>
+    {% elif provider.status == "degraded" %}
+      <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700">Degraded</span>
+    {% elif provider.status == "disabled" %}
+      <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">Disabled</span>
+    {% else %}
+      <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">{{ provider.status }}</span>
+    {% endif %}
+  </td>
+  <td class="px-4 py-3 text-sm text-gray-600">{{ provider.failure_count }}</td>
+  <td class="px-4 py-3 text-sm text-gray-400 truncate max-w-xs">{{ provider.last_failure or "—" }}</td>
+  <td class="px-4 py-3">
+    {% if provider.failure_count > 0 %}
+    <button hx-post="/admin/health/{{ provider.name | urlencode }}/reset"
+            hx-target="#health-row-{{ provider.name | replace('/', '-') }}"
+            hx-swap="outerHTML"
+            hx-confirm="Reset {{ provider.name }}?"
+            class="text-sm text-amber-600 hover:text-amber-800 font-medium">Reset</button>
+    {% else %}
+    <span class="text-xs text-gray-300">—</span>
+    {% endif %}
+  </td>
+</tr>

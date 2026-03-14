@@ -49,6 +49,28 @@ def reset_providers() -> None:
     _providers = {}
 
 
+async def reset_provider_health(provider_name: str) -> None:
+    """Reset failure count for a provider, restoring it to healthy status.
+
+    Clears consecutive failures, resets state to 'healthy', re-enables the
+    provider in the DB, and clears the provider cache so the provider will be
+    re-loaded on the next analysis call.
+    """
+    global _providers
+    import database as db
+    await db.update_model_health_state(
+        provider_name,
+        state="healthy",
+        is_disabled=False,
+        last_notification_level=0,
+    )
+    # Also clear consecutive_failures via record_model_success pattern
+    await db.reset_model_failures(provider_name)
+    # Force a reload so the provider becomes available again
+    _providers = {}
+    logger.info("[%s] Provider health reset via admin action", provider_name)
+
+
 def _model_enabled(env_key: str, default: bool = True) -> bool:
     """
     Check whether a specific model is enabled via an environment variable.
