@@ -48,11 +48,11 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Public Web Application
 
-- [ ] **WEBA-01**: Public web page where users can upload a photo to identify products
+- [x] **WEBA-01**: Public web page where users can upload a photo to identify products
 - [ ] **WEBA-02**: Web app displays product results with prices, ratings, affiliate links, and shipping badges
 - [ ] **WEBA-03**: Web app shows price history visualization for each product
 - [ ] **WEBA-04**: Search results have shareable URLs for SEO and link sharing
-- [ ] **WEBA-05**: Web app is mobile-responsive (majority of users on phones)
+- [x] **WEBA-05**: Web app is mobile-responsive (majority of users on phones)
 
 ### WhatsApp Integration
 
@@ -137,11 +137,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ADMN-04 | Phase 3 | Complete |
 | ADMN-05 | Phase 3 | Complete |
 | ADMN-06 | Phase 3 | Complete |
-| WEBA-01 | Phase 5 | Pending |
+| WEBA-01 | Phase 5 | Complete |
 | WEBA-02 | Phase 5 | Pending |
 | WEBA-03 | Phase 5 | Pending |
 | WEBA-04 | Phase 5 | Pending |
-| WEBA-05 | Phase 5 | Pending |
+| WEBA-05 | Phase 5 | Complete |
 | WHAT-01 | Phase 4 | Complete |
 | WHAT-02 | Phase 4 | Complete |
 | WHAT-03 | Phase 4 | Complete |
