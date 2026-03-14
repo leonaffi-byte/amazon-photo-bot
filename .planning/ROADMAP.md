@@ -95,11 +95,12 @@ Plans:
   2. Product results display prices, ratings, affiliate links, Israel shipping badges, and price history -- matching the quality of bot results
   3. Each search result page has a unique shareable URL that renders correctly when shared on social media or messaged to a friend
   4. The web app is fully functional and readable on mobile screens (where the majority of Israeli users will access it)
-**Plans**: TBD
+**Plans:** 3 plans
 
 Plans:
-- [ ] 05-01: TBD
-- [ ] 05-02: TBD
+- [ ] 05-01-PLAN.md -- Upload pipeline: web_app module, SSE streaming, search_store, DB table, rate limiting, landing page (WEBA-01, WEBA-05)
+- [ ] 05-02-PLAN.md -- Result page: product cards with badges/prices/affiliate links, product tabs, OG tags, shareable URLs (WEBA-02, WEBA-03, WEBA-04)
+- [ ] 05-03-PLAN.md -- Mobile responsive polish, Hebrew/English i18n, RTL support, end-to-end verification (WEBA-05)
 
 ## Progress
 
@@ -113,4 +114,4 @@ Note: Phase 3 depends only on Phase 1 (not Phase 2), so Phases 2 and 3 could the
 | 2. Enhanced Visual Experience | 3/4 | In Progress|  |
 | 3. Web Admin Dashboard | 3/3 | Complete   | 2026-03-14 |
 | 4. Messaging Platform Expansion | 3/3 | Complete   | 2026-03-14 |
-| 5. Public Web Application | 0/2 | Not started | - |
+| 5. Public Web Application | 0/3 | Not started | - |
