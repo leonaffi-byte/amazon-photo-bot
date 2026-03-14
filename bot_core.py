@@ -1014,26 +1014,51 @@ class BotCore:
             from image_annotator import annotate_products
             annotated_bytes = annotate_products(image_bytes, detected_products)
 
-            picker_text = fmt.product_picker(detected_products)
-            picker_buttons: list[list[Button]] = []
-            for i, p in enumerate(detected_products):
-                short_name = p.product_name[:30]
-                picker_buttons.append([Button(
-                    label=f"{i + 1}: {short_name}",
-                    callback_data=f"{CB_PICK_PRODUCT}{i}",
-                )])
-
-            # Delete loading message, send annotated photo with picker
+            # Delete loading message
             try:
                 await self.adapter.delete_message(loading_ref)
             except Exception:
                 pass
+
+            # Send annotated photo first (works on all platforms including WhatsApp)
             await self.adapter.send_photo(
                 chat_id,
                 image=annotated_bytes,
-                caption=picker_text,
-                buttons=picker_buttons,
+                caption=fmt.product_picker(detected_products),
+                buttons=[],  # No buttons on the photo for WhatsApp
             )
+
+            # Platform-specific product selection UI
+            if self.adapter.platform_name == "whatsapp" and hasattr(self.adapter, "send_list_message"):
+                # WhatsApp: use list message for product selection (up to 10 items)
+                rows = []
+                for i, p in enumerate(detected_products[:10]):
+                    rows.append({
+                        "id": f"{CB_PICK_PRODUCT}{i}",
+                        "title": p.product_name[:24],
+                        "description": (p.category or "")[:72],
+                    })
+                sections = [{"title": "Detected Products", "rows": rows}]
+                await self.adapter.send_list_message(
+                    chat_id,
+                    body="I found multiple products in your photo. Tap below to select one:",
+                    button_label="View Products",
+                    sections=sections,
+                )
+            else:
+                # Other platforms: inline buttons on the photo caption (existing behavior)
+                picker_buttons: list[list[Button]] = []
+                for i, p in enumerate(detected_products):
+                    short_name = p.product_name[:30]
+                    picker_buttons.append([Button(
+                        label=f"{i + 1}: {short_name}",
+                        callback_data=f"{CB_PICK_PRODUCT}{i}",
+                    )])
+                await self.adapter.send_text(
+                    chat_id,
+                    text=fmt.product_picker(detected_products),
+                    buttons=picker_buttons,
+                )
             return
 
         # Single product (or user provided hint) -- normal flow
