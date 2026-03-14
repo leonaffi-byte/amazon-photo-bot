@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-stopped_at: Completed 05-public-web-application/05-02-PLAN.md
-last_updated: "2026-03-14T12:35:12.456Z"
+stopped_at: Completed 05-public-web-application/05-03-PLAN.md
+last_updated: "2026-03-14T12:46:48.367Z"
 last_activity: 2026-03-14 -- Phase 2 complete (4/4 plans, verification passed)
 progress:
   total_phases: 5
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 17
-  completed_plans: 16
+  completed_plans: 17
 ---
 
 ---
@@ -96,6 +96,7 @@ Progress: [████████████████████] 8/8 pla
 | Phase 04-messaging-platform-expansion P02 | 10 | 3 tasks | 3 files |
 | Phase 05-public-web-application P01 | 27 | 3 tasks | 12 files |
 | Phase 05-public-web-application P02 | 3 | 2 tasks | 6 files |
+| Phase 05-public-web-application P03 | 7 | 1 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -135,6 +136,9 @@ Recent decisions affecting current work:
 - [Phase 05-public-web-application]: Starlette 2.x TemplateResponse API: request as first arg, context dict does not include request key
 - [Phase 05-public-web-application]: Affiliate URL built inline in router (f-string) since results are dicts not AmazonItem objects at template render time
 - [Phase 05-public-web-application]: get_price_history patched at price_history module level in tests (lazy import creates local binding in router)
+- [Phase 05-public-web-application]: Hebrew-first default (lang='he') for all routes — target market is Israeli users
+- [Phase 05-public-web-application]: No physical directional Tailwind classes in templates — all logical properties (ms-, me-, text-start, text-end)
+- [Phase 05-public-web-application]: Result page lang determined by: request ?lang= param → cookie → stored row.lang
 
 ### Pending Todos
 
@@ -148,6 +152,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-14T12:34:55.532Z
-Stopped at: Completed 05-public-web-application/05-02-PLAN.md
+Last session: 2026-03-14T12:46:48.358Z
+Stopped at: Completed 05-public-web-application/05-03-PLAN.md
 Resume file: None
