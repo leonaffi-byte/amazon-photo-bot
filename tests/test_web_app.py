@@ -403,3 +403,344 @@ class TestOGTags:
                 resp = c.get("/search/exp_id_test")
 
         assert resp.status_code == 410
+
+
+# ── Helper for result page tests ──────────────────────────────────────────────
+
+async def _save_mock_search(
+    num_products: int = 1,
+    expired: bool = False,
+    is_sold_by_amazon: bool = False,
+    is_amazon_fulfilled: bool = False,
+    is_prime: bool = True,
+    price_usd: float = 29.99,
+    rating: float = 4.5,
+    review_count: int = 100,
+    asin: str = "B001TEST01",
+    title: str = "Test Product Title",
+) -> str:
+    """
+    Insert a minimal valid web_search row and return the short_id.
+
+    Directly inserts into the DB (avoiding dataclass dependencies) so tests
+    control the data precisely.
+    """
+    import json
+    import secrets
+    import time
+    import database
+
+    short_id = secrets.token_urlsafe(8)
+    now = time.time()
+    expires_at = (now - 1000) if expired else (now + 86400 * 30)
+
+    item_dict = {
+        "asin": asin,
+        "title": title,
+        "image_url": "https://example.com/img.jpg",
+        "price_usd": price_usd,
+        "currency": "USD",
+        "rating": rating,
+        "review_count": review_count,
+        "is_amazon_fulfilled": is_amazon_fulfilled,
+        "is_sold_by_amazon": is_sold_by_amazon,
+        "is_prime": is_prime,
+        "availability": "In Stock",
+        "free_delivery_likely": False,
+        "score": 0.0,
+    }
+    product_dict = {
+        "product_name": f"Test Product {asin}",
+        "brand": "TestBrand",
+        "category": "Electronics",
+        "key_features": [],
+        "amazon_search_query": "test product",
+        "alternative_query": "test",
+        "confidence": "high",
+        "notes": "",
+        "bbox": None,
+    }
+
+    # Build per-product result lists
+    results_json = json.dumps([[item_dict]] * num_products)
+    products_json = json.dumps([product_dict] * num_products)
+
+    async with database._get_conn() as db:
+        await db.execute(
+            """INSERT INTO web_searches
+               (short_id, photo_hash, annotated_photo, results_json, products_json, lang, created_at, expires_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (short_id, "testhash", b"FAKE_JPEG", results_json, products_json, "he", now, expires_at),
+        )
+        await db.commit()
+
+    return short_id
+
+
+def _make_app():
+    """Create a TestClient using the real gateway with mocked DB init."""
+    with patch("database.init_db", new=AsyncMock()):
+        from gateway import create_app
+        return create_app(webhook_adapters=None)
+
+
+# ── TestResultPage ─────────────────────────────────────────────────────────────
+
+class TestResultPage:
+    async def test_product_card_fields(self, tmp_data_dir):
+        """GET /search/{id} returns HTML with price, rating, and View on Amazon link."""
+        import database
+        await database.init_db()
+
+        short_id = await _save_mock_search(price_usd=49.99, rating=4.2, asin="B001CARD01")
+
+        with patch("database.init_db", new=AsyncMock()):
+            with patch("database.get_active_tag", new=AsyncMock(return_value=None)):
+                with patch("price_history.get_price_history", new=AsyncMock(return_value=None)):
+                    app = _make_app()
+                    with TestClient(app, raise_server_exceptions=True) as c:
+                        resp = c.get(f"/search/{short_id}")
+
+        assert resp.status_code == 200
+        assert "49.99" in resp.text
+        assert "4.2" in resp.text
+        assert "View on Amazon" in resp.text
+
+    async def test_affiliate_url(self, tmp_data_dir):
+        """View on Amazon link contains the active affiliate tag."""
+        import database
+        await database.init_db()
+
+        short_id = await _save_mock_search(asin="B001AFFTAG")
+
+        with patch("database.init_db", new=AsyncMock()):
+            with patch("database.get_active_tag", new=AsyncMock(return_value="test-tag-20")):
+                with patch("price_history.get_price_history", new=AsyncMock(return_value=None)):
+                    app = _make_app()
+                    with TestClient(app, raise_server_exceptions=True) as c:
+                        resp = c.get(f"/search/{short_id}")
+
+        assert resp.status_code == 200
+        assert "tag=test-tag-20" in resp.text
+
+    async def test_shipping_badge_green(self, tmp_data_dir):
+        """is_amazon_fulfilled=True produces a green ships-to-Israel badge."""
+        import database
+        await database.init_db()
+
+        short_id = await _save_mock_search(is_amazon_fulfilled=True, is_prime=False)
+
+        with patch("database.init_db", new=AsyncMock()):
+            with patch("database.get_active_tag", new=AsyncMock(return_value=None)):
+                with patch("price_history.get_price_history", new=AsyncMock(return_value=None)):
+                    app = _make_app()
+                    with TestClient(app, raise_server_exceptions=True) as c:
+                        resp = c.get(f"/search/{short_id}")
+
+        assert resp.status_code == 200
+        assert "bg-green" in resp.text
+        assert "Ships to Israel" in resp.text
+
+    async def test_shipping_badge_red(self, tmp_data_dir):
+        """All shipping flags False produces a red may-not-ship badge."""
+        import database
+        await database.init_db()
+
+        short_id = await _save_mock_search(
+            is_sold_by_amazon=False,
+            is_amazon_fulfilled=False,
+            is_prime=False,
+        )
+
+        with patch("database.init_db", new=AsyncMock()):
+            with patch("database.get_active_tag", new=AsyncMock(return_value=None)):
+                with patch("price_history.get_price_history", new=AsyncMock(return_value=None)):
+                    app = _make_app()
+                    with TestClient(app, raise_server_exceptions=True) as c:
+                        resp = c.get(f"/search/{short_id}")
+
+        assert resp.status_code == 200
+        assert "bg-red" in resp.text
+        assert "May not ship" in resp.text
+
+    async def test_product_tabs(self, tmp_data_dir):
+        """Two-product result shows Product 1 and Product 2 tab text."""
+        import database
+        await database.init_db()
+
+        short_id = await _save_mock_search(num_products=2)
+
+        with patch("database.init_db", new=AsyncMock()):
+            with patch("database.get_active_tag", new=AsyncMock(return_value=None)):
+                with patch("price_history.get_price_history", new=AsyncMock(return_value=None)):
+                    app = _make_app()
+                    with TestClient(app, raise_server_exceptions=True) as c:
+                        resp = c.get(f"/search/{short_id}")
+
+        assert resp.status_code == 200
+        assert "Product 1" in resp.text
+        assert "Product 2" in resp.text
+
+    async def test_product_tab_switch(self, tmp_data_dir):
+        """GET /search/{id}?product=1 shows the second product's results."""
+        import json
+        import database
+        import secrets
+        import time
+        await database.init_db()
+
+        # Build two distinct products
+        item1 = {
+            "asin": "B001TAB001", "title": "Product One Widget", "image_url": None,
+            "price_usd": 10.0, "currency": "USD", "rating": 4.0, "review_count": 50,
+            "is_amazon_fulfilled": False, "is_sold_by_amazon": False, "is_prime": False,
+            "availability": "In Stock", "free_delivery_likely": False, "score": 0.0,
+        }
+        item2 = {
+            "asin": "B002TAB002", "title": "Product Two Gadget", "image_url": None,
+            "price_usd": 20.0, "currency": "USD", "rating": 3.5, "review_count": 25,
+            "is_amazon_fulfilled": False, "is_sold_by_amazon": False, "is_prime": False,
+            "availability": "In Stock", "free_delivery_likely": False, "score": 0.0,
+        }
+        product_dict = {
+            "product_name": "Widget", "brand": None, "category": "Electronics",
+            "key_features": [], "amazon_search_query": "widget", "alternative_query": "widget",
+            "confidence": "high", "notes": "", "bbox": None,
+        }
+        results_json = json.dumps([[item1], [item2]])
+        products_json = json.dumps([product_dict, {**product_dict, "product_name": "Gadget"}])
+
+        short_id = secrets.token_urlsafe(8)
+        now = time.time()
+        async with database._get_conn() as db:
+            await db.execute(
+                """INSERT INTO web_searches
+                   (short_id, photo_hash, annotated_photo, results_json, products_json, lang, created_at, expires_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (short_id, "hash789", b"FAKE", results_json, products_json, "he", now, now + 86400),
+            )
+            await db.commit()
+
+        with patch("database.init_db", new=AsyncMock()):
+            with patch("database.get_active_tag", new=AsyncMock(return_value=None)):
+                with patch("price_history.get_price_history", new=AsyncMock(return_value=None)):
+                    app = _make_app()
+                    with TestClient(app, raise_server_exceptions=True) as c:
+                        resp = c.get(f"/search/{short_id}?product=1")
+
+        assert resp.status_code == 200
+        assert "Product Two Gadget" in resp.text
+
+    async def test_og_tags(self, tmp_data_dir):
+        """GET /search/{id} response contains og:image, og:title, og:url meta tags."""
+        import database
+        await database.init_db()
+
+        short_id = await _save_mock_search()
+
+        with patch("database.init_db", new=AsyncMock()):
+            with patch("database.get_active_tag", new=AsyncMock(return_value=None)):
+                with patch("price_history.get_price_history", new=AsyncMock(return_value=None)):
+                    app = _make_app()
+                    with TestClient(app, raise_server_exceptions=True) as c:
+                        resp = c.get(f"/search/{short_id}")
+
+        assert resp.status_code == 200
+        assert 'property="og:image"' in resp.text
+        assert 'property="og:title"' in resp.text
+        assert 'property="og:url"' in resp.text
+
+    async def test_noindex_meta(self, tmp_data_dir):
+        """GET /search/{id} response contains noindex in a meta robots tag."""
+        import database
+        await database.init_db()
+
+        short_id = await _save_mock_search()
+
+        with patch("database.init_db", new=AsyncMock()):
+            with patch("database.get_active_tag", new=AsyncMock(return_value=None)):
+                with patch("price_history.get_price_history", new=AsyncMock(return_value=None)):
+                    app = _make_app()
+                    with TestClient(app, raise_server_exceptions=True) as c:
+                        resp = c.get(f"/search/{short_id}")
+
+        assert resp.status_code == 200
+        assert "noindex" in resp.text
+
+    async def test_expired_result_410(self, tmp_data_dir):
+        """Save with past expires_at, GET /search/{id} returns 410."""
+        import database
+        await database.init_db()
+
+        short_id = await _save_mock_search(expired=True)
+
+        with patch("database.init_db", new=AsyncMock()):
+            app = _make_app()
+            with TestClient(app, raise_server_exceptions=True) as c:
+                resp = c.get(f"/search/{short_id}")
+
+        assert resp.status_code == 410
+
+    async def test_missing_result_404(self, tmp_data_dir):
+        """GET /search/nonexistent returns 404."""
+        import database
+        await database.init_db()
+
+        with patch("database.init_db", new=AsyncMock()):
+            app = _make_app()
+            with TestClient(app, raise_server_exceptions=True) as c:
+                resp = c.get("/search/nonexistent-xyz-does-not-exist")
+
+        assert resp.status_code == 404
+
+
+# ── TestPriceHistoryBar ────────────────────────────────────────────────────────
+
+class TestPriceHistoryBar:
+    async def test_price_history_bar_rendered(self, tmp_data_dir):
+        """Price history bar and deal label appear when get_price_history returns data."""
+        import database
+        from price_history import PriceHistory
+        await database.init_db()
+
+        short_id = await _save_mock_search(asin="B001PHHIST")
+
+        mock_ph = PriceHistory(
+            asin="B001PHHIST",
+            source="camelcamelcamel",
+            current=25.0,
+            low_all_time=18.0,
+            avg_90d=30.0,
+            avg_30d=28.0,
+            low_90d=20.0,
+        )
+
+        with patch("database.init_db", new=AsyncMock()):
+            with patch("database.get_active_tag", new=AsyncMock(return_value=None)):
+                with patch("price_history.get_price_history", new=AsyncMock(return_value=mock_ph)):
+                    app = _make_app()
+                    with TestClient(app, raise_server_exceptions=True) as c:
+                        resp = c.get(f"/search/{short_id}")
+
+        assert resp.status_code == 200
+        # Deal label should appear (25.0 <= 30.0 * 0.85 is False; 25.0 <= 30.0 * 0.95 → "Below avg")
+        assert "Below avg" in resp.text or "Great deal" in resp.text or "All-time low" in resp.text
+        # Price bar markup: a div with width style
+        assert "width:" in resp.text or "w-" in resp.text
+
+    async def test_price_history_unavailable(self, tmp_data_dir):
+        """When get_price_history returns None, show placeholder text."""
+        import database
+        await database.init_db()
+
+        short_id = await _save_mock_search(asin="B001PHNONE")
+
+        with patch("database.init_db", new=AsyncMock()):
+            with patch("database.get_active_tag", new=AsyncMock(return_value=None)):
+                with patch("price_history.get_price_history", new=AsyncMock(return_value=None)):
+                    app = _make_app()
+                    with TestClient(app, raise_server_exceptions=True) as c:
+                        resp = c.get(f"/search/{short_id}")
+
+        assert resp.status_code == 200
+        assert "Price history unavailable" in resp.text
