@@ -275,9 +275,10 @@ def product_caption(
         rating = "_No ratings_"
 
     # Israel shipping — single line combining badge + Israel info
-    # Use verified result when available, otherwise heuristic
-    if israel_verified and israel_verified.verified:
-        israel = esc(israel_verified.note)
+    # Use shipping_badge() when israel_verified is provided (verified or not),
+    # otherwise fall back to the heuristic note from the item.
+    if israel_verified is not None:
+        israel = esc(shipping_badge(israel_verified))
     else:
         israel = esc(item.israel_delivery_note)
 
@@ -416,6 +417,29 @@ def _price_history_line(ph) -> str:
     bar_block = "\n".join(escaped_bar_lines)
 
     return f"{summary_line}\n{bar_block}"
+
+
+def shipping_badge(result) -> str:
+    """
+    Return an emoji+text badge summarising Israel shipping status.
+
+    Args:
+        result: IsraelShippingResult or None.
+
+    Returns:
+        One of:
+          "🟢 Ships free to Israel"     — verified ships & free
+          "🟡 Likely ships to Israel"   — verified ships, not free
+          "🔴 Won't ship to Israel"     — verified does NOT ship
+          "⚪ Israel shipping unknown"  — unverified or None
+    """
+    if result is None or not result.verified:
+        return "⚪ Israel shipping unknown"
+    if result.ships_to_israel and result.is_free_shipping:
+        return "🟢 Ships free to Israel"
+    if result.ships_to_israel:
+        return "🟡 Likely ships to Israel"
+    return "🔴 Won't ship to Israel"
 
 
 def results_page(session, affiliate_tag: Optional[str] = None, is_admin: bool = False) -> str:

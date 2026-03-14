@@ -395,3 +395,61 @@ class TestErrorNoProviders:
         user_msg  = style.error_no_providers(is_admin=False)
         admin_msg = style.error_no_providers(is_admin=True)
         assert user_msg != admin_msg
+
+
+# ── shipping_badge() ──────────────────────────────────────────────────────────
+
+def _make_israel_result(verified=True, ships=None, free=None):
+    """Build a minimal IsraelShippingResult-like object for testing."""
+    from unittest.mock import MagicMock
+    r = MagicMock()
+    r.verified = verified
+    r.ships_to_israel = ships
+    r.is_free_shipping = free
+    return r
+
+
+class TestShippingBadge:
+    def test_shipping_badge_green(self):
+        """verified + ships + free = green circle + Ships free to Israel."""
+        result = _make_israel_result(verified=True, ships=True, free=True)
+        badge = style.shipping_badge(result)
+        assert "🟢" in badge
+        assert "Ships free to Israel" in badge
+
+    def test_shipping_badge_yellow(self):
+        """verified + ships + not free = yellow circle + Likely ships to Israel."""
+        result = _make_israel_result(verified=True, ships=True, free=False)
+        badge = style.shipping_badge(result)
+        assert "🟡" in badge
+        assert "Likely ships to Israel" in badge
+
+    def test_shipping_badge_red(self):
+        """verified + does not ship = red circle + Won't ship to Israel."""
+        result = _make_israel_result(verified=True, ships=False, free=False)
+        badge = style.shipping_badge(result)
+        assert "🔴" in badge
+        assert "Won't ship to Israel" in badge
+
+    def test_shipping_badge_unknown_none(self):
+        """None input = white/gray circle + Israel shipping unknown."""
+        badge = style.shipping_badge(None)
+        assert "⚪" in badge
+        assert "Israel shipping unknown" in badge
+
+    def test_shipping_badge_unknown_unverified(self):
+        """verified=False = white/gray circle + Israel shipping unknown."""
+        result = _make_israel_result(verified=False)
+        badge = style.shipping_badge(result)
+        assert "⚪" in badge
+        assert "Israel shipping unknown" in badge
+
+    def test_product_caption_uses_badge(self):
+        """product_caption with israel_verified returns badge format, not raw note."""
+        result = _make_israel_result(verified=True, ships=True, free=True)
+        result.note = "Ships for free!"
+        item = make_amazon_item(title="Test Product")
+        caption = style.product_caption(item, israel_verified=result)
+        # Badge format must be present
+        assert "🟢" in caption
+        assert "Ships free to Israel" in caption
