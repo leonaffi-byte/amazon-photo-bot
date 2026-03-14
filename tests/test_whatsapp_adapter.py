@@ -547,3 +547,137 @@ class TestBotCoreListMessage:
         row_ids = [r["id"] for r in sections[0]["rows"]]
         assert f"{CB_PICK_PRODUCT}0" in row_ids
         assert f"{CB_PICK_PRODUCT}1" in row_ids
+
+
+# ── TestWindowEnforcement ─────────────────────────────────────────────────────
+
+class TestWindowEnforcement:
+    async def test_send_text_window_open_proceeds_normally(self):
+        """send_text with open window calls send_graph_api and returns real message_id."""
+        adapter = _make_adapter()
+        recent_ts = time.time() - 3600  # 1 hour ago — window open
+
+        with patch(_WA_GAPI, new=AsyncMock(return_value=_FAKE_GRAPH_RESPONSE)) as mock_api, \
+             patch(f"{_WA_DB}.get_wa_last_msg_at", new=AsyncMock(return_value=recent_ts)):
+            result = await adapter.send_text(chat_id="user123", text="Hello")
+
+        assert isinstance(result, MessageRef)
+        assert result.message_id == "msg_abc"
+        mock_api.assert_called_once()
+
+    async def test_send_text_window_closed_fires_template_once(self):
+        """send_text with closed window fires send_template once, returns no-op MessageRef.
+        Second call returns no-op without calling API again."""
+        adapter = _make_adapter()
+        old_ts = time.time() - 90000  # 25 hours ago — window closed
+
+        with patch(_WA_GAPI, new=AsyncMock(return_value=_FAKE_GRAPH_RESPONSE)) as mock_api, \
+             patch(f"{_WA_DB}.get_wa_last_msg_at", new=AsyncMock(return_value=old_ts)), \
+             patch(f"{_WA_DB}.get_user_lang", new=AsyncMock(return_value="en")):
+            result1 = await adapter.send_text(chat_id="user123", text="First message")
+            result2 = await adapter.send_text(chat_id="user123", text="Second message")
+
+        # Template call happens exactly once
+        assert mock_api.call_count == 1
+        template_data = mock_api.call_args[0][2]
+        assert template_data["type"] == "template"
+
+        # Both results are no-op (empty message_id)
+        assert result1.message_id == ""
+        assert result2.message_id == ""
+
+    async def test_send_photo_window_closed_returns_noop(self):
+        """send_photo with closed window returns no-op MessageRef without uploading media."""
+        adapter = _make_adapter()
+        old_ts = time.time() - 90000  # 25 hours ago — window closed
+
+        mock_session = MagicMock()
+        mock_session.post = MagicMock()  # Should NOT be called
+        adapter._session = mock_session
+
+        with patch(_WA_GAPI, new=AsyncMock(return_value=_FAKE_GRAPH_RESPONSE)) as mock_api, \
+             patch(f"{_WA_DB}.get_wa_last_msg_at", new=AsyncMock(return_value=old_ts)), \
+             patch(f"{_WA_DB}.get_user_lang", new=AsyncMock(return_value="en")):
+            result = await adapter.send_photo(
+                chat_id="user123",
+                image=b"fake_image_bytes",
+                caption="A product",
+            )
+
+        # Media upload should NOT have been attempted
+        mock_session.post.assert_not_called()
+        # Template was sent (exactly once), not a regular message
+        assert mock_api.call_count == 1
+        template_data = mock_api.call_args[0][2]
+        assert template_data["type"] == "template"
+        # Result is no-op
+        assert result.message_id == ""
+
+    async def test_send_list_message_window_closed_returns_noop(self):
+        """send_list_message with closed window returns no-op MessageRef."""
+        adapter = _make_adapter()
+        old_ts = time.time() - 90000  # 25 hours ago — window closed
+        sections = [{"title": "Products", "rows": [{"id": "pick:0", "title": "Widget"}]}]
+
+        with patch(_WA_GAPI, new=AsyncMock(return_value=_FAKE_GRAPH_RESPONSE)) as mock_api, \
+             patch(f"{_WA_DB}.get_wa_last_msg_at", new=AsyncMock(return_value=old_ts)), \
+             patch(f"{_WA_DB}.get_user_lang", new=AsyncMock(return_value="en")):
+            result = await adapter.send_list_message(
+                chat_id="user123",
+                body="Choose a product:",
+                button_label="View",
+                sections=sections,
+            )
+
+        # Template was sent (not a list message)
+        assert mock_api.call_count == 1
+        template_data = mock_api.call_args[0][2]
+        assert template_data["type"] == "template"
+        # Result is no-op
+        assert result.message_id == ""
+
+    async def test_edit_text_window_closed_returns_none(self):
+        """edit_text with closed window returns None and does NOT call send_text."""
+        adapter = _make_adapter()
+        old_ts = time.time() - 90000  # 25 hours ago — window closed
+        ref = MessageRef(platform="whatsapp", chat_id="user123", message_id="some_msg")
+
+        with patch(_WA_GAPI, new=AsyncMock(return_value=_FAKE_GRAPH_RESPONSE)) as mock_api, \
+             patch(f"{_WA_DB}.get_wa_last_msg_at", new=AsyncMock(return_value=old_ts)), \
+             patch(f"{_WA_DB}.get_user_lang", new=AsyncMock(return_value="en")):
+            result = await adapter.edit_text(ref, text="Updated text")
+
+        # edit_text returns None on closed window
+        assert result is None
+        # Template was fired once (not a text message)
+        assert mock_api.call_count == 1
+        template_data = mock_api.call_args[0][2]
+        assert template_data["type"] == "template"
+
+    async def test_template_flag_resets_on_inbound_message(self):
+        """After _template_sent is True, _process_message resets the flag on inbound."""
+        adapter = _make_adapter()
+        adapter._template_sent["user123"] = True
+
+        with patch(f"{_WA_DB}.update_wa_last_msg_at", new=AsyncMock()), \
+             patch(f"{_WA_DB}.get_wa_opt_in", new=AsyncMock(return_value=True)):
+            await adapter._process_message(_make_text_msg("user123", "Hello"), {})
+
+        # Flag should be reset (falsy)
+        assert not adapter._template_sent.get("user123")
+
+    async def test_guard_window_uses_user_language(self):
+        """When window is closed, _guard_window looks up user language and passes to send_template."""
+        adapter = _make_adapter()
+        old_ts = time.time() - 90000  # 25 hours ago — window closed
+
+        with patch(_WA_GAPI, new=AsyncMock(return_value=_FAKE_GRAPH_RESPONSE)) as mock_api, \
+             patch(f"{_WA_DB}.get_wa_last_msg_at", new=AsyncMock(return_value=old_ts)), \
+             patch(f"{_WA_DB}.get_user_lang", new=AsyncMock(return_value="he")) as mock_lang:
+            await adapter.send_text(chat_id="user123", text="Hello")
+
+        # Language lookup was called with correct user_key
+        mock_lang.assert_called_once_with("whatsapp:user123")
+        # Template was sent with the Hebrew language code
+        template_data = mock_api.call_args[0][2]
+        assert template_data["template"]["language"]["code"] == "he"
