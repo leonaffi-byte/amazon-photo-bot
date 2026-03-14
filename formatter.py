@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from i18n import t
+from style import render_price_bar
 
 if TYPE_CHECKING:
     from providers.base import ProviderResult
@@ -121,6 +122,70 @@ class Formatter:
         if last_nl > limit // 2:
             truncated = truncated[:last_nl]
         return truncated + "\n..."
+
+    # -- Visual feature methods ------------------------------------------------
+
+    def _shipping_badge(self, israel_result) -> str:
+        """Return emoji+text badge for Israel shipping status.
+
+        Ports style.shipping_badge() logic with platform-aware escaping.
+        Returns empty string if israel_result is None or unverified.
+        """
+        if israel_result is None or not getattr(israel_result, "verified", False):
+            return ""
+        ships = getattr(israel_result, "ships_to_israel", None)
+        free = getattr(israel_result, "is_free_shipping", False)
+        if ships and free:
+            return "\U0001f7e2 " + self._esc("Ships free to Israel")
+        if ships:
+            return "\U0001f7e1 " + self._esc("Likely ships to Israel")
+        return "\U0001f534 " + self._esc("Won't ship to Israel")
+
+    def _render_price_bar_section(self, ph) -> str:
+        """Format a price history section with platform-aware monospace wrapping.
+
+        Ports style._price_history_line() with platform awareness:
+        - Telegram: bar lines wrapped in backtick monospace blocks
+        - WhatsApp/Instagram/others: bar rendered as plain text, no backticks
+
+        Returns empty string if ph is None or has no useful data.
+        """
+        if not ph:
+            return ""
+        parts: list[str] = []
+        low_all_time = getattr(ph, "low_all_time", None)
+        avg_90d = getattr(ph, "avg_90d", None)
+        avg_30d = getattr(ph, "avg_30d", None)
+        deal_label = getattr(ph, "deal_label", "")
+
+        if low_all_time:
+            parts.append(self._esc(f"ATL ${low_all_time:.2f}"))
+        if avg_90d:
+            parts.append(self._esc(f"90d avg ${avg_90d:.2f}"))
+        elif avg_30d:
+            parts.append(self._esc(f"30d avg ${avg_30d:.2f}"))
+
+        if not parts:
+            return ""
+
+        deal_suffix = f" \u00b7 {self._esc(deal_label)}" if deal_label else ""
+        summary_line = "\n\U0001f4ca _" + " \u00b7 ".join(parts) + deal_suffix + "_"
+
+        # Add ASCII price bar when we have enough data
+        bar_raw = render_price_bar(ph)
+        if not bar_raw:
+            return summary_line
+
+        bar_lines = bar_raw.splitlines()
+        if self.platform == "telegram":
+            # Wrap each bar line in backtick monospace blocks for Telegram rendering
+            formatted_bar_lines = [f"`{self._esc(line)}`" for line in bar_lines]
+        else:
+            # WhatsApp/Instagram/others: plain text, no backticks
+            formatted_bar_lines = [self._esc(line) for line in bar_lines]
+
+        bar_block = "\n".join(formatted_bar_lines)
+        return f"{summary_line}\n{bar_block}"
 
     # -- Public methods --------------------------------------------------------
 
@@ -242,6 +307,7 @@ class Formatter:
         total: int,
         short_url: str | None = None,
         israel_status: str | None = None,
+        israel_result=None,
         price_history=None,
         is_admin: bool = False,
     ) -> str:
@@ -284,9 +350,10 @@ class Formatter:
             badges.append(t("product_sold_by", lang=self.lang) + " Amazon")
         badge_line = "  ".join(badges) if badges else ""
 
-        # Price history
-        price_hist_line = ""
-        if price_history:
+        # Price history -- use rich bar section when possible
+        price_hist_line = self._render_price_bar_section(price_history)
+        if not price_hist_line and price_history:
+            # Fallback: plain text for objects without .current field
             ph_parts = []
             avg_90d = getattr(price_history, "avg_90d", None)
             low_all_time = getattr(price_history, "low_all_time", None)
@@ -301,23 +368,30 @@ class Formatter:
                     price_hist_line += "\n   " + self._esc(deal_label)
 
         # Israel shipping status
+        # If israel_result is provided, use badge (takes priority over israel_status)
         israel_line = ""
-        if israel_status == "yes":
-            israel_line = "\U0001f1ee\U0001f1f1 " + self._esc(
-                t("product_israel_yes", lang=self.lang)
-            )
-        elif israel_status == "no":
-            israel_line = "\U0001f1ee\U0001f1f1 " + self._esc(
-                t("product_israel_no", lang=self.lang)
-            )
-        elif israel_status == "free":
-            israel_line = "\U0001f1ee\U0001f1f1 " + self._esc(
-                t("product_israel_free", lang=self.lang)
-            )
-        elif israel_status == "checking":
-            israel_line = "\U0001f1ee\U0001f1f1 " + self._esc(
-                t("product_israel_checking", lang=self.lang)
-            )
+        if israel_result is not None:
+            badge = self._shipping_badge(israel_result)
+            if badge:
+                israel_line = badge
+            # If badge is empty (unverified), fall through to israel_status below
+        if not israel_line:
+            if israel_status == "yes":
+                israel_line = "\U0001f1ee\U0001f1f1 " + self._esc(
+                    t("product_israel_yes", lang=self.lang)
+                )
+            elif israel_status == "no":
+                israel_line = "\U0001f1ee\U0001f1f1 " + self._esc(
+                    t("product_israel_no", lang=self.lang)
+                )
+            elif israel_status == "free":
+                israel_line = "\U0001f1ee\U0001f1f1 " + self._esc(
+                    t("product_israel_free", lang=self.lang)
+                )
+            elif israel_status == "checking":
+                israel_line = "\U0001f1ee\U0001f1f1 " + self._esc(
+                    t("product_israel_checking", lang=self.lang)
+                )
 
         # Shop link
         url = short_url or getattr(item, "url", "") or ""
