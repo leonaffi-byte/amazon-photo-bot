@@ -112,7 +112,7 @@ Plans:
   1. Dashboard "Today Searches" and "Today Users" stat cards show real counts from the database (not hardcoded 0)
   2. Sending `/webtoken` in the Telegram bot (as admin) returns a valid login token — no need to read server logs
   3. The legacy `bot.py::webtoken_command` handler is either removed or explicitly marked as dead code
-**Plans:** TBD
+**Plans:** 1 plan
 
 Plans:
 - [ ] 06-01-PLAN.md -- Wire today stats, register /webtoken in TelegramAdapter, clean up legacy path (ADMN-02, ADMN-06)
