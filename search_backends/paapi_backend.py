@@ -33,7 +33,7 @@ from typing import Optional
 
 import aiohttp
 
-from search_backends.base import AmazonItem, SearchBackend
+from search_backends.base import AmazonItem, SearchBackend, SEARCH_TIMEOUT_SECONDS
 import config
 
 logger = logging.getLogger(__name__)
@@ -138,7 +138,7 @@ class PaapiBackend(SearchBackend):
         headers = self._signed_headers(payload)
 
         if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15))
+            self._session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=SEARCH_TIMEOUT_SECONDS))
         async with self._session.post(
                 url, json=payload, headers=headers,
             ) as resp:

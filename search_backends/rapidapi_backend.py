@@ -30,7 +30,7 @@ from typing import Optional
 
 import aiohttp
 
-from search_backends.base import AmazonItem, SearchBackend
+from search_backends.base import AmazonItem, SearchBackend, SEARCH_TIMEOUT_SECONDS
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +106,7 @@ class RapidAPIBackend(SearchBackend):
                 SEARCH_URL,
                 headers=self._headers,
                 params=params,
-                timeout=aiohttp.ClientTimeout(total=15),
+                timeout=aiohttp.ClientTimeout(total=SEARCH_TIMEOUT_SECONDS),
             ) as resp:
                 if resp.status != 200:
                     text = await resp.text()

@@ -31,7 +31,7 @@ import re
 from typing import Optional
 from urllib.parse import quote_plus
 
-from search_backends.base import AmazonItem, SearchBackend
+from search_backends.base import AmazonItem, SearchBackend, SEARCH_TIMEOUT_SECONDS
 
 logger = logging.getLogger(__name__)
 
@@ -216,7 +216,7 @@ class PlaywrightBackend(SearchBackend):
 
         # ── Load search results page ───────────────────────────────────────────
         try:
-            await page.goto(url, timeout=30_000, wait_until="domcontentloaded")
+            await page.goto(url, timeout=SEARCH_TIMEOUT_SECONDS * 1000, wait_until="domcontentloaded")
         except PWTimeout:
             raise RuntimeError("Amazon search page timed out")
 
@@ -232,7 +232,7 @@ class PlaywrightBackend(SearchBackend):
         try:
             await page.wait_for_selector(
                 '[data-component-type="s-search-result"]',
-                timeout=10_000,
+                timeout=SEARCH_TIMEOUT_SECONDS * 1000,
             )
         except PWTimeout:
             # Check if "no results" page
@@ -243,7 +243,7 @@ class PlaywrightBackend(SearchBackend):
             raise RuntimeError("Search result cards did not appear")
 
         # ── Extract data via JS ────────────────────────────────────────────────
-        raw_items: list[dict] = await asyncio.wait_for(page.evaluate(_EXTRACT_JS), timeout=10)
+        raw_items: list[dict] = await asyncio.wait_for(page.evaluate(_EXTRACT_JS), timeout=SEARCH_TIMEOUT_SECONDS)
         logger.info("[Playwright] Found %d raw results for '%s'", len(raw_items), query)
 
         # ── Parse into AmazonItem objects ──────────────────────────────────────

@@ -28,7 +28,7 @@ from typing import Optional
 
 import aiohttp
 
-from search_backends.base import AmazonItem, SearchBackend
+from search_backends.base import AmazonItem, SearchBackend, SEARCH_TIMEOUT_SECONDS
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +75,7 @@ class DataForSEOBackend(SearchBackend):
                     LIVE_URL,
                     headers = self._headers,
                     json    = probe,
-                    timeout = aiohttp.ClientTimeout(total=10),
+                    timeout = aiohttp.ClientTimeout(total=SEARCH_TIMEOUT_SECONDS),
                 ) as resp:
                     data = await resp.json()
             task  = (data.get("tasks") or [{}])[0]
@@ -111,12 +111,12 @@ class DataForSEOBackend(SearchBackend):
         }]
 
         if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30))
+            self._session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=SEARCH_TIMEOUT_SECONDS))
         async with self._session.post(
                 LIVE_URL,
                 headers = self._headers,
                 json    = payload,
-                timeout = aiohttp.ClientTimeout(total=30),
+                timeout = aiohttp.ClientTimeout(total=SEARCH_TIMEOUT_SECONDS),
             ) as resp:
                 if resp.status != 200:
                     text = await resp.text()

@@ -12,6 +12,10 @@ import math
 
 import config
 
+# Unified timeout for all search backends (seconds per user decision).
+# All backends must import and use this constant — no hardcoded timeout values.
+SEARCH_TIMEOUT_SECONDS = 15
+
 
 @dataclass
 class AmazonItem:

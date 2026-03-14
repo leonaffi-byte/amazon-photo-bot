@@ -20,7 +20,7 @@ from urllib.parse import quote_plus
 import aiohttp
 from bs4 import BeautifulSoup
 
-from search_backends.base import AmazonItem, SearchBackend
+from search_backends.base import AmazonItem, SearchBackend, SEARCH_TIMEOUT_SECONDS
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,7 @@ class BrightDataBackend(SearchBackend):
                 _API_URL,
                 headers=headers,
                 json=payload,
-                timeout=aiohttp.ClientTimeout(total=30),
+                timeout=aiohttp.ClientTimeout(total=SEARCH_TIMEOUT_SECONDS),
             ) as resp:
                 if resp.status != 200:
                     text = await resp.text()
