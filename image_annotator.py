@@ -1,4 +1,4 @@
-"""Annotate product images with a numbered product legend strip."""
+"""Annotate product images with a numbered product legend strip or overlay mode."""
 from __future__ import annotations
 
 import io
@@ -126,4 +126,154 @@ def annotate_products(
 
     buf = io.BytesIO()
     canvas.save(buf, format="JPEG", quality=85)
+    return buf.getvalue()
+
+
+# ── Overlay annotation helpers ─────────────────────────────────────────────────
+
+def _is_bbox_reliable(bbox: tuple[float, float, float, float]) -> bool:
+    """Return True if the bounding box represents a plausible product region.
+
+    Args:
+        bbox: (x%, y%, w%, h%) as percentages of image dimensions.
+
+    Returns:
+        True if the bbox is valid and within useful bounds.
+    """
+    x, y, w, h = bbox
+
+    # Reject zero or negative dimensions
+    if w <= 0 or h <= 0:
+        return False
+
+    # Reject area too small or too large.
+    # w and h are percentages (0-100); area fraction = (w/100)*(h/100) = w*h/10000
+    area_fraction = (w * h) / 10000.0  # fraction of total image area (0.0-1.0)
+    if area_fraction < 0.01:  # less than 1% of image
+        return False
+    if area_fraction > 0.90:  # more than 90% of image
+        return False
+
+    # Reject out-of-bounds coordinates (allow 5% tolerance)
+    if x < -5.0 or y < -5.0:
+        return False
+    if (x + w) > 105.0 or (y + h) > 105.0:
+        return False
+
+    return True
+
+
+def _draw_overlay(
+    img: Image.Image,
+    bbox: tuple[float, float, float, float],
+    color_rgb: tuple[int, int, int],
+    number: int,
+    opacity: float = 0.4,
+) -> Image.Image:
+    """Draw a semi-transparent colored rectangle overlay on the image.
+
+    Args:
+        img: PIL Image to annotate (will be converted to RGBA if needed).
+        bbox: (x%, y%, w%, h%) bounding box as percentages.
+        color_rgb: RGB color tuple for the overlay.
+        number: Product number to display inside the overlay.
+        opacity: Overlay opacity, 0.0-1.0.
+
+    Returns:
+        RGBA PIL Image with overlay composited.
+    """
+    if img.mode != "RGBA":
+        img = img.convert("RGBA")
+
+    iw, ih = img.size
+    x_pct, y_pct, w_pct, h_pct = bbox
+
+    # Convert percentages to pixel coordinates
+    x1 = int(x_pct / 100.0 * iw)
+    y1 = int(y_pct / 100.0 * ih)
+    x2 = int((x_pct + w_pct) / 100.0 * iw)
+    y2 = int((y_pct + h_pct) / 100.0 * ih)
+
+    # Clamp to image bounds
+    x1 = max(0, min(x1, iw - 1))
+    y1 = max(0, min(y1, ih - 1))
+    x2 = max(x1 + 1, min(x2, iw))
+    y2 = max(y1 + 1, min(y2, ih))
+
+    alpha = int(opacity * 255)
+
+    # Create transparent overlay layer
+    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+
+    # Draw filled semi-transparent rectangle
+    draw.rectangle([x1, y1, x2, y2], fill=(*color_rgb, alpha))
+
+    # Draw product number centered in the rectangle
+    label = str(number)
+    try:
+        font = ImageFont.truetype(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", _FONT_SIZE
+        )
+    except (OSError, IOError):
+        font = ImageFont.load_default()
+
+    try:
+        text_bbox = font.getbbox(label)
+        tw = text_bbox[2] - text_bbox[0]
+        th = text_bbox[3] - text_bbox[1]
+    except AttributeError:
+        tw, th = _FONT_SIZE, _FONT_SIZE
+
+    cx = (x1 + x2) // 2
+    cy = (y1 + y2) // 2
+    draw.text(
+        (cx - tw // 2, cy - th // 2),
+        label,
+        fill=(255, 255, 255, 255),
+        font=font,
+    )
+
+    return Image.alpha_composite(img, overlay)
+
+
+def annotate_with_overlays(
+    image_bytes: bytes,
+    products: list[ProductInfo],
+) -> bytes:
+    """Annotate products using semi-transparent overlays when bboxes are reliable.
+
+    When all products lack reliable bboxes, falls back to `annotate_products()`
+    (the numbered legend strip). When at least one product has a reliable bbox,
+    overlay mode is used and overlays are drawn only for reliable products.
+
+    Args:
+        image_bytes: JPEG/PNG image bytes.
+        products: List of ProductInfo with optional bbox attributes.
+
+    Returns:
+        Annotated JPEG image bytes.
+    """
+    # Check which products have reliable bboxes
+    reliable = [
+        (i, p) for i, p in enumerate(products)
+        if p.bbox is not None and _is_bbox_reliable(p.bbox)
+    ]
+
+    # Fall back to legend strip if no reliable bboxes
+    if not reliable:
+        return annotate_products(image_bytes, products)
+
+    # Draw overlays for products with reliable bboxes
+    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    img_rgba = img.convert("RGBA")
+
+    for orig_i, product in reliable:
+        color = _COLORS[orig_i % len(_COLORS)]
+        img_rgba = _draw_overlay(img_rgba, product.bbox, color, orig_i + 1)
+
+    # Convert RGBA back to RGB and save as JPEG
+    result_img = img_rgba.convert("RGB")
+    buf = io.BytesIO()
+    result_img.save(buf, format="JPEG", quality=85)
     return buf.getvalue()
