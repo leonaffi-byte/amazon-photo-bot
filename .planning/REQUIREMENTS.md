@@ -9,13 +9,13 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Stability
 
-- [ ] **STAB-01**: All vision provider API calls enforce timeout (max 60s per provider)
-- [ ] **STAB-02**: Model health tracking resets failure counter after configurable time window (not permanent disable)
+- [x] **STAB-01**: All vision provider API calls enforce timeout (max 60s per provider)
+- [x] **STAB-02**: Model health tracking resets failure counter after configurable time window (not permanent disable)
 - [x] **STAB-03**: Multi-step database operations wrapped in atomic transactions
 - [ ] **STAB-04**: Graceful shutdown properly awaits all background tasks before exit
 - [x] **STAB-05**: Photo size validated before sending to vision API (reject >10MB with user-friendly message)
 - [x] **STAB-06**: Settings, active tag, and disabled models cached with TTL and invalidated on admin changes
-- [ ] **STAB-07**: Error messages specify which provider/backend failed (not generic "something went wrong")
+- [x] **STAB-07**: Error messages specify which provider/backend failed (not generic "something went wrong")
 
 ### Photo Annotation
 
@@ -113,13 +113,13 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| STAB-01 | Phase 1 | Pending |
-| STAB-02 | Phase 1 | Pending |
+| STAB-01 | Phase 1 | Complete |
+| STAB-02 | Phase 1 | Complete |
 | STAB-03 | Phase 1 | Complete |
 | STAB-04 | Phase 1 | Pending |
 | STAB-05 | Phase 1 | Complete |
 | STAB-06 | Phase 1 | Complete |
-| STAB-07 | Phase 1 | Pending |
+| STAB-07 | Phase 1 | Complete |
 | ANNO-01 | Phase 2 | Pending |
 | ANNO-02 | Phase 2 | Pending |
 | ANNO-03 | Phase 2 | Pending |

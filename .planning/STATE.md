@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: planning
-stopped_at: Completed 01-stability-and-infrastructure plan 02
-last_updated: "2026-03-14T00:03:35.094Z"
-last_activity: 2026-03-13 -- Roadmap created
+status: in_progress
+stopped_at: Completed 01-stability-and-infrastructure 01-01-PLAN.md
+last_updated: "2026-03-14T00:23:00.000Z"
+last_activity: 2026-03-14 -- Completed plan 01-01 timeout unification
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 4
-  completed_plans: 1
-  percent: 0
+  completed_plans: 2
+  percent: 5
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-03-13)
 ## Current Position
 
 Phase: 1 of 5 (Stability and Infrastructure)
-Plan: 0 of 3 in current phase
-Status: Ready to plan
-Last activity: 2026-03-13 -- Roadmap created
+Plan: 2 of 4 in current phase
+Status: In progress
+Last activity: 2026-03-14 -- Completed 01-01 (timeout unification + error differentiation)
 
-Progress: [..........] 0%
+Progress: [=.........] 5%
 
 ## Performance Metrics
 
@@ -51,6 +51,7 @@ Progress: [..........] 0%
 
 *Updated after each plan completion*
 | Phase 01-stability-and-infrastructure P02 | 15 | 2 tasks | 6 files |
+| Phase 01-stability-and-infrastructure P01 | 14 | 3 tasks | 18 files |
 
 ## Accumulated Context
 
@@ -65,6 +66,9 @@ Recent decisions affecting current work:
 - [Phase 01-stability-and-infrastructure]: import_tags_csv uses _get_conn + BEGIN IMMEDIATE for atomic CSV imports (not separate aiosqlite.connect)
 - [Phase 01-stability-and-infrastructure]: settings_store.set/delete invalidate _active_tag_cache and _disabled_models_cache after every successful write
 - [Phase 01-stability-and-infrastructure]: Pillow image compression wrapped in asyncio.to_thread via _compress_image_async to avoid blocking the event loop
+- [Phase 01-stability-and-infrastructure]: PROVIDER_TIMEOUT_SECONDS reduced to 30s; manager enforces 60s total deadline with deadline-aware remaining time
+- [Phase 01-stability-and-infrastructure]: SEARCH_TIMEOUT_SECONDS = 15 unified constant in search_backends/base.py; all backends import it
+- [Phase 01-stability-and-infrastructure]: error_no_results/error_no_backend/error_analysis_failed all accept is_admin param; user messages omit Amazon/technical details
 
 ### Pending Todos
 
@@ -78,6 +82,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-14T00:03:35.092Z
-Stopped at: Completed 01-stability-and-infrastructure plan 02
+Last session: 2026-03-14T00:23:00.000Z
+Stopped at: Completed 01-stability-and-infrastructure 01-01-PLAN.md
 Resume file: None
