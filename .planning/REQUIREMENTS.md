@@ -19,9 +19,9 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Photo Annotation
 
-- [ ] **ANNO-01**: Vision providers return bounding box coordinates for detected products
-- [ ] **ANNO-02**: Bot sends back annotated photo with semi-transparent overlays on each detected product
-- [ ] **ANNO-03**: If bounding box quality is low, fall back to numbered circles at approximate positions
+- [x] **ANNO-01**: Vision providers return bounding box coordinates for detected products
+- [x] **ANNO-02**: Bot sends back annotated photo with semi-transparent overlays on each detected product
+- [x] **ANNO-03**: If bounding box quality is low, fall back to numbered circles at approximate positions
 - [ ] **ANNO-04**: User sees streaming progress updates during analysis ("Analyzing photo...", "Found 3 products...", "Searching Amazon...")
 
 ### Israel Shipping
@@ -120,9 +120,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | STAB-05 | Phase 1 | Complete |
 | STAB-06 | Phase 1 | Complete |
 | STAB-07 | Phase 1 | Complete |
-| ANNO-01 | Phase 2 | Pending |
-| ANNO-02 | Phase 2 | Pending |
-| ANNO-03 | Phase 2 | Pending |
+| ANNO-01 | Phase 2 | Complete |
+| ANNO-02 | Phase 2 | Complete |
+| ANNO-03 | Phase 2 | Complete |
 | ANNO-04 | Phase 2 | Pending |
 | ISRL-01 | Phase 2 | Complete |
 | ISRL-02 | Phase 2 | Pending |
