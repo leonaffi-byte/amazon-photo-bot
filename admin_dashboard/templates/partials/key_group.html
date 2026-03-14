@@ -1,0 +1,108 @@
+<div id="key-group-{{ group.group_name }}" class="bg-white rounded-lg shadow-sm border border-gray-200 p-5">
+
+  <!-- Group header -->
+  <div class="flex items-center justify-between mb-4">
+    <h3 class="text-base font-semibold text-gray-800">{{ group.label }}</h3>
+    {% if group.all_required_set %}
+      <span class="text-xs font-medium px-2 py-1 rounded-full bg-green-100 text-green-800">All set</span>
+    {% else %}
+      <span class="text-xs font-medium px-2 py-1 rounded-full bg-red-100 text-red-800">Missing keys</span>
+    {% endif %}
+  </div>
+
+  {% if error is defined and error %}
+    <div class="mb-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">{{ error }}</div>
+  {% endif %}
+
+  <!-- Required keys -->
+  <div class="space-y-3">
+    {% for key_name, is_set in group.keys.items() %}
+    <div class="border border-gray-100 rounded-md p-3 bg-gray-50">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-sm font-mono text-gray-700">{{ key_name }}</span>
+        {% if is_set %}
+          <span class="text-xs text-green-700 font-medium">Set</span>
+        {% else %}
+          <span class="text-xs text-gray-400 font-medium">Not set</span>
+        {% endif %}
+      </div>
+      <div class="flex gap-2 items-start">
+        <!-- Save form — value is always empty, user types full new value -->
+        <form class="flex gap-2 flex-1"
+              hx-post="/admin/keys/{{ group.group_name }}/{{ key_name }}/save"
+              hx-target="#key-group-{{ group.group_name }}"
+              hx-swap="outerHTML">
+          <input type="password"
+                 name="value"
+                 placeholder="Enter new value"
+                 autocomplete="off"
+                 value=""
+                 class="flex-1 text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent">
+          <button type="submit"
+                  class="text-sm px-3 py-1.5 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition-colors whitespace-nowrap">
+            Save
+          </button>
+        </form>
+        <!-- Delete button — only shown if key is set -->
+        {% if is_set %}
+        <button hx-post="/admin/keys/{{ group.group_name }}/{{ key_name }}/delete"
+                hx-target="#key-group-{{ group.group_name }}"
+                hx-swap="outerHTML"
+                hx-confirm="Delete this key?"
+                class="text-sm px-3 py-1.5 text-red-600 border border-red-200 rounded hover:bg-red-50 transition-colors whitespace-nowrap">
+          Delete
+        </button>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Optional keys (shown separately if any) -->
+  {% if group.optional_keys %}
+  <div class="mt-4 pt-3 border-t border-gray-100">
+    <p class="text-xs text-gray-400 mb-3 uppercase tracking-wide">Optional</p>
+    <div class="space-y-3">
+      {% for key_name, is_set in group.optional_keys.items() %}
+      <div class="border border-gray-100 rounded-md p-3 bg-gray-50">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-sm font-mono text-gray-700">{{ key_name }}</span>
+          {% if is_set %}
+            <span class="text-xs text-green-700 font-medium">Set</span>
+          {% else %}
+            <span class="text-xs text-gray-400 font-medium">Not set</span>
+          {% endif %}
+        </div>
+        <div class="flex gap-2 items-start">
+          <form class="flex gap-2 flex-1"
+                hx-post="/admin/keys/{{ group.group_name }}/{{ key_name }}/save"
+                hx-target="#key-group-{{ group.group_name }}"
+                hx-swap="outerHTML">
+            <input type="password"
+                   name="value"
+                   placeholder="Enter new value"
+                   autocomplete="off"
+                   value=""
+                   class="flex-1 text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent">
+            <button type="submit"
+                    class="text-sm px-3 py-1.5 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition-colors whitespace-nowrap">
+              Save
+            </button>
+          </form>
+          {% if is_set %}
+          <button hx-post="/admin/keys/{{ group.group_name }}/{{ key_name }}/delete"
+                  hx-target="#key-group-{{ group.group_name }}"
+                  hx-swap="outerHTML"
+                  hx-confirm="Delete this key?"
+                  class="text-sm px-3 py-1.5 text-red-600 border border-red-200 rounded hover:bg-red-50 transition-colors whitespace-nowrap">
+            Delete
+          </button>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+</div>

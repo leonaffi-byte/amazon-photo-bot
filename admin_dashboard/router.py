@@ -10,6 +10,14 @@ Routes:
   GET  /partials/stats    — HTMX polling endpoint: stat cards fragment
   GET  /partials/health   — HTMX polling endpoint: provider health fragment
   GET  /partials/sidebar-toggle — Mobile hamburger sidebar toggle
+  GET  /keys              — API key management page
+  POST /keys/{group_name}/{key_name}/save   — Save an API key value
+  POST /keys/{group_name}/{key_name}/delete — Delete an API key value
+  GET  /tags              — Affiliate tag management page
+  POST /tags/{tag_id}/activate   — Activate a tag
+  POST /tags/{tag_id}/deactivate — Deactivate all tags (deactivates active one)
+  POST /tags/add          — Add a new affiliate tag
+  POST /tags/{tag_id}/remove — Remove a tag
 
 All routes except /login, /auth/callback, /auth/token, /logout use
 Depends(require_admin) to enforce authentication.
@@ -22,6 +30,7 @@ from pathlib import Path
 import config
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+import notifications
 from fastapi.templating import Jinja2Templates
 
 import admin_service
@@ -209,3 +218,177 @@ async def sidebar_toggle(request: Request):
         f'hx-trigger="click from:#hamburger" hx-target="#sidebar" hx-swap="outerHTML">'
         f"{links_html}</nav>"
     )
+
+
+# ── API Key management routes ─────────────────────────────────────────────────
+
+@router.get("/keys", response_class=HTMLResponse, name="admin_keys")
+async def keys_page(request: Request, admin_id: int = Depends(require_admin)):
+    """API key management page — lists all 18 key groups with set/not-set status."""
+    try:
+        key_groups = await admin_service.list_key_groups()
+    except Exception:
+        logger.warning("list_key_groups() failed", exc_info=True)
+        key_groups = []
+    return templates.TemplateResponse(
+        "keys.html",
+        {"request": request, "key_groups": key_groups},
+    )
+
+
+@router.post("/keys/{group_name}/{key_name}/save", response_class=HTMLResponse, name="admin_key_save")
+async def key_save(
+    request: Request,
+    group_name: str,
+    key_name: str,
+    value: str = Form(...),
+    admin_id: int = Depends(require_admin),
+):
+    """Save an API key value and return the updated key group card fragment."""
+    if not value.strip():
+        # Re-render the card with an error indicator
+        group = await admin_service.get_key_group(group_name)
+        return templates.TemplateResponse(
+            "partials/key_group.html",
+            {"request": request, "group": group, "error": "Value cannot be empty"},
+            status_code=400,
+        )
+    await admin_service.set_api_key(key_name, value, admin_id=admin_id)
+    try:
+        await notifications.admin(
+            f"API key `{key_name}` updated via web by admin {admin_id}",
+            parse_mode="MarkdownV2",
+        )
+    except Exception:
+        logger.warning("Failed to send admin notification for key save", exc_info=True)
+    group = await admin_service.get_key_group(group_name)
+    return templates.TemplateResponse(
+        "partials/key_group.html",
+        {"request": request, "group": group},
+    )
+
+
+@router.post("/keys/{group_name}/{key_name}/delete", response_class=HTMLResponse, name="admin_key_delete")
+async def key_delete(
+    request: Request,
+    group_name: str,
+    key_name: str,
+    admin_id: int = Depends(require_admin),
+):
+    """Delete an API key value and return the updated key group card fragment."""
+    await admin_service.delete_api_key(key_name)
+    try:
+        await notifications.admin(
+            f"API key `{key_name}` deleted via web by admin {admin_id}",
+            parse_mode="MarkdownV2",
+        )
+    except Exception:
+        logger.warning("Failed to send admin notification for key delete", exc_info=True)
+    group = await admin_service.get_key_group(group_name)
+    return templates.TemplateResponse(
+        "partials/key_group.html",
+        {"request": request, "group": group},
+    )
+
+
+# ── Affiliate tag management routes ───────────────────────────────────────────
+
+@router.get("/tags", response_class=HTMLResponse, name="admin_tags")
+async def tags_page(request: Request, admin_id: int = Depends(require_admin)):
+    """Affiliate tag management page — lists all tags with status and counts."""
+    try:
+        tags = await admin_service.list_tags()
+    except Exception:
+        logger.warning("list_tags() failed", exc_info=True)
+        tags = []
+    return templates.TemplateResponse(
+        "tags.html",
+        {"request": request, "tags": tags},
+    )
+
+
+@router.post("/tags/add", response_class=HTMLResponse, name="admin_tag_add")
+async def tag_add(
+    request: Request,
+    tag: str = Form(...),
+    admin_id: int = Depends(require_admin),
+):
+    """Create a new affiliate tag and return a new tag row fragment for HTMX."""
+    if not tag.strip():
+        return HTMLResponse("", status_code=400)
+    new_tag = await admin_service.add_tag(tag.strip(), description="", admin_id=admin_id)
+    try:
+        await notifications.admin(
+            f"Affiliate tag `{tag.strip()}` added via web by admin {admin_id}",
+            parse_mode="MarkdownV2",
+        )
+    except Exception:
+        logger.warning("Failed to send admin notification for tag add", exc_info=True)
+    return templates.TemplateResponse(
+        "partials/tag_row.html",
+        {"request": request, "tag": new_tag},
+    )
+
+
+@router.post("/tags/{tag_id}/activate", response_class=HTMLResponse, name="admin_tag_activate")
+async def tag_activate(
+    request: Request,
+    tag_id: int,
+    admin_id: int = Depends(require_admin),
+):
+    """Activate a tag and return the updated tag row fragment."""
+    await admin_service.set_active_tag(tag_id)
+    try:
+        await notifications.admin(
+            f"Tag {tag_id} activated via web by admin {admin_id}",
+            parse_mode="MarkdownV2",
+        )
+    except Exception:
+        logger.warning("Failed to send admin notification for tag activate", exc_info=True)
+    tags = await admin_service.list_tags()
+    tag = next((t for t in tags if t.id == tag_id), None)
+    return templates.TemplateResponse(
+        "partials/tag_row.html",
+        {"request": request, "tag": tag},
+    )
+
+
+@router.post("/tags/{tag_id}/deactivate", response_class=HTMLResponse, name="admin_tag_deactivate")
+async def tag_deactivate(
+    request: Request,
+    tag_id: int,
+    admin_id: int = Depends(require_admin),
+):
+    """Deactivate all tags and return the updated tag row fragment for the specified tag."""
+    await admin_service.deactivate_all_tags()
+    try:
+        await notifications.admin(
+            f"Tag {tag_id} deactivated via web by admin {admin_id}",
+            parse_mode="MarkdownV2",
+        )
+    except Exception:
+        logger.warning("Failed to send admin notification for tag deactivate", exc_info=True)
+    tags = await admin_service.list_tags()
+    tag = next((t for t in tags if t.id == tag_id), None)
+    return templates.TemplateResponse(
+        "partials/tag_row.html",
+        {"request": request, "tag": tag},
+    )
+
+
+@router.post("/tags/{tag_id}/remove", response_class=HTMLResponse, name="admin_tag_remove")
+async def tag_remove(
+    request: Request,
+    tag_id: int,
+    admin_id: int = Depends(require_admin),
+):
+    """Delete a tag and return empty HTML (HTMX removes the row from DOM)."""
+    await admin_service.remove_tag(tag_id)
+    try:
+        await notifications.admin(
+            f"Tag {tag_id} removed via web by admin {admin_id}",
+            parse_mode="MarkdownV2",
+        )
+    except Exception:
+        logger.warning("Failed to send admin notification for tag remove", exc_info=True)
+    return HTMLResponse("", status_code=200)

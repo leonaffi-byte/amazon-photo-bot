@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block title %}API Keys{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+  <div class="flex items-center justify-between">
+    <div>
+      <h2 class="text-2xl font-semibold text-gray-800">API Keys</h2>
+      <p class="text-sm text-gray-500 mt-1">
+        Manage provider API keys. Values are write-only &mdash; existing keys show as &ldquo;Set&rdquo;.
+      </p>
+    </div>
+  </div>
+
+  <!-- Quick navigation anchors -->
+  <div class="flex flex-wrap gap-2">
+    {% for group in key_groups %}
+    <a href="#key-group-{{ group.group_name }}"
+       class="text-xs px-2 py-1 rounded bg-gray-100 text-gray-600 hover:bg-indigo-100 hover:text-indigo-700 transition-colors">
+      {{ group.label }}
+    </a>
+    {% endfor %}
+  </div>
+
+  <!-- Key group cards -->
+  {% for group in key_groups %}
+    {% include "partials/key_group.html" %}
+  {% endfor %}
+
+</div>
+{% endblock %}
