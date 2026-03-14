@@ -3,11 +3,27 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
+stopped_at: Completed 01-stability-and-infrastructure 01-04-PLAN.md
+last_updated: "2026-03-14T00:24:40.945Z"
+last_activity: 2026-03-14 -- Completed 01-01 (timeout unification + error differentiation)
+progress:
+  total_phases: 5
+  completed_phases: 0
+  total_plans: 4
+  completed_plans: 3
+  percent: 75
+---
+
+---
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: milestone
+status: in_progress
 stopped_at: Completed 01-stability-and-infrastructure 01-01-PLAN.md
 last_updated: "2026-03-14T00:23:00.000Z"
 last_activity: 2026-03-14 -- Completed plan 01-01 timeout unification
 progress:
-  total_phases: 5
+  [████████░░] 75%
   completed_phases: 0
   total_plans: 4
   completed_plans: 2
@@ -52,6 +68,7 @@ Progress: [=.........] 5%
 *Updated after each plan completion*
 | Phase 01-stability-and-infrastructure P02 | 15 | 2 tasks | 6 files |
 | Phase 01-stability-and-infrastructure P01 | 14 | 3 tasks | 18 files |
+| Phase 01-stability-and-infrastructure P04 | 7 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -69,6 +86,7 @@ Recent decisions affecting current work:
 - [Phase 01-stability-and-infrastructure]: PROVIDER_TIMEOUT_SECONDS reduced to 30s; manager enforces 60s total deadline with deadline-aware remaining time
 - [Phase 01-stability-and-infrastructure]: SEARCH_TIMEOUT_SECONDS = 15 unified constant in search_backends/base.py; all backends import it
 - [Phase 01-stability-and-infrastructure]: error_no_results/error_no_backend/error_analysis_failed all accept is_admin param; user messages omit Amazon/technical details
+- [Phase 01-stability-and-infrastructure]: admin_service.py returns plain dataclasses (TagInfo, KeyGroupStatus, BotStats, ProviderHealth) with no Telegram imports — enables Phase 3 web dashboard to share business logic
 
 ### Pending Todos
 
@@ -82,6 +100,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-14T00:23:00.000Z
-Stopped at: Completed 01-stability-and-infrastructure 01-01-PLAN.md
+Last session: 2026-03-14T00:24:40.942Z
+Stopped at: Completed 01-stability-and-infrastructure 01-04-PLAN.md
 Resume file: None

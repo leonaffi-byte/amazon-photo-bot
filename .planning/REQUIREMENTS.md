@@ -72,7 +72,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 - [ ] **INFR-01**: Consolidate 3 HTTP servers (aiohttp shortener, aiohttp webhooks, FastAPI API) into single FastAPI gateway
 - [x] **INFR-02**: Pillow CPU-bound operations (photo annotation) offloaded to executor (not blocking async loop)
-- [ ] **INFR-03**: Admin service layer extracted from admin.py (shared between Telegram admin and web dashboard)
+- [x] **INFR-03**: Admin service layer extracted from admin.py (shared between Telegram admin and web dashboard)
 
 ## v2 Requirements
 
@@ -152,7 +152,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INST-03 | Phase 4 | Pending |
 | INFR-01 | Phase 1 | Pending |
 | INFR-02 | Phase 1 | Complete |
-| INFR-03 | Phase 1 | Pending |
+| INFR-03 | Phase 1 | Complete |
 
 **Coverage:**
 - v1 requirements: 40 total
