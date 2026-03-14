@@ -229,6 +229,44 @@ class TestAffiliateTags:
         assert result["skipped"] == 2
         assert result["imported"] == 0
 
+    async def test_import_tags_csv_atomic_success(self):
+        """import_tags_csv completes as one atomic transaction: all rows present after success."""
+        csv_data = "tag_name,description\natom1-20,Atom One\natom2-20,Atom Two\natom3-20,Atom Three\n"
+        result = await db.import_tags_csv(csv_data, imported_by=99)
+        assert result["imported"] == 3
+        tags = await db.get_all_tags()
+        names = {t.tag for t in tags}
+        assert {"atom1-20", "atom2-20", "atom3-20"}.issubset(names)
+
+    async def test_import_tags_csv_uses_persistent_connection(self):
+        """import_tags_csv should use _get_conn (not open a separate aiosqlite.connect).
+
+        We verify this by monkeypatching aiosqlite.connect and confirming it is NOT called
+        during import_tags_csv (only _get_conn's persistent connection should be used).
+        """
+        import aiosqlite
+        from unittest.mock import patch, AsyncMock
+
+        csv_data = "tag_name,description\nconn1-20,Conn test\n"
+        with patch("aiosqlite.connect", new=AsyncMock(side_effect=AssertionError(
+            "import_tags_csv must not call aiosqlite.connect() directly"
+        ))):
+            # This will raise if aiosqlite.connect is called
+            result = await db.import_tags_csv(csv_data, imported_by=99)
+        assert result["imported"] == 1
+
+    async def test_import_tags_csv_cache_invalidated_after_commit(self):
+        """_active_tag_cache is None after a successful CSV import (not before)."""
+        # Prime the cache by reading the active tag
+        _ = await db.get_active_tag()
+        # Cache should now be populated
+        assert db._active_tag_cache is not None
+
+        csv_data = "tag_name,description,is_active,is_default\ncache1-20,Cache test,0,0\n"
+        await db.import_tags_csv(csv_data, imported_by=99)
+        # Cache must be invalidated after successful import
+        assert db._active_tag_cache is None
+
 
 # ── Search logs ────────────────────────────────────────────────────────────────
 

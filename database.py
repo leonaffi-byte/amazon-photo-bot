@@ -511,54 +511,66 @@ async def import_tags_csv(csv_data: str, imported_by: int) -> dict[str, int]:
     Expected columns: tag_name, description, is_active, is_default
     (description, is_active, is_default are optional with sensible defaults).
 
+    Uses the persistent connection (_get_conn) and wraps all inserts in a
+    BEGIN IMMEDIATE transaction so the import is atomic — no partial imports.
+
     Returns {"imported": N, "skipped": N, "errors": N}.
     """
+    global _active_tag_cache
     reader = csv.DictReader(io.StringIO(csv_data))
     imported = 0
     skipped = 0
     errors = 0
     now = datetime.now(timezone.utc).isoformat()
 
-    async with aiosqlite.connect(DB_PATH) as conn:
-        for row in reader:
-            tag_name = (row.get("tag_name") or "").strip()
-            if not tag_name:
-                errors += 1
-                continue
-
-            description = (row.get("description") or "").strip()
-            is_active = (row.get("is_active") or "0").strip() == "1"
-            is_default = (row.get("is_default") or "0").strip() == "1"
-
-            # Check for duplicates
-            async with conn.execute(
-                "SELECT id FROM affiliate_tags WHERE tag = ?", (tag_name,)
-            ) as cur:
-                if await cur.fetchone():
-                    skipped += 1
+    async with _get_conn() as conn:
+        await conn.execute("BEGIN IMMEDIATE")
+        try:
+            for row in reader:
+                tag_name = (row.get("tag_name") or "").strip()
+                if not tag_name:
+                    errors += 1
                     continue
 
-            try:
-                # If this tag should be active, deactivate others first
-                if is_active:
-                    await conn.execute("UPDATE affiliate_tags SET is_active = 0")
-                # If this tag should be default, clear others first
-                if is_default:
-                    await conn.execute("UPDATE affiliate_tags SET is_default = 0")
+                description = (row.get("description") or "").strip()
+                is_active = (row.get("is_active") or "0").strip() == "1"
+                is_default = (row.get("is_default") or "0").strip() == "1"
 
-                await conn.execute(
-                    """INSERT INTO affiliate_tags
-                       (tag, description, added_by_id, added_by_name, added_at,
-                        is_active, is_default)
-                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                    (tag_name, description, imported_by, "CSV Import", now,
-                     1 if is_active else 0, 1 if is_default else 0),
-                )
-                imported += 1
-            except Exception:
-                errors += 1
+                # Check for duplicates
+                async with conn.execute(
+                    "SELECT id FROM affiliate_tags WHERE tag = ?", (tag_name,)
+                ) as cur:
+                    if await cur.fetchone():
+                        skipped += 1
+                        continue
 
-        await conn.commit()
+                try:
+                    # If this tag should be active, deactivate others first
+                    if is_active:
+                        await conn.execute("UPDATE affiliate_tags SET is_active = 0")
+                    # If this tag should be default, clear others first
+                    if is_default:
+                        await conn.execute("UPDATE affiliate_tags SET is_default = 0")
+
+                    await conn.execute(
+                        """INSERT INTO affiliate_tags
+                           (tag, description, added_by_id, added_by_name, added_at,
+                            is_active, is_default)
+                           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                        (tag_name, description, imported_by, "CSV Import", now,
+                         1 if is_active else 0, 1 if is_default else 0),
+                    )
+                    imported += 1
+                except Exception:
+                    errors += 1
+
+            await conn.commit()
+        except Exception:
+            await conn.rollback()
+            raise
+
+    # Invalidate cache after successful commit
+    _active_tag_cache = None
 
     logger.info(
         "CSV tag import: %d imported, %d skipped, %d errors (by user %d)",

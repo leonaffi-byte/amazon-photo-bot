@@ -163,6 +163,8 @@ async def set(key: str, value: str, admin_id: int) -> None:
     _cast(value, meta["type"])  # raises ValueError/TypeError on bad input
     await _get_db().set_setting(key, value, admin_id)
     _apply_to_config(key, value, meta["type"])
+    # Invalidate DB-level caches so the next request sees fresh data
+    _invalidate_db_caches()
 
 
 async def delete(key: str) -> None:
@@ -175,6 +177,8 @@ async def delete(key: str) -> None:
     env_val = os.getenv(meta["env"], "").strip()
     raw = env_val if env_val else meta["default"]
     _apply_to_config(key, raw, meta["type"])
+    # Invalidate DB-level caches so the next request sees fresh data
+    _invalidate_db_caches()
 
 
 async def get_all() -> dict[str, str]:
@@ -183,6 +187,13 @@ async def get_all() -> dict[str, str]:
     for key in SETTINGS_META:
         result[key] = await get_raw(key)
     return result
+
+
+def _invalidate_db_caches() -> None:
+    """Invalidate in-memory caches in database.py so next access re-reads from DB."""
+    import database as db_module
+    db_module._active_tag_cache = None
+    db_module._disabled_models_cache = None
 
 
 def _apply_to_config(key: str, raw: str, typ: str) -> None:

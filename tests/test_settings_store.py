@@ -164,3 +164,47 @@ class TestGetAll:
         all_vals = await settings_store.get_all()
         for val in all_vals.values():
             assert isinstance(val, str)
+
+
+# ── Cache invalidation ────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+class TestCacheInvalidation:
+    async def test_set_invalidates_active_tag_cache(self):
+        """settings_store.set() must invalidate _active_tag_cache after successful DB write."""
+        import database as db_module
+        # Prime the cache with a non-None value
+        db_module._active_tag_cache = (999999.0, "some-tag-20")
+
+        await settings_store.set("vision_mode", "best", admin_id=1)
+
+        assert db_module._active_tag_cache is None
+
+    async def test_set_invalidates_disabled_models_cache(self):
+        """settings_store.set() must invalidate _disabled_models_cache after successful DB write."""
+        import database as db_module
+        db_module._disabled_models_cache = (999999.0, {"openai/gpt-4o"})
+
+        await settings_store.set("vision_mode", "best", admin_id=1)
+
+        assert db_module._disabled_models_cache is None
+
+    async def test_delete_invalidates_active_tag_cache(self):
+        """settings_store.delete() must also invalidate _active_tag_cache."""
+        import database as db_module
+        await settings_store.set("vision_mode", "compare", admin_id=1)
+        db_module._active_tag_cache = (999999.0, "some-tag-20")
+
+        await settings_store.delete("vision_mode")
+
+        assert db_module._active_tag_cache is None
+
+    async def test_delete_invalidates_disabled_models_cache(self):
+        """settings_store.delete() must also invalidate _disabled_models_cache."""
+        import database as db_module
+        await settings_store.set("vision_mode", "compare", admin_id=1)
+        db_module._disabled_models_cache = (999999.0, {"some/model"})
+
+        await settings_store.delete("vision_mode")
+
+        assert db_module._disabled_models_cache is None
