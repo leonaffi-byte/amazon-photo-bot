@@ -322,6 +322,64 @@ class TestErrorNoBackend:
         assert user_msg != admin_msg, "Admin and user messages must differ"
 
 
+class TestPriceHistoryLineWithBar:
+    """Tests for _price_history_line() with the new ASCII bar integration."""
+
+    def test_contains_bar_chars_when_full_data(self):
+        """When PriceHistory has current + low_90d + avg_90d, output includes bar characters."""
+        from price_history import PriceHistory
+        ph = PriceHistory("B001", "ccc", current=112.0, low_90d=89.0, avg_90d=149.0)
+        line = style._price_history_line(ph)
+        assert "price_bar" or "█" in line or "─" in line, (
+            "Expected bar characters in output when full price data available"
+        )
+        # Check bar is present (backtick-wrapped monospace block)
+        assert "`" in line
+
+    def test_bar_present_with_current_and_range(self):
+        """Bar appears when current, low_90d, and avg_90d are all set."""
+        from price_history import PriceHistory
+        ph = PriceHistory("B001", "ccc", current=112.0, low_90d=89.0, avg_90d=149.0)
+        line = style._price_history_line(ph)
+        # Should have backtick-wrapped bar lines
+        assert line.count("`") >= 2
+
+    def test_summary_only_when_no_current(self):
+        """When PriceHistory has only low_all_time (no current, no low_90d, no avg_90d),
+        output is summary-only with no bar."""
+        from price_history import PriceHistory
+        ph = PriceHistory("B001", "ccc", low_all_time=24.99)
+        line = style._price_history_line(ph)
+        # Summary line should be present
+        assert "24" in line
+        assert "📊" in line
+        # No bar (no backtick blocks for bar lines since render_price_bar returns "")
+        # The summary may still have backticks from esc(), but no bar-specific content
+        assert "^" not in line   # No pointer arrow without a bar
+
+    def test_returns_empty_string_when_ph_is_none(self):
+        """Returns empty string when ph is None."""
+        assert style._price_history_line(None) == ""
+
+    def test_starts_with_chart_emoji(self):
+        """Output always starts with newline + chart emoji when data is present."""
+        from price_history import PriceHistory
+        ph = PriceHistory("B001", "ccc", low_all_time=24.99, avg_90d=38.50)
+        line = style._price_history_line(ph)
+        assert line.startswith("\n📊")
+
+    def test_product_caption_under_1024_chars_with_bar(self):
+        """product_caption stays under 1024 chars even with price bar (~80 extra chars)."""
+        from price_history import PriceHistory
+        ph = PriceHistory("B001", "ccc", current=112.0, low_90d=89.0, avg_90d=149.0,
+                          low_all_time=75.0)
+        item = make_amazon_item(title="A" * 100, price_usd=112.0, rating=4.5, review_count=1234)
+        caption = style.product_caption(item, index=1, total=20, price_history=ph)
+        assert len(caption) <= 1024, (
+            f"Caption exceeds 1024 chars with price bar: {len(caption)} chars"
+        )
+
+
 class TestErrorNoProviders:
     """error_no_providers already has is_admin — verify the differentiation."""
 

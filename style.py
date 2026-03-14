@@ -378,9 +378,16 @@ def render_price_bar(ph, bar_width: int = 10) -> str:
 
 def _price_history_line(ph) -> str:
     """
-    Format a compact price history line for the product caption.
+    Format a compact price history section for the product caption.
     Returns empty string if ph is None or has no useful data.
-    Example: "\n📊 ATL $24\\.99 · 90d avg $38\\.50 · ✅ Below avg"
+
+    Structure (when bar data is available):
+      \n📊 _ATL $24.99 · 90d avg $38.50 · ✅ Below avg_
+      `$89 ████████── $149`
+      `     ^ $112 now`
+
+    Structure (summary only, when bar data is unavailable):
+      \n📊 _ATL $24.99 · 90d avg $38.50_
     """
     if not ph:
         return ""
@@ -396,7 +403,19 @@ def _price_history_line(ph) -> str:
     deal = ph.deal_label   # already MD-escaped inside the property
     summary = " · ".join(parts)
     deal_suffix = f" · {deal}" if deal else ""
-    return f"\n📊 _{summary}{deal_suffix}_"
+    summary_line = f"\n📊 _{summary}{deal_suffix}_"
+
+    # Add ASCII price bar when we have enough data
+    bar_raw = render_price_bar(ph)
+    if not bar_raw:
+        return summary_line
+
+    # Escape each bar line and wrap in monospace backticks for Telegram rendering
+    bar_lines = bar_raw.splitlines()
+    escaped_bar_lines = [f"`{esc(line)}`" for line in bar_lines]
+    bar_block = "\n".join(escaped_bar_lines)
+
+    return f"{summary_line}\n{bar_block}"
 
 
 def results_page(session, affiliate_tag: Optional[str] = None, is_admin: bool = False) -> str:
