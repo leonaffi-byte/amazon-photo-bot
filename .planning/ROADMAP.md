@@ -17,6 +17,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 3: Web Admin Dashboard** - Browser-based admin panel replacing Telegram-only admin commands (completed 2026-03-14)
 - [x] **Phase 4: Messaging Platform Expansion** - WhatsApp Business API and Instagram DM integrations (completed 2026-03-14)
 - [x] **Phase 5: Public Web Application** - Photo upload web app with shareable result pages for SEO (completed 2026-03-14)
+- [ ] **Phase 6: Admin Tech Debt Cleanup** - Wire today stats to real queries, register /webtoken in TelegramAdapter, remove legacy dead code
 
 ## Phase Details
 
@@ -102,6 +103,20 @@ Plans:
 - [ ] 05-02-PLAN.md -- Result page: product cards with badges/prices/affiliate links, product tabs, OG tags, shareable URLs (WEBA-02, WEBA-03, WEBA-04)
 - [ ] 05-03-PLAN.md -- Mobile responsive polish, Hebrew/English i18n, RTL support, end-to-end verification (WEBA-05)
 
+### Phase 6: Admin Tech Debt Cleanup
+**Goal**: Close the two partially-satisfied admin requirements (ADMN-02, ADMN-06) identified in the v1.0 milestone audit — wire today stats to real DB counts and register `/webtoken` in the production Telegram adapter
+**Depends on**: Phase 3
+**Requirements**: ADMN-02, ADMN-06
+**Gap Closure:** Closes gaps from v1.0 audit
+**Success Criteria** (what must be TRUE):
+  1. Dashboard "Today Searches" and "Today Users" stat cards show real counts from the database (not hardcoded 0)
+  2. Sending `/webtoken` in the Telegram bot (as admin) returns a valid login token — no need to read server logs
+  3. The legacy `bot.py::webtoken_command` handler is either removed or explicitly marked as dead code
+**Plans:** TBD
+
+Plans:
+- [ ] 06-01-PLAN.md -- Wire today stats, register /webtoken in TelegramAdapter, clean up legacy path (ADMN-02, ADMN-06)
+
 ## Progress
 
 **Execution Order:**
@@ -115,3 +130,4 @@ Note: Phase 3 depends only on Phase 1 (not Phase 2), so Phases 2 and 3 could the
 | 3. Web Admin Dashboard | 3/3 | Complete   | 2026-03-14 |
 | 4. Messaging Platform Expansion | 3/3 | Complete   | 2026-03-14 |
 | 5. Public Web Application | 3/3 | Complete   | 2026-03-14 |
+| 6. Admin Tech Debt Cleanup | 0/1 | Pending    |            |

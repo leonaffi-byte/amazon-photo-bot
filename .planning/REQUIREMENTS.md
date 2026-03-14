@@ -40,11 +40,11 @@ Requirements for this milestone. Each maps to roadmap phases.
 ### Web Admin Dashboard
 
 - [x] **ADMN-01**: Web-based admin dashboard accessible at `/admin` with authentication
-- [x] **ADMN-02**: Dashboard shows bot statistics (users, searches, clicks, revenue estimates)
+- [ ] **ADMN-02**: Dashboard shows bot statistics (users, searches, clicks, revenue estimates)
 - [x] **ADMN-03**: Admin can manage API keys (add, remove, view status) via web UI
 - [x] **ADMN-04**: Admin can manage affiliate tags (activate, deactivate, add) via web UI
 - [x] **ADMN-05**: Admin can edit bot settings (vision mode, search backend, thresholds) via web UI
-- [x] **ADMN-06**: Admin can view and manage provider health status via web UI
+- [ ] **ADMN-06**: Admin can view and manage provider health status via web UI
 
 ### Public Web Application
 
@@ -132,11 +132,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PRCE-02 | Phase 2 | Complete |
 | PRCE-03 | Phase 2 | Complete |
 | ADMN-01 | Phase 3 | Complete |
-| ADMN-02 | Phase 3 | Complete |
+| ADMN-02 | Phase 6 | Pending |
 | ADMN-03 | Phase 3 | Complete |
 | ADMN-04 | Phase 3 | Complete |
 | ADMN-05 | Phase 3 | Complete |
-| ADMN-06 | Phase 3 | Complete |
+| ADMN-06 | Phase 6 | Pending |
 | WEBA-01 | Phase 5 | Complete |
 | WEBA-02 | Phase 5 | Complete |
 | WEBA-03 | Phase 5 | Complete |
