@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-stopped_at: Completed 05-public-web-application/05-03-PLAN.md
-last_updated: "2026-03-14T12:52:43.705Z"
+stopped_at: Completed 06-admin-tech-debt-cleanup/06-01-PLAN.md
+last_updated: "2026-03-14T13:48:20.918Z"
 last_activity: 2026-03-14 -- Phase 2 complete (4/4 plans, verification passed)
 progress:
-  total_phases: 5
-  completed_phases: 5
-  total_plans: 17
-  completed_plans: 17
+  total_phases: 6
+  completed_phases: 6
+  total_plans: 18
+  completed_plans: 18
 ---
 
 ---
@@ -97,6 +97,7 @@ Progress: [████████████████████] 8/8 pla
 | Phase 05-public-web-application P01 | 27 | 3 tasks | 12 files |
 | Phase 05-public-web-application P02 | 3 | 2 tasks | 6 files |
 | Phase 05-public-web-application P03 | 7 | 1 tasks | 9 files |
+| Phase 06-admin-tech-debt-cleanup P01 | 13 | 1 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -139,6 +140,8 @@ Recent decisions affecting current work:
 - [Phase 05-public-web-application]: Hebrew-first default (lang='he') for all routes — target market is Israeli users
 - [Phase 05-public-web-application]: No physical directional Tailwind classes in templates — all logical properties (ms-, me-, text-start, text-end)
 - [Phase 05-public-web-application]: Result page lang determined by: request ?lang= param → cookie → stored row.lang
+- [Phase 06-admin-tech-debt-cleanup]: get_stats_since returns unique_users and total_searches keys — used directly for today_searches/today_users without aliasing
+- [Phase 06-admin-tech-debt-cleanup]: webtoken non-admin path sends Unauthorized message (not silent return) — matches legacy bot.py behavior
 
 ### Pending Todos
 
@@ -152,6 +155,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-14T12:46:48.358Z
-Stopped at: Completed 05-public-web-application/05-03-PLAN.md
+Last session: 2026-03-14T13:48:20.912Z
+Stopped at: Completed 06-admin-tech-debt-cleanup/06-01-PLAN.md
 Resume file: None

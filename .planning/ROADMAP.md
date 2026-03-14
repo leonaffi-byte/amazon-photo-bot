@@ -17,7 +17,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 3: Web Admin Dashboard** - Browser-based admin panel replacing Telegram-only admin commands (completed 2026-03-14)
 - [x] **Phase 4: Messaging Platform Expansion** - WhatsApp Business API and Instagram DM integrations (completed 2026-03-14)
 - [x] **Phase 5: Public Web Application** - Photo upload web app with shareable result pages for SEO (completed 2026-03-14)
-- [ ] **Phase 6: Admin Tech Debt Cleanup** - Wire today stats to real queries, register /webtoken in TelegramAdapter, remove legacy dead code
+- [x] **Phase 6: Admin Tech Debt Cleanup** - Wire today stats to real queries, register /webtoken in TelegramAdapter, remove legacy dead code (completed 2026-03-14)
 
 ## Phase Details
 
@@ -112,7 +112,7 @@ Plans:
   1. Dashboard "Today Searches" and "Today Users" stat cards show real counts from the database (not hardcoded 0)
   2. Sending `/webtoken` in the Telegram bot (as admin) returns a valid login token — no need to read server logs
   3. The legacy `bot.py::webtoken_command` handler is either removed or explicitly marked as dead code
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 Plans:
 - [ ] 06-01-PLAN.md -- Wire today stats, register /webtoken in TelegramAdapter, clean up legacy path (ADMN-02, ADMN-06)
@@ -130,4 +130,4 @@ Note: Phase 3 depends only on Phase 1 (not Phase 2), so Phases 2 and 3 could the
 | 3. Web Admin Dashboard | 3/3 | Complete   | 2026-03-14 |
 | 4. Messaging Platform Expansion | 3/3 | Complete   | 2026-03-14 |
 | 5. Public Web Application | 3/3 | Complete   | 2026-03-14 |
-| 6. Admin Tech Debt Cleanup | 0/1 | Pending    |            |
+| 6. Admin Tech Debt Cleanup | 1/1 | Complete   | 2026-03-14 |
