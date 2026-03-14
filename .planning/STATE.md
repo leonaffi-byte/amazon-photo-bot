@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-stopped_at: Phase 8 context gathered
-last_updated: "2026-03-14T17:03:20.496Z"
+stopped_at: Completed 08-whatsapp-compliance-hardening/08-01-PLAN.md
+last_updated: "2026-03-14T17:26:07.101Z"
 last_activity: 2026-03-14 -- Phase 2 complete (4/4 plans, verification passed)
 progress:
   total_phases: 8
-  completed_phases: 7
-  total_plans: 20
-  completed_plans: 20
+  completed_phases: 8
+  total_plans: 21
+  completed_plans: 21
 ---
 
 ---
@@ -100,6 +100,7 @@ Progress: [████████████████████] 8/8 pla
 | Phase 06-admin-tech-debt-cleanup P01 | 13 | 1 tasks | 6 files |
 | Phase 07-multi-platform-visual-parity P01 | 3 | 1 tasks | 2 files |
 | Phase 07-multi-platform-visual-parity P02 | 54 | 1 tasks | 2 files |
+| Phase 08-whatsapp-compliance-hardening P01 | 12 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -149,6 +150,9 @@ Recent decisions affecting current work:
 - [Phase 07-multi-platform-visual-parity]: render_price_bar() imported from style.py into formatter.py — style.py remains single source of truth for bar rendering logic
 - [Phase 07-multi-platform-visual-parity]: annotate_with_overlays replaces annotate_products in multi-product path; annotate_products kept only as fallback in except clause
 - [Phase 07-multi-platform-visual-parity]: _compress_image wrapped in asyncio.to_thread to prevent event loop blocking on CPU-bound Pillow operations
+- [Phase 08-whatsapp-compliance-hardening]: _guard_window returns None (open) or no-op MessageRef (closed) — avoids exception-based flow control
+- [Phase 08-whatsapp-compliance-hardening]: edit_text returns None on closed window — consistent with void return type signature
+- [Phase 08-whatsapp-compliance-hardening]: _template_sent keyed by bare chat_id (phone number), reset via pop on inbound message in _process_message
 
 ### Pending Todos
 
@@ -162,6 +166,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-14T17:03:20.493Z
-Stopped at: Phase 8 context gathered
-Resume file: .planning/phases/08-whatsapp-compliance-hardening/08-CONTEXT.md
+Last session: 2026-03-14T17:26:07.098Z
+Stopped at: Completed 08-whatsapp-compliance-hardening/08-01-PLAN.md
+Resume file: None

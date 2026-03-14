@@ -19,7 +19,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 5: Public Web Application** - Photo upload web app with shareable result pages for SEO (completed 2026-03-14)
 - [x] **Phase 6: Admin Tech Debt Cleanup** - Wire today stats to real queries, register /webtoken in TelegramAdapter, remove legacy dead code (completed 2026-03-14)
 - [x] **Phase 7: Multi-Platform Visual Parity** - Wire Phase 2 visual features (overlays, badges, price bar, progress) into bot_core.py for WhatsApp/Instagram (completed 2026-03-14)
-- [ ] **Phase 8: WhatsApp Compliance Hardening** - Wire 24h window enforcement and template fallback into live WhatsApp send path
+- [x] **Phase 8: WhatsApp Compliance Hardening** - Wire 24h window enforcement and template fallback into live WhatsApp send path (completed 2026-03-14)
 
 ## Phase Details
 
@@ -144,7 +144,7 @@ Plans:
   1. Every outbound WhatsApp message checks _is_window_open() before sending
   2. When the 24h window is closed, the adapter calls send_template() instead of sending a free-form message
   3. Template fallback is tested with unit tests covering window-open and window-closed scenarios
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 Plans:
 - [ ] 08-01-PLAN.md -- Window guard + template fallback in all send methods, TDD with TestWindowEnforcement (WHAT-03, WHAT-04)
@@ -164,4 +164,4 @@ Note: Phase 3 depends only on Phase 1 (not Phase 2), so Phases 2 and 3 could the
 | 5. Public Web Application | 3/3 | Complete   | 2026-03-14 |
 | 6. Admin Tech Debt Cleanup | 1/1 | Complete   | 2026-03-14 |
 | 7. Multi-Platform Visual Parity | 2/2 | Complete   | 2026-03-14 |
-| 8. WhatsApp Compliance Hardening | 0/1 | Not Started |  |
+| 8. WhatsApp Compliance Hardening | 1/1 | Complete   | 2026-03-14 |
