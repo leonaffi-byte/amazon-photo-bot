@@ -18,6 +18,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 4: Messaging Platform Expansion** - WhatsApp Business API and Instagram DM integrations (completed 2026-03-14)
 - [x] **Phase 5: Public Web Application** - Photo upload web app with shareable result pages for SEO (completed 2026-03-14)
 - [x] **Phase 6: Admin Tech Debt Cleanup** - Wire today stats to real queries, register /webtoken in TelegramAdapter, remove legacy dead code (completed 2026-03-14)
+- [ ] **Phase 7: Multi-Platform Visual Parity** - Wire Phase 2 visual features (overlays, badges, price bar, progress) into bot_core.py for WhatsApp/Instagram
+- [ ] **Phase 8: WhatsApp Compliance Hardening** - Wire 24h window enforcement and template fallback into live WhatsApp send path
 
 ## Phase Details
 
@@ -117,6 +119,35 @@ Plans:
 Plans:
 - [ ] 06-01-PLAN.md -- Wire today stats, register /webtoken in TelegramAdapter, clean up legacy path (ADMN-02, ADMN-06)
 
+### Phase 7: Multi-Platform Visual Parity
+**Goal**: WhatsApp and Instagram users receive the same visual experience as Telegram users — annotated overlays, shipping badges, price bars, and 4-stage progress messages
+**Depends on**: Phase 2, Phase 4
+**Requirements**: ANNO-02, ANNO-03, ANNO-04, PRCE-02, PRCE-03, ISRL-02
+**Gap Closure:** Closes INT-01, FLOW-01 from v1.0 audit
+**Success Criteria** (what must be TRUE):
+  1. WhatsApp/Instagram photo results include annotated overlays (not just legend strip) via bot_core.py calling annotate_with_overlays()
+  2. WhatsApp/Instagram results include shipping badges (green/yellow/red) via formatter.py calling shipping_badge()
+  3. WhatsApp/Instagram results include ASCII price bar and deal quality label via formatter.py
+  4. WhatsApp/Instagram users see multi-stage progress messages during analysis (not single loading message)
+**Plans:** 0/0 plans complete
+
+Plans:
+- TBD
+
+### Phase 8: WhatsApp Compliance Hardening
+**Goal**: WhatsApp adapter correctly enforces the 24-hour conversation window — checking window status before every outbound send and falling back to approved template messages when the window is closed
+**Depends on**: Phase 4
+**Requirements**: WHAT-03, WHAT-04
+**Gap Closure:** Closes INT-02, FLOW-02 from v1.0 audit
+**Success Criteria** (what must be TRUE):
+  1. Every outbound WhatsApp message checks _is_window_open() before sending
+  2. When the 24h window is closed, the adapter calls send_template() instead of sending a free-form message
+  3. Template fallback is tested with unit tests covering window-open and window-closed scenarios
+**Plans:** 0/0 plans complete
+
+Plans:
+- TBD
+
 ## Progress
 
 **Execution Order:**
@@ -131,3 +162,5 @@ Note: Phase 3 depends only on Phase 1 (not Phase 2), so Phases 2 and 3 could the
 | 4. Messaging Platform Expansion | 3/3 | Complete   | 2026-03-14 |
 | 5. Public Web Application | 3/3 | Complete   | 2026-03-14 |
 | 6. Admin Tech Debt Cleanup | 1/1 | Complete   | 2026-03-14 |
+| 7. Multi-Platform Visual Parity | 0/0 | Not Started |  |
+| 8. WhatsApp Compliance Hardening | 0/0 | Not Started |  |

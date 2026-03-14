@@ -121,16 +121,16 @@ Which phases cover which requirements. Updated during roadmap creation.
 | STAB-06 | Phase 1 | Complete |
 | STAB-07 | Phase 1 | Complete |
 | ANNO-01 | Phase 2 | Complete |
-| ANNO-02 | Phase 2 | Complete |
-| ANNO-03 | Phase 2 | Complete |
-| ANNO-04 | Phase 2 | Complete |
+| ANNO-02 | Phase 2, Phase 7 | Complete (gap closure Phase 7: multi-platform wiring) |
+| ANNO-03 | Phase 2, Phase 7 | Complete (gap closure Phase 7: multi-platform wiring) |
+| ANNO-04 | Phase 2, Phase 7 | Complete (gap closure Phase 7: multi-platform wiring) |
 | ISRL-01 | Phase 2 | Complete |
-| ISRL-02 | Phase 2 | Complete |
+| ISRL-02 | Phase 2, Phase 7 | Complete (gap closure Phase 7: multi-platform wiring) |
 | ISRL-03 | Phase 2 | Complete |
 | ISRL-04 | Phase 2 | Complete |
 | PRCE-01 | Phase 2 | Complete |
-| PRCE-02 | Phase 2 | Complete |
-| PRCE-03 | Phase 2 | Complete |
+| PRCE-02 | Phase 2, Phase 7 | Complete (gap closure Phase 7: multi-platform wiring) |
+| PRCE-03 | Phase 2, Phase 7 | Complete (gap closure Phase 7: multi-platform wiring) |
 | ADMN-01 | Phase 3 | Complete |
 | ADMN-02 | Phase 6 | Complete |
 | ADMN-03 | Phase 3 | Complete |
@@ -144,8 +144,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | WEBA-05 | Phase 5 | Complete |
 | WHAT-01 | Phase 4 | Complete |
 | WHAT-02 | Phase 4 | Complete |
-| WHAT-03 | Phase 4 | Complete |
-| WHAT-04 | Phase 4 | Complete |
+| WHAT-03 | Phase 4, Phase 8 | Complete (gap closure Phase 8: window enforcement) |
+| WHAT-04 | Phase 4, Phase 8 | Complete (gap closure Phase 8: window enforcement) |
 | WHAT-05 | Phase 4 | Complete |
 | INST-01 | Phase 4 | Complete |
 | INST-02 | Phase 4 | Complete |
