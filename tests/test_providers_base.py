@@ -142,3 +142,51 @@ class TestParseJsonResponse:
         raw = '{"product_name": "Wid'
         with pytest.raises(ValueError):
             parse_json_response(raw, "testprovider")
+
+
+# ── to_product_info_list bbox mapping (ANNO-01) ───────────────────────────────
+
+class TestBboxMapping:
+    def test_bbox_from_products_raw(self):
+        """bbox list from products_raw is mapped to tuple on ProductInfo."""
+        r = make_result(
+            products_raw=[{
+                "product_name": "Test",
+                "search_query": "test",
+                "amazon_search_query": "test",
+                "alternative_query": "test",
+                "bbox": [10, 20, 30, 40],
+            }]
+        )
+        products = r.to_product_info_list()
+        assert len(products) == 1
+        assert products[0].bbox == (10, 20, 30, 40)
+
+    def test_bbox_missing_from_products_raw(self):
+        """Missing bbox key in products_raw produces ProductInfo with bbox=None."""
+        r = make_result(
+            products_raw=[{
+                "product_name": "Test",
+                "search_query": "test",
+                "amazon_search_query": "test",
+                "alternative_query": "test",
+            }]
+        )
+        products = r.to_product_info_list()
+        assert len(products) == 1
+        assert products[0].bbox is None
+
+    def test_bbox_invalid_length(self):
+        """bbox with wrong number of elements produces ProductInfo with bbox=None."""
+        r = make_result(
+            products_raw=[{
+                "product_name": "Test",
+                "search_query": "test",
+                "amazon_search_query": "test",
+                "alternative_query": "test",
+                "bbox": [1, 2],
+            }]
+        )
+        products = r.to_product_info_list()
+        assert len(products) == 1
+        assert products[0].bbox is None
