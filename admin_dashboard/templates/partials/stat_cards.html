@@ -1,0 +1,88 @@
+<!-- Outer wrapper must include hx-* attrs so polling continues after outerHTML swap -->
+<div
+  id="stat-cards"
+  hx-get="/admin/partials/stats"
+  hx-trigger="every 60s"
+  hx-swap="outerHTML">
+
+  {% if error %}
+  <div class="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+    Stats unavailable: {{ error }}
+  </div>
+  {% elif stats %}
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+
+    <!-- Total Users -->
+    <div class="bg-white rounded-lg shadow-sm p-5 border border-gray-100">
+      <div class="flex items-start justify-between">
+        <div>
+          <p class="text-sm text-gray-500 font-medium">Total Users</p>
+          <p class="text-3xl font-bold text-gray-800 mt-1">{{ stats.total_users }}</p>
+        </div>
+        <div class="text-gray-300">{{ sparkline_svg | safe }}</div>
+      </div>
+    </div>
+
+    <!-- Total Searches -->
+    <div class="bg-white rounded-lg shadow-sm p-5 border border-gray-100">
+      <div class="flex items-start justify-between">
+        <div>
+          <p class="text-sm text-gray-500 font-medium">Total Searches</p>
+          <p class="text-3xl font-bold text-gray-800 mt-1">{{ stats.total_searches }}</p>
+        </div>
+        <div class="text-gray-300">{{ sparkline_svg | safe }}</div>
+      </div>
+    </div>
+
+    <!-- Searches Today -->
+    <div class="bg-white rounded-lg shadow-sm p-5 border border-gray-100">
+      <div class="flex items-start justify-between">
+        <div>
+          <p class="text-sm text-gray-500 font-medium">Searches Today</p>
+          <p class="text-3xl font-bold text-gray-800 mt-1">{{ stats.today_searches }}</p>
+        </div>
+        <div class="text-gray-300">{{ sparkline_svg | safe }}</div>
+      </div>
+    </div>
+
+    <!-- Today's Active Users -->
+    <div class="bg-white rounded-lg shadow-sm p-5 border border-gray-100">
+      <div class="flex items-start justify-between">
+        <div>
+          <p class="text-sm text-gray-500 font-medium">Active Users Today</p>
+          <p class="text-3xl font-bold text-gray-800 mt-1">{{ stats.today_users }}</p>
+        </div>
+        <div class="text-gray-300">{{ sparkline_svg | safe }}</div>
+      </div>
+    </div>
+
+    <!-- Israel Filter Uses -->
+    <div class="bg-white rounded-lg shadow-sm p-5 border border-gray-100">
+      <div class="flex items-start justify-between">
+        <div>
+          <p class="text-sm text-gray-500 font-medium">Israel Filter Uses</p>
+          <p class="text-3xl font-bold text-gray-800 mt-1">{{ stats.israel_filter_uses }}</p>
+        </div>
+        <div class="text-gray-300">{{ sparkline_svg | safe }}</div>
+      </div>
+    </div>
+
+    <!-- Total Clicks -->
+    <div class="bg-white rounded-lg shadow-sm p-5 border border-gray-100">
+      <div class="flex items-start justify-between">
+        <div>
+          <p class="text-sm text-gray-500 font-medium">Total Clicks</p>
+          <p class="text-3xl font-bold text-gray-800 mt-1">{{ stats.total_clicks }}</p>
+        </div>
+        <div class="text-gray-300">{{ sparkline_svg | safe }}</div>
+      </div>
+    </div>
+
+  </div>
+  {% else %}
+  <div class="p-4 bg-yellow-50 border border-yellow-200 rounded-lg text-yellow-700 text-sm">
+    No stats available yet.
+  </div>
+  {% endif %}
+
+</div>

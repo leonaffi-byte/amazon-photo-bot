@@ -12,11 +12,26 @@ gets the latest value without restarting.
 """
 import logging
 import os
+import secrets as _secrets
 from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
 load_dotenv()
+
+# ── Admin web dashboard session ───────────────────────────────────────────────
+ADMIN_SESSION_SECRET: str = os.getenv(
+    "ADMIN_SESSION_SECRET",
+    _secrets.token_hex(32),  # random default — sessions won't survive restarts
+)
+if not os.getenv("ADMIN_SESSION_SECRET"):
+    logger.warning(
+        "ADMIN_SESSION_SECRET not set — using ephemeral random secret. "
+        "Sessions will not survive restarts. Set ADMIN_SESSION_SECRET in .env."
+    )
+
+# Optional: Telegram bot username for the Login Widget
+TELEGRAM_BOT_USERNAME: str = os.getenv("TELEGRAM_BOT_USERNAME", "").lstrip("@")
 
 # ── Telegram ──────────────────────────────────────────────────────────────────
 TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")

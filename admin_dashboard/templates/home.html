@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+  <div class="flex items-center justify-between">
+    <h2 class="text-2xl font-semibold text-gray-800">Dashboard</h2>
+    <span class="text-xs text-gray-400">Auto-refreshes every 60s</span>
+  </div>
+
+  <!-- Stat cards — HTMX polls this div every 60 seconds -->
+  <div
+    id="stat-cards"
+    hx-get="/admin/partials/stats"
+    hx-trigger="every 60s"
+    hx-swap="outerHTML">
+    {% include "partials/stat_cards.html" %}
+  </div>
+
+  <!-- Provider health — HTMX polls this div every 30 seconds -->
+  <div class="mt-8">
+    <h3 class="text-lg font-medium text-gray-700 mb-3">Provider Health</h3>
+    <div
+      id="provider-health"
+      hx-get="/admin/partials/health"
+      hx-trigger="every 30s"
+      hx-swap="outerHTML">
+      {% include "partials/provider_health.html" %}
+    </div>
+  </div>
+
+</div>
+{% endblock %}

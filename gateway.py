@@ -1,15 +1,17 @@
 """
 gateway.py — Consolidated FastAPI gateway for the Amazon Photo Bot.
 
-Merges three previously separate HTTP servers into one FastAPI app on port 8080:
+Merges previously separate HTTP servers into one FastAPI app on port 8080:
   - URL shortener (from shortener_server.py / shortener_routes.py)
   - Webhook receiver (from webhook_server.py / webhook_routes.py)
   - Israel Shipping API (from api_server.py)
+  - Admin dashboard (from admin_dashboard/)
 
 Route mounting order is critical:
-  1. /api/v1/* (API routes)
+  1. /api/v1/*  (API routes)
   2. /webhook/* (webhook routes — only if adapters present)
-  3. /{code}   (shortener catch-all — MUST BE LAST)
+  3. /admin/*   (admin dashboard — with SessionMiddleware)
+  4. /{code}    (shortener catch-all — MUST BE LAST)
 
 Usage:
     from gateway import create_app
@@ -20,8 +22,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import config
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from starlette.middleware.sessions import SessionMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -40,12 +44,22 @@ def create_app(webhook_adapters: list[Any] | None = None) -> FastAPI:
     app = FastAPI(
         title       = "Amazon Photo Bot",
         description = (
-            "Consolidated gateway: URL shortener, webhook receiver, and Israel "
-            "shipping verification API — all on port 8080."
+            "Consolidated gateway: URL shortener, webhook receiver, Israel "
+            "shipping verification API, and admin dashboard — all on port 8080."
         ),
         version  = "1.0.0",
         docs_url = "/docs",
         redoc_url= "/redoc",
+    )
+
+    # ── SessionMiddleware (must be added BEFORE routes) ───────────────────────
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key   = config.ADMIN_SESSION_SECRET,
+        session_cookie = "admin_session",
+        max_age      = 86400,      # 24 hours
+        same_site    = "lax",
+        https_only   = False,      # allow HTTP in development
     )
 
     # ── Security headers middleware ────────────────────────────────────────────
@@ -76,7 +90,12 @@ def create_app(webhook_adapters: list[Any] | None = None) -> FastAPI:
         app.include_router(webhook_router)
         logger.info("Mounted webhook router (%d adapter(s))", len(webhook_adapters))
 
-    # 3. Shortener catch-all at /{code} — MUST BE LAST to avoid catching other routes
+    # 3. Admin dashboard at /admin/* — must come before shortener catch-all
+    from admin_dashboard import router as admin_router
+    app.include_router(admin_router, prefix="/admin")
+    logger.info("Mounted admin dashboard at /admin")
+
+    # 4. Shortener catch-all at /{code} — MUST BE LAST to avoid catching other routes
     from shortener_routes import router as shortener_router
     app.include_router(shortener_router)
     logger.info("Mounted shortener router at /{code} (catch-all, last)")
