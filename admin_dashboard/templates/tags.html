@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block title %}Affiliate Tags{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+  <div class="flex items-center justify-between">
+    <div>
+      <h2 class="text-2xl font-semibold text-gray-800">Affiliate Tags</h2>
+      <p class="text-sm text-gray-500 mt-1">
+        Manage Amazon Associate affiliate tags. Only one tag can be active at a time.
+      </p>
+    </div>
+  </div>
+
+  <!-- Add Tag form -->
+  <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-5">
+    <h3 class="text-sm font-semibold text-gray-700 mb-3">Add New Tag</h3>
+    <form hx-post="/admin/tags/add"
+          hx-target="#tag-table-body"
+          hx-swap="beforeend"
+          class="flex gap-3">
+      <input type="text"
+             name="tag"
+             placeholder="e.g. yourstore-20"
+             required
+             class="flex-1 text-sm border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent">
+      <button type="submit"
+              class="text-sm px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition-colors whitespace-nowrap">
+        Add Tag
+      </button>
+    </form>
+  </div>
+
+  <!-- Tags table -->
+  <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 border-b border-gray-200">
+        <tr>
+          <th class="text-left px-4 py-3 font-medium text-gray-600">Tag</th>
+          <th class="text-left px-4 py-3 font-medium text-gray-600">Status</th>
+          <th class="text-right px-4 py-3 font-medium text-gray-600">Searches</th>
+          <th class="text-left px-4 py-3 font-medium text-gray-600">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="tag-table-body" class="divide-y divide-gray-100">
+        {% for tag in tags %}
+          {% include "partials/tag_row.html" %}
+        {% endfor %}
+        {% if not tags %}
+        <tr>
+          <td colspan="4" class="px-4 py-8 text-center text-gray-400 text-sm">
+            No affiliate tags configured yet.
+          </td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+
+</div>
+{% endblock %}
