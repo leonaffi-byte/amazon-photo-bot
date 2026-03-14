@@ -13,14 +13,14 @@
   {% endif %}
 
   <!-- Processing status header -->
-  <p class="text-center text-gray-500 text-sm mb-4">Analyzing your photo...</p>
+  <p class="text-center text-gray-500 text-sm mb-4">{{ t.analyzing }}</p>
 
-  <!-- SSE progress container -->
+  <!-- SSE progress container — centered, adequate padding for mobile -->
   <div
     hx-ext="sse"
     sse-connect="/stream/{{ session_id }}"
     sse-close="done"
-    class="max-w-md mx-auto"
+    class="max-w-md mx-auto px-4"
   >
     <!-- Progress steps appended here as SSE events arrive -->
     <ol

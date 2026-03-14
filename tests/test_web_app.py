@@ -87,8 +87,8 @@ class TestHomePage:
         assert 'lang="en"' in resp.text
 
     def test_affiliate_disclosure(self, client):
-        """Response contains Amazon Associate disclosure text."""
-        resp = client.get("/")
+        """Response contains Amazon Associate disclosure text (English mode)."""
+        resp = client.get("/?lang=en")
         assert resp.status_code == 200
         assert "Amazon Associate" in resp.text
 
@@ -189,7 +189,7 @@ class TestSSE:
 
     def test_stream_stages(self, client):
         """
-        GET /stream/{session_id} returns text/event-stream content with all 4 stage
+        GET /stream/{session_id}?lang=en returns text/event-stream content with all 4 stage
         keywords: Analyzing, Found 2 products, Searching, and a done event.
         """
         import secrets
@@ -210,7 +210,7 @@ class TestSSE:
              patch("image_annotator.annotate_products", return_value=b"fake_image_bytes"), \
              patch("web_app.search_store.save_web_search", new=AsyncMock(return_value="abc123")):
 
-            resp = client.get(f"/stream/{session_id}")
+            resp = client.get(f"/stream/{session_id}?lang=en")
 
         assert resp.status_code == 200
         content = resp.text
@@ -221,8 +221,8 @@ class TestSSE:
         assert "abc123" in content
 
     def test_stream_invalid_session(self, client):
-        """GET /stream/nonexistent returns an error progress event."""
-        resp = client.get("/stream/nonexistent-session-id-xyz")
+        """GET /stream/nonexistent?lang=en returns an error progress event."""
+        resp = client.get("/stream/nonexistent-session-id-xyz?lang=en")
         assert resp.status_code == 200
         content = resp.text
         # Should contain some error indication
@@ -488,7 +488,7 @@ def _make_app():
 
 class TestResultPage:
     async def test_product_card_fields(self, tmp_data_dir):
-        """GET /search/{id} returns HTML with price, rating, and View on Amazon link."""
+        """GET /search/{id}?lang=en returns HTML with price, rating, and View on Amazon link."""
         import database
         await database.init_db()
 
@@ -499,7 +499,7 @@ class TestResultPage:
                 with patch("price_history.get_price_history", new=AsyncMock(return_value=None)):
                     app = _make_app()
                     with TestClient(app, raise_server_exceptions=True) as c:
-                        resp = c.get(f"/search/{short_id}")
+                        resp = c.get(f"/search/{short_id}?lang=en")
 
         assert resp.status_code == 200
         assert "49.99" in resp.text
@@ -518,13 +518,13 @@ class TestResultPage:
                 with patch("price_history.get_price_history", new=AsyncMock(return_value=None)):
                     app = _make_app()
                     with TestClient(app, raise_server_exceptions=True) as c:
-                        resp = c.get(f"/search/{short_id}")
+                        resp = c.get(f"/search/{short_id}?lang=en")
 
         assert resp.status_code == 200
         assert "tag=test-tag-20" in resp.text
 
     async def test_shipping_badge_green(self, tmp_data_dir):
-        """is_amazon_fulfilled=True produces a green ships-to-Israel badge."""
+        """is_amazon_fulfilled=True produces a green ships-to-Israel badge (English mode)."""
         import database
         await database.init_db()
 
@@ -535,14 +535,14 @@ class TestResultPage:
                 with patch("price_history.get_price_history", new=AsyncMock(return_value=None)):
                     app = _make_app()
                     with TestClient(app, raise_server_exceptions=True) as c:
-                        resp = c.get(f"/search/{short_id}")
+                        resp = c.get(f"/search/{short_id}?lang=en")
 
         assert resp.status_code == 200
         assert "bg-green" in resp.text
         assert "Ships to Israel" in resp.text
 
     async def test_shipping_badge_red(self, tmp_data_dir):
-        """All shipping flags False produces a red may-not-ship badge."""
+        """All shipping flags False produces a red may-not-ship badge (English mode)."""
         import database
         await database.init_db()
 
@@ -557,14 +557,14 @@ class TestResultPage:
                 with patch("price_history.get_price_history", new=AsyncMock(return_value=None)):
                     app = _make_app()
                     with TestClient(app, raise_server_exceptions=True) as c:
-                        resp = c.get(f"/search/{short_id}")
+                        resp = c.get(f"/search/{short_id}?lang=en")
 
         assert resp.status_code == 200
         assert "bg-red" in resp.text
         assert "May not ship" in resp.text
 
     async def test_product_tabs(self, tmp_data_dir):
-        """Two-product result shows Product 1 and Product 2 tab text."""
+        """Two-product result shows Product 1 and Product 2 tab text (English mode)."""
         import database
         await database.init_db()
 
@@ -575,7 +575,7 @@ class TestResultPage:
                 with patch("price_history.get_price_history", new=AsyncMock(return_value=None)):
                     app = _make_app()
                     with TestClient(app, raise_server_exceptions=True) as c:
-                        resp = c.get(f"/search/{short_id}")
+                        resp = c.get(f"/search/{short_id}?lang=en")
 
         assert resp.status_code == 200
         assert "Product 1" in resp.text
@@ -729,7 +729,7 @@ class TestPriceHistoryBar:
         assert "width:" in resp.text or "w-" in resp.text
 
     async def test_price_history_unavailable(self, tmp_data_dir):
-        """When get_price_history returns None, show placeholder text."""
+        """When get_price_history returns None, show placeholder text (English mode)."""
         import database
         await database.init_db()
 
@@ -740,7 +740,7 @@ class TestPriceHistoryBar:
                 with patch("price_history.get_price_history", new=AsyncMock(return_value=None)):
                     app = _make_app()
                     with TestClient(app, raise_server_exceptions=True) as c:
-                        resp = c.get(f"/search/{short_id}")
+                        resp = c.get(f"/search/{short_id}?lang=en")
 
         assert resp.status_code == 200
         assert "Price history unavailable" in resp.text

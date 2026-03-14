@@ -9,8 +9,9 @@
            {% else %}
              bg-gray-100 text-gray-700 hover:bg-gray-200
            {% endif %}"
+    style="min-height: 44px; display: inline-flex; align-items: center;"
   >
-    Product {{ loop.index }}: {{ product.product_name[:30] }}{% if product.product_name|length > 30 %}…{% endif %}
+    {{ t.product }} {{ loop.index }}: {{ product.product_name[:30] }}{% if product.product_name|length > 30 %}…{% endif %}
   </a>
   {% endfor %}
 </div>

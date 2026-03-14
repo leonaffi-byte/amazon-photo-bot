@@ -34,7 +34,7 @@
                 {% endif %}
               </span>
             {% else %}
-              <span class="text-sm text-gray-400">Price unavailable</span>
+              <span class="text-sm text-gray-400">{{ t.price_unavailable }}</span>
             {% endif %}
           </div>
 
@@ -43,7 +43,7 @@
           <div class="text-sm text-gray-600 mb-2">
             &#9733; {{ "%.1f"|format(item.rating) }}/5
             {% if item.review_count %}
-              <span class="text-gray-400">({{ item.review_count }} reviews)</span>
+              <span class="text-gray-400">({{ item.review_count }} {{ t.reviews }})</span>
             {% endif %}
           </div>
           {% endif %}
@@ -86,17 +86,18 @@
           {% endif %}
         </div>
       {% else %}
-        <p class="text-xs text-gray-400 mt-3">Price history unavailable</p>
+        <p class="text-xs text-gray-400 mt-3">{{ t.price_history_unavailable }}</p>
       {% endif %}
 
-      <!-- View on Amazon button -->
+      <!-- View on Amazon button — touch-friendly 48px+ tap target -->
       <a
         href="{{ item.affiliate_url }}"
         target="_blank"
         rel="noopener noreferrer"
-        class="block w-full text-center bg-amber-500 hover:bg-amber-600 text-white font-semibold py-3 rounded-lg mt-3 transition-colors"
+        class="block w-full text-center bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-white font-semibold py-3 rounded-lg mt-3 transition-colors"
+        style="min-height: 48px; line-height: 48px; padding-top: 0; padding-bottom: 0;"
       >
-        View on Amazon
+        {{ t.view_on_amazon }}
       </a>
 
     </div>
@@ -105,6 +106,6 @@
 {% else %}
   <div class="text-center py-12 text-gray-400">
     <div class="text-4xl mb-3">🛒</div>
-    <p class="text-sm">No matching products found on Amazon for this item.</p>
+    <p class="text-sm">{{ t.no_results }}</p>
   </div>
 {% endif %}

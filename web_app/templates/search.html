@@ -19,12 +19,12 @@
   <!-- Annotated photo (collapsible) -->
   <details open class="bg-gray-50 rounded-xl overflow-hidden border border-gray-100">
     <summary class="cursor-pointer px-4 py-3 text-sm font-medium text-gray-600 hover:text-gray-800 select-none">
-      Photo with detected products
+      {{ t.photo_detected }}
     </summary>
     <div class="px-4 pb-4">
       <img
         src="/search/{{ short_id }}/image"
-        alt="Annotated products"
+        alt="{{ t.photo_detected }}"
         class="w-full rounded-lg shadow object-contain max-h-96"
       />
     </div>

@@ -7,8 +7,8 @@
   <div class="text-6xl mb-6">🔍</div>
   <h1 class="text-2xl font-bold text-gray-900 mb-3">{{ error_title }}</h1>
   <p class="text-gray-500 mb-8 max-w-sm">{{ error_message }}</p>
-  <a href="/" class="inline-block bg-amber-500 hover:bg-amber-600 text-white font-semibold px-6 py-3 rounded-lg transition-colors">
-    Search Again
+  <a href="/" class="inline-block bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-white font-semibold px-6 py-3 rounded-lg transition-colors" style="min-height: 48px; line-height: 48px; padding-top: 0; padding-bottom: 0;">
+    {{ t.search_again }}
   </a>
 </div>
 {% endblock %}

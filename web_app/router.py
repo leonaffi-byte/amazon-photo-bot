@@ -47,6 +47,111 @@ def _cleanup_pending() -> None:
         del _pending[sid]
 
 
+# ── i18n strings ───────────────────────────────────────────────────────────────
+
+_STRINGS: dict[str, dict[str, str]] = {
+    "he": {
+        "site_title": "Amazon Photo Bot",
+        "upload_title": "מצא מוצרים מתמונה",
+        "upload_subtitle": "העלה תמונה של מוצר ונמצא אותו באמזון",
+        "upload_button": "בחר תמונה",
+        "or_drag": "או גרור תמונה לכאן",
+        "drop_here": "שחרר כאן",
+        "uploading": "מעלה...",
+        "how_it_works": "איך זה עובד?",
+        "step1": "העלה תמונה",
+        "step1_desc": "צלם או בחר תמונה של מוצר",
+        "step2": "AI מזהה",
+        "step2_desc": "הבינה המלאכותית מזהה את המוצרים",
+        "step3": "תוצאות מאמזון",
+        "step3_desc": "קבל קישורים ומחירים מאמזון",
+        "supports": "תומך ב-JPG, PNG, WEBP — מקסימום 10 MB",
+        "analyzing": "מנתח את התמונה...",
+        "found_products": "נמצאו {n} מוצרים...",
+        "found_one_product": "נמצא מוצר אחד...",
+        "no_products": "לא זוהו מוצרים",
+        "searching": "מחפש באמזון...",
+        "done": "סיום!",
+        "view_on_amazon": "צפה באמזון",
+        "ships_to_israel": "נשלח לישראל",
+        "likely_ships": "כנראה נשלח",
+        "may_not_ship": "ייתכן שלא נשלח",
+        "no_results": "לא נמצאו מוצרים תואמים באמזון",
+        "expired": "תוצאות פגו",
+        "not_found": "תוצאות לא נמצאו",
+        "reviews": "ביקורות",
+        "price_history_unavailable": "היסטוריית מחירים לא זמינה",
+        "affiliate_disclosure": "כשותף Amazon, אנו מרוויחים מרכישות מתאימות",
+        "product": "מוצר",
+        "result_expired_msg": "תוצאות החיפוש פגו. אנא חפש שוב.",
+        "photo_too_large": "התמונה גדולה מדי (מקסימום 10MB)",
+        "not_an_image": "הקובץ חייב להיות תמונה",
+        "session_expired": "הסשן פג. אנא העלה שוב.",
+        "photo_detected": "תמונה עם מוצרים שזוהו",
+        "search_again": "חפש שוב",
+        "price_unavailable": "מחיר לא זמין",
+        "in_stock": "במלאי",
+    },
+    "en": {
+        "site_title": "Amazon Photo Bot",
+        "upload_title": "Find Products from a Photo",
+        "upload_subtitle": "Upload a photo of any product and we'll find it on Amazon",
+        "upload_button": "Choose Photo",
+        "or_drag": "or drag and drop here",
+        "drop_here": "Drop here",
+        "uploading": "Uploading...",
+        "how_it_works": "How It Works",
+        "step1": "Upload Photo",
+        "step1_desc": "Take or select a photo of a product",
+        "step2": "AI Identifies",
+        "step2_desc": "Our AI identifies the products in your photo",
+        "step3": "Amazon Results",
+        "step3_desc": "Get links and prices from Amazon",
+        "supports": "Supports JPG, PNG, WEBP — max 10 MB",
+        "analyzing": "Analyzing photo...",
+        "found_products": "Found {n} products...",
+        "found_one_product": "Found 1 product...",
+        "no_products": "No products detected",
+        "searching": "Searching Amazon...",
+        "done": "Done!",
+        "view_on_amazon": "View on Amazon",
+        "ships_to_israel": "Ships to Israel",
+        "likely_ships": "Likely ships",
+        "may_not_ship": "May not ship",
+        "no_results": "No matching products found on Amazon",
+        "expired": "Results Expired",
+        "not_found": "Results Not Found",
+        "reviews": "reviews",
+        "price_history_unavailable": "Price history unavailable",
+        "affiliate_disclosure": "As an Amazon Associate, we earn from qualifying purchases",
+        "product": "Product",
+        "result_expired_msg": "These search results have expired. Please search again.",
+        "photo_too_large": "Photo too large (max 10MB)",
+        "not_an_image": "File must be an image",
+        "session_expired": "Session expired. Please upload again.",
+        "photo_detected": "Photo with detected products",
+        "search_again": "Search Again",
+        "price_unavailable": "Price unavailable",
+        "in_stock": "In Stock",
+    },
+}
+
+
+def _get_lang(request: Request) -> str:
+    """Determine language: ?lang= param first, then cookie, then default 'he'."""
+    lang = request.query_params.get("lang", "").strip()
+    if lang not in ("he", "en"):
+        lang = request.cookies.get("lang", "he")
+    if lang not in ("he", "en"):
+        lang = "he"
+    return lang
+
+
+def _t(lang: str) -> dict[str, str]:
+    """Return translation dict for the given language."""
+    return _STRINGS.get(lang, _STRINGS["en"])
+
+
 # ── SSE helpers ────────────────────────────────────────────────────────────────
 
 def _sse_event(event: str, data: str) -> str:
@@ -76,7 +181,7 @@ async def homepage(request: Request, lang: str = "he"):
     response = templates.TemplateResponse(
         request,
         "home.html",
-        {"lang": lang},
+        {"lang": lang, "t": _t(lang)},
     )
     # Set lang cookie so subsequent requests preserve preference
     response.set_cookie("lang", lang, max_age=365 * 86400, samesite="lax")
@@ -93,13 +198,17 @@ async def upload(request: Request, photo: UploadFile = File(...)):
     """
     _cleanup_pending()
 
+    # Determine lang from cookie or default
+    lang = _get_lang(request)
+    t = _t(lang)
+
     # Validate content type
     content_type = photo.content_type or ""
     if not content_type.startswith("image/"):
         return HTMLResponse(
             content=(
                 '<div class="text-red-500 text-sm p-4 border border-red-200 rounded-lg">'
-                "Only image files are accepted (JPG, PNG, WEBP, etc.)."
+                f"{t['not_an_image']}"
                 "</div>"
             ),
             status_code=400,
@@ -114,7 +223,7 @@ async def upload(request: Request, photo: UploadFile = File(...)):
         return HTMLResponse(
             content=(
                 '<div class="text-red-500 text-sm p-4 border border-red-200 rounded-lg">'
-                f"File is too large ({len(data) // (1024*1024)} MB). Maximum size is 10 MB."
+                f"{t['photo_too_large']}"
                 "</div>"
             ),
             status_code=413,
@@ -140,11 +249,6 @@ async def upload(request: Request, photo: UploadFile = File(...)):
     except Exception as exc:
         logger.warning("Thumbnail generation failed: %s", exc)
 
-    # Determine lang from cookie or default
-    lang = request.cookies.get("lang", "he")
-    if lang not in ("he", "en"):
-        lang = "he"
-
     return templates.TemplateResponse(
         request,
         "partials/progress.html",
@@ -152,11 +256,12 @@ async def upload(request: Request, photo: UploadFile = File(...)):
             "session_id": session_id,
             "thumbnail_b64": thumbnail_b64,
             "lang": lang,
+            "t": t,
         },
     )
 
 
-async def _sse_generator(session_id: str) -> AsyncGenerator[str, None]:
+async def _sse_generator(session_id: str, lang: str = "he") -> AsyncGenerator[str, None]:
     """
     Async generator for the SSE stream.
 
@@ -166,12 +271,14 @@ async def _sse_generator(session_id: str) -> AsyncGenerator[str, None]:
       3. Searching Amazon
       4. Done → redirect to result page
     """
+    t = _t(lang)
+
     # Pop the pending bytes
     entry = _pending.pop(session_id, None)
     if entry is None:
         yield _sse_event(
             "progress",
-            _progress_html("Session expired. Please upload again.", "❌"),
+            _progress_html(t["session_expired"], "❌"),
         )
         yield _sse_event("done", "/")
         return
@@ -180,7 +287,7 @@ async def _sse_generator(session_id: str) -> AsyncGenerator[str, None]:
 
     try:
         # Stage 1: Analyzing
-        yield _sse_event("progress", _progress_html("Analyzing photo...", "🔍"))
+        yield _sse_event("progress", _progress_html(t["analyzing"], "🔍"))
 
         # Lazy import to avoid circular imports
         from providers.manager import analyse_image
@@ -189,11 +296,16 @@ async def _sse_generator(session_id: str) -> AsyncGenerator[str, None]:
 
         # Stage 2: Found products
         n = len(products)
-        label = f"Found {n} product{'s' if n != 1 else ''}" if n else "No products detected"
+        if n == 0:
+            label = t["no_products"]
+        elif n == 1:
+            label = t["found_one_product"]
+        else:
+            label = t["found_products"].format(n=n)
         yield _sse_event("progress", _progress_html(label, "✅" if n else "⚠️"))
 
         # Stage 3: Amazon search
-        yield _sse_event("progress", _progress_html("Searching Amazon...", "🛒"))
+        yield _sse_event("progress", _progress_html(t["searching"], "🛒"))
 
         import amazon_search
         all_results: list = []
@@ -230,8 +342,9 @@ async def _sse_generator(session_id: str) -> AsyncGenerator[str, None]:
 @router.get("/stream/{session_id}", include_in_schema=False)
 async def sse_stream(request: Request, session_id: str):
     """SSE endpoint — streams 4-stage analysis progress to the browser."""
+    lang = _get_lang(request)
     return StreamingResponse(
-        _sse_generator(session_id),
+        _sse_generator(session_id, lang=lang),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -277,18 +390,23 @@ async def result_page(request: Request, short_id: str):
             meta_row = await cursor.fetchone()
 
     if meta_row is None:
+        # Determine lang for error page
+        lang = _get_lang(request)
+        t = _t(lang)
         return templates.TemplateResponse(
             request,
             "error.html",
-            {"lang": "he", "error_title": "Not Found", "error_message": "This result does not exist."},
+            {"lang": lang, "t": t, "error_title": t["not_found"], "error_message": t["result_expired_msg"]},
             status_code=404,
         )
 
     if meta_row["expires_at"] < _time.time():
+        lang = _get_lang(request)
+        t = _t(lang)
         return templates.TemplateResponse(
             request,
             "error.html",
-            {"lang": "he", "error_title": "Result Expired", "error_message": "This result has expired and is no longer available."},
+            {"lang": lang, "t": t, "error_title": t["expired"], "error_message": t["result_expired_msg"]},
             status_code=410,
         )
 
@@ -296,16 +414,24 @@ async def result_page(request: Request, short_id: str):
     row = await search_store.get_web_search(short_id)
     if row is None:
         # Shouldn't happen but guard anyway
+        lang = _get_lang(request)
+        t = _t(lang)
         return templates.TemplateResponse(
             request,
             "error.html",
-            {"lang": "he", "error_title": "Not Found", "error_message": "This result does not exist."},
+            {"lang": lang, "t": t, "error_title": t["not_found"], "error_message": t["result_expired_msg"]},
             status_code=404,
         )
 
-    lang = row.get("lang", "he")
-    if lang not in ("he", "en"):
-        lang = "he"
+    # Determine display language: ?lang= param → cookie → stored row lang
+    lang = _get_lang(request)
+    # If no explicit lang preference from request, fall back to stored lang
+    if not request.query_params.get("lang") and not request.cookies.get("lang"):
+        stored_lang = row.get("lang", "he")
+        if stored_lang in ("he", "en"):
+            lang = stored_lang
+
+    t = _t(lang)
 
     # Parse JSON data
     all_results: list[list[dict]] = _json.loads(row.get("results_json") or "[]")
@@ -333,10 +459,10 @@ async def result_page(request: Request, short_id: str):
     def _shipping_badge(item: dict) -> dict:
         """Return badge info dict with text, bg_class, text_class."""
         if item.get("is_sold_by_amazon") or item.get("is_amazon_fulfilled"):
-            return {"text": "Ships to Israel", "bg": "bg-green-100", "color": "text-green-800"}
+            return {"text": t["ships_to_israel"], "bg": "bg-green-100", "color": "text-green-800"}
         if item.get("is_prime"):
-            return {"text": "Likely ships", "bg": "bg-yellow-100", "color": "text-yellow-800"}
-        return {"text": "May not ship", "bg": "bg-red-100", "color": "text-red-800"}
+            return {"text": t["likely_ships"], "bg": "bg-yellow-100", "color": "text-yellow-800"}
+        return {"text": t["may_not_ship"], "bg": "bg-red-100", "color": "text-red-800"}
 
     # Enrich active_results with affiliate URL and shipping badge
     enriched_results = []
@@ -377,6 +503,7 @@ async def result_page(request: Request, short_id: str):
         "search.html",
         {
             "lang": lang,
+            "t": t,
             "short_id": short_id,
             "products": products,
             "active_product_idx": active_idx,

@@ -16,19 +16,19 @@
   <!-- HTMX SSE extension -->
   <script src="https://cdn.jsdelivr.net/npm/htmx-ext-sse@2.2.4/sse.js"></script>
 </head>
-<body class="bg-white min-h-screen flex flex-col text-gray-800">
+<body class="bg-gray-50 min-h-screen flex flex-col font-sans text-gray-800">
 
   <!-- Site header -->
-  <header class="border-b border-gray-100 py-4">
-    <div class="max-w-4xl mx-auto px-4 flex items-center justify-between">
-      <a href="/" class="font-bold text-lg text-gray-900 hover:text-gray-700">
-        Amazon Photo Search
+  <header class="bg-white shadow-sm">
+    <div class="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
+      <a href="/?lang={{ lang }}" class="text-lg font-semibold text-gray-800 hover:text-gray-600">
+        {{ t.site_title }}
       </a>
-      <nav class="text-sm text-gray-500 space-x-3 rtl:space-x-reverse">
-        <a href="?lang=he" class="hover:text-gray-700">עברית</a>
-        <span>|</span>
-        <a href="?lang=en" class="hover:text-gray-700">English</a>
-      </nav>
+      <div class="flex gap-2 text-sm items-center">
+        <a href="?lang=he" class="px-2 py-1 rounded {% if lang == 'he' %}font-bold text-indigo-600{% else %}text-gray-500 hover:text-gray-700{% endif %}">עברית</a>
+        <span class="text-gray-300">|</span>
+        <a href="?lang=en" class="px-2 py-1 rounded {% if lang == 'en' %}font-bold text-indigo-600{% else %}text-gray-500 hover:text-gray-700{% endif %}">English</a>
+      </div>
     </div>
   </header>
 
@@ -40,8 +40,7 @@
   <!-- Footer -->
   <footer class="border-t border-gray-100 py-6 mt-auto">
     <div class="max-w-4xl mx-auto px-4 text-center text-xs text-gray-400">
-      <p>As an Amazon Associate, we earn from qualifying purchases.</p>
-      <p class="mt-1">Product availability and prices are subject to change.</p>
+      <p>{{ t.affiliate_disclosure }}</p>
     </div>
   </footer>
 
